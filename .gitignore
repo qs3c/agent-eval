@@ -11,4 +11,6 @@ logs/
 *.oracle-control.json
 *.nop-control.json
 .ruff_cache/
+.console/
+dist/
 *.mock-negative.json

@@ -23,36 +23,36 @@
 Files: create `src/agent_eval/console.py`, `tests/test_console.py`.
 Interface: `Console(root: Path, allow_live=False)`; `templates()`, `submit(data)`, `runs()`, `detail(id)`, `logs(id)`, `compare(left,right)`, `start()`, `close()`.
 
-- [ ] Write tests that create a temporary project with a minimal experiment and exercise invalid fields, missing dependencies and historical incomplete reports.
+- [x] Write tests that create a temporary project with a minimal experiment and exercise invalid fields, missing dependencies and historical incomplete reports.
   ```python
   with pytest.raises(ValueError):
       console.submit({"template": "controls", "implementation": "os:system"})
   ```
-- [ ] Implement strict submission models, template-relative absolute paths, immutable copied tasks/agent packages at submission, SQLite parameterized statements and atomic queue claim.
-- [ ] Add a worker with process-group termination, inherited execution lock and conservative restart blocking if an orphan or Docker container remains.
-- [ ] Read historical reports without calling the report writer; compute current progress from completed result files; bound log reads and filter known credentials.
-- [ ] Run `.venv/bin/pytest tests/test_console.py -q`; verify unknown cost, missing reports and compatibility differences.
+- [x] Implement strict submission models, template-relative absolute paths, immutable copied tasks/agent packages at submission, SQLite parameterized statements and atomic queue claim.
+- [x] Add a worker with process-group termination, inherited execution lock and conservative restart blocking if an orphan or Docker container remains.
+- [x] Read historical reports without calling the report writer; compute current progress from completed result files; bound log reads and filter known credentials.
+- [x] Run `.venv/bin/pytest tests/test_console.py -q`; verify unknown cost, missing reports and compatibility differences.
 
 ### Task 2: API, command and browser interface
 
 Files: create `src/agent_eval/web.py`, `src/agent_eval/static/index.html`, `src/agent_eval/static/app.js`, `src/agent_eval/static/style.css`, `tests/test_web.py`; modify CLI, dependencies and ignore rules.
 Interface: `create_app(root: Path, allow_live=False)` exposes templates, runs, details, logs and comparison through the approved routes.
 
-- [ ] Add API tests using TestClient for Origin/Host rejection, unknown ID, invalid submission, denied live run and static assets.
+- [x] Add API tests using TestClient for Origin/Host rejection, unknown ID, invalid submission, denied live run and static assets.
   ```python
   assert client.post('/api/runs', headers={'Origin':'https://evil.example'}, json={}).status_code == 403
   ```
-- [ ] Add `serve --root --port --allow-live`, lifespan worker ownership and bounded request bodies. Pin installed FastAPI/Uvicorn versions with uv.
-- [ ] Build an accessible Chinese sidebar/list/detail/create/compare interface using DOM textContent for data, native form validation and two-second read polling.
-- [ ] Keep same-benchmark incompatible runs viewable with reasons. Show expected/recorded trials rather than synthetic progress.
-- [ ] Run `.venv/bin/pytest -q` and `node --check src/agent_eval/static/app.js`.
+- [x] Add `serve --root --port --allow-live`, lifespan worker ownership and bounded request bodies. Pin installed FastAPI/Uvicorn versions with uv.
+- [x] Build an accessible Chinese sidebar/list/detail/create/compare interface using DOM textContent for data, native form validation and two-second read polling.
+- [x] Keep same-benchmark incompatible runs viewable with reasons. Show expected/recorded trials rather than synthetic progress.
+- [x] Run `.venv/bin/pytest -q` and `node --check src/agent_eval/static/app.js`.
 
 ### Task 3: End-to-end validation and handoff
 
 Files: update README; create `WEB_VALIDATION.md`.
 
-- [ ] Start `.venv/bin/agent-eval serve --port 8765` and verify `/api/templates` and `/` return HTTP 200.
-- [ ] Submit one offline controls experiment, wait for actual Harbor completion, verify positive=1 and negative=0. Query after refresh and compare compatible historical reports.
-- [ ] Use browser UI to inspect desktop and narrow viewport, exercise creation/details/comparison and inspect for console errors.
-- [ ] Build wheel and inspect archive for static assets, document local start, live opt-in, interrupted recovery and validation limits.
-- [ ] Run final tests and whitespace checks; commit reviewed implementation locally and hand off URL. No automatic push/deployment is part of this change.
+- [x] Start `.venv/bin/agent-eval serve --port 8765` and verify `/api/templates` and `/` return HTTP 200.
+- [x] Submit one offline controls experiment, wait for actual Harbor completion, verify positive=1 and negative=0. Query after refresh and compare compatible historical reports.
+- [x] Use browser UI to inspect desktop and narrow viewport, exercise creation/details/comparison and inspect for console errors.
+- [x] Build wheel and inspect archive for static assets, document local start, live opt-in, interrupted recovery and validation limits.
+- [x] Run final tests and whitespace checks; commit reviewed implementation locally and hand off URL. No automatic push/deployment is part of this change.

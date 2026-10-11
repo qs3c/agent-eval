@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Agent Eval · 评测工作台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script defer src="/static/app.js"></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#runs"
+        ><span class="brand-mark">a<span>e</span></span
+        ><span>Agent Eval<small>评测工作台</small></span></a
+      >
+      <div class="nav-caption">WORKSPACE</div>
+      <nav>
+        <a href="#runs" data-nav="runs"><span>▦</span> 实验记录</a
+        ><a href="#create" data-nav="create"><span>＋</span> 创建实验</a
+        ><a href="#compare" data-nav="compare"><span>⇄</span> 结果对比</a>
+      </nav>
+      <div class="sidebar-bottom">
+        <span class="dot"></span> 本机工作空间<small
+          >Harbor · Docker · Native agents</small
+        >
+        <div class="local-tag">LOCAL / SINGLE USER</div>
+      </div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <span>Workspace <b>/</b> <span id="breadcrumb">实验记录</span></span
+        ><span class="connection" id="connection"
+          ><i class="dot"></i> 本机服务</span
+        >
+      </header>
+      <div id="notice" role="status" aria-live="polite"></div>
+      <div id="view"></div>
+      <footer>
+        Agent Eval <span>可追溯的实验，从配置到证据。</span
+        ><span>原始指标保留 · 未知值不归零</span>
+      </footer>
+    </main>
+    <template id="runs-template"
+      ><section class="page-head">
+        <div>
+          <div class="eyebrow">EXPERIMENTS</div>
+          <h1>每次实验，都有据可查。</h1>
+          <p>统一查看评测进度、执行结果与历史记录。</p>
+        </div>
+        <a class="button primary" href="#create">＋ 创建实验</a>
+      </section>
+      <section class="stats" id="stats"></section>
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>实验记录 <span class="count" id="run-count"></span></h2>
+            <p>评测进程完成，不代表所有任务通过。</p>
+          </div>
+          <label class="search"
+            ><span>⌕</span
+            ><input
+              id="search"
+              type="search"
+              placeholder="搜索名称、Agent 或 benchmark"
+              aria-label="搜索实验"
+          /></label>
+        </div>
+        <div class="filters" id="filters">
+          <button data-filter="all" class="active">全部记录</button
+          ><button data-filter="running">执行中</button
+          ><button data-filter="completed">已完成</button
+          ><button data-filter="problem">需关注</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>实验 / Benchmark</th>
+                <th>Agent</th>
+                <th>模式</th>
+                <th>状态</th>
+                <th>已完成任务</th>
+                <th>创建时间</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="run-rows"></tbody>
+          </table>
+        </div>
+        <div id="empty" class="empty" hidden>
+          这里还没有匹配的实验。<br /><a href="#create">从模板创建一次评测 →</a>
+        </div>
+      </section></template
+    >
+    <template id="create-template"
+      ><section class="page-head">
+        <div>
+          <div class="eyebrow">NEW EXPERIMENT</div>
+          <h1>创建一次可复现的实验。</h1>
+          <p>从已配置的模板出发，选择本次运行的范围。</p>
+        </div>
+        <a class="button" href="#runs">返回实验记录</a>
+      </section>
+      <form id="create-form">
+        <div class="create-grid">
+          <div>
+            <section class="panel form-panel">
+              <div class="step-label">
+                01
+                <h2>选择实验模板</h2>
+              </div>
+              <label
+                >实验模板<select id="template" name="template" required></select
+              ></label>
+              <div class="callout" id="template-info"></div>
+              <label
+                >实验名称<input
+                  name="name"
+                  id="experiment-name"
+                  pattern="[a-z0-9][a-z0-9_-]*"
+                  maxlength="80"
+                  required
+                /><small>使用小写字母、数字、连字符或下划线。</small></label
+              >
+            </section>
+            <section class="panel form-panel">
+              <div class="step-label">
+                02
+                <h2>确定评测范围</h2>
+              </div>
+              <fieldset>
+                <legend>参与 Agent</legend>
+                <div id="agent-options" class="check-options"></div>
+              </fieldset>
+              <fieldset>
+                <legend>评测任务</legend>
+                <div id="task-options" class="check-options"></div>
+              </fieldset>
+            </section>
+            <section class="panel form-panel">
+              <div class="step-label">
+                03
+                <h2>运行参数</h2>
+              </div>
+              <div class="field-grid">
+                <label
+                  >重复次数<input
+                    type="number"
+                    name="attempts"
+                    min="1"
+                    max="100"
+                    required /></label
+                ><label
+                  >任务并发<input
+                    type="number"
+                    name="concurrency"
+                    min="1"
+                    max="16"
+                    required /></label
+                ><label
+                  >Agent 超时（秒）<input
+                    type="number"
+                    name="timeout_seconds"
+                    min="1"
+                    max="86400"
+                    required /></label
+                ><label
+                  >CPU 核数<input
+                    type="number"
+                    name="cpus"
+                    min="1"
+                    max="64"
+                    required /></label
+                ><label
+                  >内存（MiB）<input
+                    type="number"
+                    name="memory_mb"
+                    min="256"
+                    max="131072"
+                    required
+                /></label>
+              </div>
+            </section>
+          </div>
+          <aside class="panel summary">
+            <div class="eyebrow">RUN SUMMARY</div>
+            <h2>本次运行</h2>
+            <div class="big-number" id="expected">—</div>
+            <p>计划执行的任务次数</p>
+            <div class="summary-rule"></div>
+            <p id="summary-model"></p>
+            <p>一个实验按序执行，实验内部按所选并发运行。</p>
+            <p>提交时保存配置、任务和 Agent 包，结果写入独立目录。</p>
+            <label id="live-confirm" class="check-card" hidden
+              ><input
+                type="checkbox"
+                name="confirm_unbounded"
+              />确认本次真实模型运行不设费用上限</label
+            >
+            <div id="form-error" class="error" role="alert"></div>
+            <button class="button primary" id="submit" type="submit">
+              创建并加入队列 →</button
+            ><small>历史实验不会被覆盖。</small>
+          </aside>
+        </div>
+      </form></template
+    >
+  </body>
+</html>

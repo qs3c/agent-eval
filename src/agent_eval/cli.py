@@ -10,6 +10,15 @@ from .run import execute
 def main():
     p = argparse.ArgumentParser(description="Agent evaluation workbench (Harbor)")
     sub = p.add_subparsers(dest="command", required=True)
+    q = sub.add_parser("serve", help="启动本机评测控制台")
+    q.add_argument("--root", type=Path, default=Path.cwd())
+    q.add_argument("--port", type=int, default=8765)
+    q.add_argument("--allow-live", action="store_true")
+    q.add_argument(
+        "--recover",
+        action="store_true",
+        help="确认已检查并清理中断运行的进程和 Docker 容器，恢复队列",
+    )
     for name in ("validate", "run"):
         q = sub.add_parser(name)
         q.add_argument("config", type=Path)
@@ -35,7 +44,17 @@ def main():
     q.add_argument("--run-id", required=True)
     q.add_argument("--execute", action="store_true")
     args = p.parse_args()
-    if args.command == "validate":
+    if args.command == "serve":
+        import uvicorn
+
+        from .web import create_app
+
+        uvicorn.run(
+            create_app(args.root, args.allow_live, args.recover),
+            host="127.0.0.1",
+            port=args.port,
+        )
+    elif args.command == "validate":
         e = load(args.config)
         print(
             f"Valid: {len(e.agents)} agents x {len(e.benchmark.tasks)} tasks x {e.attempts} attempts; mode={e.model.mode}"

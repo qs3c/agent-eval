@@ -3,7 +3,7 @@ name = "agent-eval-workbench"
 version = "0.1.0"
 description = "Reproducible multi-agent benchmark experiments on Harbor"
 requires-python = ">=3.12"
-dependencies = ["harbor==0.24.0", "pydantic==2.14.0", "PyYAML==6.0.3"]
+dependencies = ["harbor==0.24.0", "pydantic==2.14.0", "PyYAML==6.0.3", "fastapi==0.143.0", "uvicorn==0.54.0"]
 
 [project.scripts]
 agent-eval = "agent_eval.cli:main"
@@ -16,7 +16,7 @@ build-backend = "hatchling.build"
 packages = ["src/agent_eval"]
 
 [dependency-groups]
-dev = ["pytest==8.4.2"]
+dev = ["pytest==8.4.2", "httpx==0.28.1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

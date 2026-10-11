@@ -2,6 +2,25 @@
 
 独立的 Agent 评测仓库。调度、容器隔离和 verifier 复用 Harbor 0.24.0；Agent 保留原生执行循环。Agent 适配器与 benchmark 任务相互独立。
 
+## 本机 Web 控制台
+
+```bash
+export PATH="$PWD/.tools:$PATH"
+uv sync --locked --python 3.12
+.venv/bin/agent-eval serve --port 8765
+```
+
+打开 <http://127.0.0.1:8765>。提供中文实验列表、模板创建、任务进度、执行日志和结果对比页面。默认本机单用户，FastAPI 同时提供页面与 API；原有 CLI 命令保持可用。
+
+- 页面可以选择模板中的 Agent、任务，并修改重复次数、并发、超时、CPU 和内存。提交时复制输入；实验按序执行，内部并发交给 Harbor。
+- 控制台状态和输入保存在 `.console/`，原始输出仍保存在 `artifacts/web-<id>/`；均不提交 Git。每次提交产生独立 ID，不覆盖旧实验。
+- 历史 `artifacts/` 只读登记。`completed` 表示结果完整且无运行异常，不表示全部任务得满分；缺失报告显示结果不完整。控制台读取的是 Harbor 内置评分，官方 SWE 复评仍用 `swe-regrade` 并单独核对产物。
+- 配对比较检查 benchmark、任务内容哈希、模型配置、重复次数、资源和超时等条件。不兼容时展示差异，不输出配对结论；未知费用保持未知。
+- 浏览器刷新不影响执行。服务关闭会终止自己启动的评测进程组；意外重启将未完成运行标为中断，不自动重跑。存在中断运行时暂停队列。检查对应输出中的 trial 名称和遗留进程、Docker 容器并完成清理后，用 `.venv/bin/agent-eval serve --recover` 确认恢复；中断记录保留为失败，不重新执行。若旧进程仍持有锁，新服务拒绝启动。
+- 默认禁止创建真实模型运行。需要时由调用环境注入 `DEEPSEEK_API_KEY`，使用 `serve --allow-live`，并在页面明确确认本次不设费用上限；历史授权不自动沿用到新任务。重启后执行旧队列仍检查本次启动策略。不要将密钥填入模板或页面。
+
+首版不提供远程访问、账号系统、取消按钮或断点续跑。页面轮询读取文件，适合本地少量实验；数据增长后再引入结果索引。模板准备依赖原有安装步骤。验收见 [WEB_VALIDATION.md](WEB_VALIDATION.md)。
+
 当前可以运行：确定性正负对照、两个原生 Agent 的模拟/真实 DeepSeek 接入、SWE 补丁导出和官方 harness 复评。真实试跑固定为 **DeepSeek V4.1 Flash (`deepseek-flash`)**；用户已授权本轮不设费用上限，仅运行 `django__django-13741` 一题，每个 Agent 一次。
 
 ## 结构

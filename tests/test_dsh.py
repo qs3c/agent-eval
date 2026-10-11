@@ -1,6 +1,6 @@
 import pytest
 
-from agent_eval.dsh_bundle import audit_standard
+from agent_harness_eval.dsh_bundle import audit_standard
 
 
 def test_standard_audit_rejects_missing_compaction(tmp_path):

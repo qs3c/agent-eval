@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_eval.config import Experiment, load
-from agent_eval.provenance import tree_manifest
-from agent_eval.report import report
+from agent_harness_eval.config import Experiment, load
+from agent_harness_eval.provenance import tree_manifest
+from agent_harness_eval.report import report
 
 
 def experiment():
@@ -99,7 +99,7 @@ def test_report_missing_error_and_unknown_usage(tmp_path):
 
 
 def test_live_gate_precedes_any_output(tmp_path):
-    from agent_eval.run import execute
+    from agent_harness_eval.run import execute
 
     value = experiment()
     value["model"] = {"mode": "live"}
@@ -130,7 +130,7 @@ def test_malformed_results_stay_in_denominator(tmp_path, content):
 
 
 def test_live_missing_key_precedes_output(tmp_path, monkeypatch):
-    from agent_eval.run import execute
+    from agent_harness_eval.run import execute
 
     monkeypatch.delenv("EVAL_ABSENT_KEY", raising=False)
     value = experiment()

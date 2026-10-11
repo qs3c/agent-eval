@@ -9,5 +9,5 @@ expected=b53b8134e1241686dca7759af188f987ecc48e8b
 actual="$(git -C .cache/harbor-source rev-parse HEAD)"
 [[ "$actual" == "$expected" ]] || { echo 'Harbor source revision mismatch' >&2; exit 1; }
 uv run --project .cache/harbor-source/adapters/swebench --python 3.13 --locked swebench --instance-id "$instance" --output-dir "$PWD/datasets/swe-smoke" --timeout 600
-.venv/bin/agent-eval swe-instrument "datasets/swe-smoke/$instance"
+.venv/bin/agent-harness-eval swe-instrument "datasets/swe-smoke/$instance"
 .venv/bin/python scripts/pin-swe-runtime.py "datasets/swe-smoke/$instance"

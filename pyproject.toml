@@ -1,19 +1,19 @@
 [project]
-name = "agent-eval-workbench"
+name = "agent-harness-eval"
 version = "0.1.0"
 description = "Reproducible multi-agent benchmark experiments on Harbor"
 requires-python = ">=3.12"
 dependencies = ["harbor==0.24.0", "pydantic==2.14.0", "PyYAML==6.0.3", "fastapi==0.143.0", "uvicorn==0.54.0"]
 
 [project.scripts]
-agent-eval = "agent_eval.cli:main"
+agent-harness-eval = "agent_harness_eval.cli:main"
 
 [build-system]
 requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agent_eval"]
+packages = ["src/agent_harness_eval"]
 
 [dependency-groups]
 dev = ["pytest==8.4.2", "httpx==0.28.1"]

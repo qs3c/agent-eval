@@ -28,11 +28,26 @@ class Agent(Strict):
     capabilities: set[str] = Field(default_factory=lambda: {"filesystem", "shell"})
 
 
+class DatasetIdentity(Strict):
+    name: str = Field(min_length=1)
+    revision: str | None = Field(default=None, min_length=1)
+    split: str | None = Field(default=None, min_length=1)
+
+
+class EvaluationIdentity(Strict):
+    name: str = Field(min_length=1)
+    version: str | None = Field(default=None, min_length=1)
+    environment: str | None = Field(default=None, min_length=1)
+
+
 class Benchmark(Strict):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     tasks: list[Path] = Field(min_length=1)
     requires: set[str] = Field(default_factory=lambda: {"filesystem", "shell"})
     primary_metric: str = "reward"
+    score_kind: Literal["metric", "resolved"] = "metric"
+    dataset: DatasetIdentity | None = None
+    evaluation: EvaluationIdentity | None = None
 
 
 class Experiment(Strict):

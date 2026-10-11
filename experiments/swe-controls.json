@@ -1,10 +1,29 @@
 {
   "name": "swe-verifier-controls",
   "agents": [
-    {"id":"oracle", "implementation":"oracle", "version":"harbor-0.24.0"},
-    {"id":"nop", "implementation":"nop", "version":"harbor-0.24.0"}
+    {
+      "id": "oracle",
+      "implementation": "oracle",
+      "version": "harbor-0.24.0"
+    },
+    {
+      "id": "nop",
+      "implementation": "nop",
+      "version": "harbor-0.24.0"
+    }
   ],
-  "benchmark": {"id":"swe-verified-smoke", "tasks":["../datasets/swe-smoke/django__django-13741"]},
-  "timeout_seconds":600,
-  "concurrency":1
+  "benchmark": {
+    "id": "swe-verified-smoke",
+    "tasks": [
+      "../datasets/swe-smoke/django__django-13741"
+    ],
+    "score_kind": "resolved",
+    "dataset": {
+      "name": "princeton-nlp/SWE-bench_Verified",
+      "split": "test",
+      "revision": null
+    }
+  },
+  "timeout_seconds": 600,
+  "concurrency": 1
 }

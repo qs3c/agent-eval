@@ -8,7 +8,7 @@ from .run import execute
 
 
 def main():
-    p = argparse.ArgumentParser(description="Agent evaluation workbench (Harbor)")
+    p = argparse.ArgumentParser(description="Agent harness evaluation workbench (Harbor)")
     sub = p.add_subparsers(dest="command", required=True)
     q = sub.add_parser("serve", help="启动本机评测控制台")
     q.add_argument("--root", type=Path, default=Path.cwd())

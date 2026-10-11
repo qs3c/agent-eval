@@ -3,15 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Agent Eval · 评测工作台</title>
+    <title>Agent Harness Eval · 评测工作台</title>
     <link rel="stylesheet" href="/static/style.css" />
+    <script defer src="/static/trace.js"></script>
+    <script defer src="/static/comparison.js"></script>
     <script defer src="/static/app.js"></script>
   </head>
   <body>
     <aside class="sidebar">
       <a class="brand" href="#runs"
         ><span class="brand-mark">a<span>e</span></span
-        ><span>Agent Eval<small>评测工作台</small></span></a
+        ><span>Agent Harness Eval<small>评测工作台</small></span></a
       >
       <div class="nav-caption">WORKSPACE</div>
       <nav>
@@ -36,7 +38,7 @@
       <div id="notice" role="status" aria-live="polite"></div>
       <div id="view"></div>
       <footer>
-        Agent Eval <span>可追溯的实验，从配置到证据。</span
+        Agent Harness Eval <span>可追溯的实验，从配置到证据。</span
         ><span>原始指标保留 · 未知值不归零</span>
       </footer>
     </main>
@@ -54,7 +56,10 @@
         <div class="panel-heading">
           <div>
             <h2>实验记录 <span class="count" id="run-count"></span></h2>
-            <p>评测进程完成，不代表所有任务通过。</p>
+            <p>
+              默认展示已复核的真实结果。记录数不是题目数；一题可由多个 Agent
+              多次执行。
+            </p>
           </div>
           <label class="search"
             ><span>⌕</span
@@ -66,10 +71,11 @@
           /></label>
         </div>
         <div class="filters" id="filters">
-          <button data-filter="all" class="active">全部记录</button
-          ><button data-filter="running">执行中</button
-          ><button data-filter="completed">已完成</button
-          ><button data-filter="problem">需关注</button>
+          <button data-filter="effective" class="active">有效真实结果</button>
+          <button data-filter="real">全部真实评测</button>
+          <button data-filter="selftest">平台自测</button>
+          <button data-filter="debug">调试记录</button>
+          <button data-filter="all">全部记录</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -79,7 +85,7 @@
                 <th>Agent</th>
                 <th>模式</th>
                 <th>状态</th>
-                <th>已完成任务</th>
+                <th>批次完成 / 计划</th>
                 <th>创建时间</th>
                 <th></th>
               </tr>

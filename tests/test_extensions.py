@@ -4,8 +4,8 @@ import json
 import sys
 from types import ModuleType
 
-from agent_eval.config import Experiment
-from agent_eval.run import execute
+from agent_harness_eval.config import Experiment
+from agent_harness_eval.run import execute
 
 
 def test_third_party_adapter_receives_common_contract(tmp_path, monkeypatch):
@@ -42,7 +42,7 @@ def test_third_party_adapter_receives_common_contract(tmp_path, monkeypatch):
         async def run(self):
             pass
 
-    monkeypatch.setattr("agent_eval.run.Job", FakeJob)
+    monkeypatch.setattr("agent_harness_eval.run.Job", FakeJob)
     execute(exp, tmp_path / "run")
     cfg = captured[0].agents[0]
     assert cfg.import_path == "external_fixture:Agent"

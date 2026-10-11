@@ -12,13 +12,62 @@ def read_lines(path):
     )
 
 
+def summarize_usage(requests, responses):
+    """Totals require all required counters and, when available, exact ID pairing."""
+    ids = [r.get("request_id") for r in requests]
+    response_ids = [r.get("request_id") for r in responses]
+    identified = any(i is not None for i in ids + response_ids)
+    paired = bool(requests) and len(requests) == len(responses)
+    if identified:
+        paired = (
+            paired
+            and all(isinstance(i, str) and i for i in ids + response_ids)
+            and len(set(ids)) == len(ids)
+            and len(set(response_ids)) == len(response_ids)
+            and set(ids) == set(response_ids)
+        )
+    values = []
+    for r in responses:
+        u = r.get("usage") or {}
+        counters = (
+            u.get("input_tokens", u.get("prompt_tokens")),
+            u.get("output_tokens", u.get("completion_tokens")),
+        )
+        if not all(type(v) is int and v >= 0 for v in counters):
+            paired = False
+        if r.get("schema_version", 1) >= 2 and (
+            r.get("outcome") != "completed" or r.get("stream_complete") is not True
+        ):
+            paired = False
+        if r.get("status") is not None and r["status"] != 200:
+            paired = False
+        values.append(counters)
+    usage = (
+        {
+            "input_tokens": sum(v[0] for v in values),
+            "output_tokens": sum(v[1] for v in values),
+        }
+        if paired
+        else {}
+    )
+    return usage, {
+        "usage_complete": bool(paired),
+        "request_response_matching": "request_id"
+        if identified
+        else "legacy_count_only",
+    }
+
+
 def convert(logs: Path, name: str, version: str):
     events = read_lines(logs / "events.jsonl")
     wire = read_lines(logs / "wire_requests.jsonl")
     coverage = {
         "native_events": bool(events),
         "wire_model_requests": bool(wire),
-        "provider_requests": any(e["type"] == "model_request" for e in events),
+        "provider_requests": bool(wire)
+        or any(e["type"] == "model_request" for e in events),
+        "native_provider_hook": any(e["type"] == "model_request" for e in events),
+        "request_timing": (logs / "wire_timing.jsonl").exists(),
         "compaction_events": "native events only; internal selection not guaranteed",
         "atif": "last observed request context plus terminal output; native logs remain authoritative",
     }
@@ -137,21 +186,7 @@ def convert(logs: Path, name: str, version: str):
     )
     # The mock provider reports deterministic counts. Never infer absent real usage from requests.
     responses = read_lines(logs / "wire_responses.jsonl")
-    usage = {}
-    coverage["usage_complete"] = (
-        bool(responses)
-        and len(responses) == len(wire)
-        and all(r.get("usage") for r in responses)
-    )
-    if coverage["usage_complete"]:
-        usage = {
-            "input_tokens": sum(
-                r["usage"].get("input_tokens", r["usage"].get("prompt_tokens", 0))
-                for r in responses
-            ),
-            "output_tokens": sum(
-                r["usage"].get("output_tokens", r["usage"].get("completion_tokens", 0))
-                for r in responses
-            ),
-        }
+    identified = read_lines(logs / "native_wire_requests.jsonl")
+    usage, usage_coverage = summarize_usage(identified or wire, responses)
+    coverage.update(usage_coverage)
     return trajectory, usage, coverage

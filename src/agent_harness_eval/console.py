@@ -163,6 +163,9 @@ class Console:
                     "agents": [a.id for a in exp.agents],
                     "tasks": [p.name for p in exp.benchmark.tasks],
                     "benchmark": exp.benchmark.id,
+                    "dataset": exp.benchmark.dataset.model_dump()
+                    if exp.benchmark.dataset
+                    else None,
                     "available": error is None,
                     "error": error,
                     "defaults": {
@@ -306,26 +309,36 @@ class Console:
             report = None
         completed = 0
         trials = []
-        for result in path.glob("jobs/*/*/result.json"):
+        for result in sorted(path.glob("jobs/*/*/result.json")):
             value = read_json(path, result)
             if value and value.get("finished_at") and value.get("task_name"):
                 completed += 1
                 verifier = value.get("verifier_result") or {}
                 if not isinstance(verifier, dict):
-                    continue
+                    verifier = {}
                 metrics = verifier.get("rewards") or {}
                 if not isinstance(metrics, dict) or any(
                     not isinstance(v, (int, float)) or not math.isfinite(v)
                     for v in metrics.values()
                 ):
-                    continue
+                    metrics = {}
+                usage = value.get("agent_result") or {}
+                if not isinstance(usage, dict):
+                    usage = {}
                 trials.append(
                     {
+                        "id": hashlib.sha256(
+                            str(result.relative_to(path)).encode()
+                        ).hexdigest()[:20],
+                        "trial": result.parent.name,
                         "agent": result.parent.parent.name,
                         "task": task_key(value),
                         "exception": value.get("exception_info"),
                         "metrics": metrics,
                         "agent_seconds": duration(value.get("agent_execution") or {}),
+                        "input_tokens": usage.get("n_input_tokens"),
+                        "output_tokens": usage.get("n_output_tokens"),
+                        "cost_usd": usage.get("cost_usd"),
                     }
                 )
         return manifest, report, completed, trials
@@ -355,31 +368,37 @@ class Console:
         manifest, report, completed, trials = self.evidence(row)
         if row["historical"]:
             row["status"] = self.report_state(report, expected)
-        return {
-            "id": row["id"],
-            "name": exp["name"],
-            "status": row["status"],
-            "created": row["created"],
-            "updated": row["updated"],
-            "historical": bool(row["historical"]),
-            "directory": Path(row["path"]).name,
-            "mode": exp["model"]["mode"],
-            "benchmark": exp["benchmark"]["id"],
-            "agents": [a["id"] for a in exp["agents"]],
-            "expected": expected,
-            "completed": completed,
-            "error": row["error"],
-            "experiment": exp,
-            "report": report,
-            "trials": trials,
-            "task_hashes": {
-                k: v.get("sha256")
-                for k, v in (manifest or {}).get("tasks", {}).items()
-                if isinstance(v, dict)
+        from .trace_view import decorate
+
+        return decorate(
+            self.root,
+            {
+                "id": row["id"],
+                "name": exp["name"],
+                "status": row["status"],
+                "created": row["created"],
+                "updated": row["updated"],
+                "historical": bool(row["historical"]),
+                "directory": Path(row["path"]).name,
+                "mode": exp["model"]["mode"],
+                "benchmark": exp["benchmark"]["id"],
+                "dataset": exp["benchmark"].get("dataset"),
+                "agents": [a["id"] for a in exp["agents"]],
+                "expected": expected,
+                "completed": completed,
+                "error": row["error"],
+                "experiment": exp,
+                "report": report,
+                "trials": trials,
+                "task_hashes": {
+                    k: v.get("sha256")
+                    for k, v in (manifest or {}).get("tasks", {}).items()
+                    if isinstance(v, dict)
+                },
+                "grading": "Harbor 内置评分；不代表官方 SWE 独立复评",
+                "trajectory_note": "ATIF 为末次上下文与终态视图，原始事件为完整诊断依据",
             },
-            "grading": "Harbor 内置评分；不代表官方 SWE 独立复评",
-            "trajectory_note": "ATIF 为末次上下文与终态视图，原始事件为完整诊断依据",
-        }
+        )
 
     def runs(self):
         self.import_history()
@@ -420,9 +439,77 @@ class Console:
         except FileNotFoundError:
             return "等待执行日志…"
 
+    def comparison(self, run_id):
+        from .comparison import summarize
+
+        detail = self.detail(run_id)
+        benchmark = detail["experiment"]["benchmark"]
+        root = safe_file(self.artifacts, Path(self.row(run_id)["path"]))
+        task_names = [Path(t).name for t in benchmark["tasks"]]
+        # Historical configs predate score_kind. Only frozen SWE evidence identifies them.
+        provenance = [
+            read_json(root, root / "tasks" / t / "swe-provenance.json")
+            for t in task_names
+        ]
+        kind = benchmark.get("score_kind", "metric")
+        original = (
+            (read_json(root, root / "manifest.json") or {})
+            .get("experiment", {})
+            .get("benchmark", {})
+        )
+        if (
+            "score_kind" not in original
+            and benchmark["primary_metric"] == "reward"
+            and all(p and p.get("instance_id") for p in provenance)
+        ):
+            kind = "resolved"
+        data = summarize(
+            detail["experiment"],
+            detail["trials"],
+            kind,
+            detail["status"] in ("completed", "failed", "incomplete", "interrupted"),
+        )
+        data.update(
+            run={
+                k: detail[k]
+                for k in ("id", "name", "status", "mode", "grading", "reviews")
+            },
+            benchmark={
+                "id": benchmark["id"],
+                "dataset": benchmark.get("dataset"),
+                "evaluation": benchmark.get("evaluation"),
+                "task_hashes": detail["task_hashes"],
+            },
+        )
+        return data
+
     def compare(self, left, right):
         a, b = self.detail(left), self.detail(right)
         reasons = []
+        for field, label in [
+            ("dataset", "数据集版本 / split"),
+            ("evaluation", "评分器 / 环境版本"),
+            ("score_kind", "评分口径"),
+        ]:
+            va, vb = (r["experiment"]["benchmark"].get(field) for r in (a, b))
+            if va != vb:
+                reasons.append(label + " 不一致")
+        datasets = [r["experiment"]["benchmark"].get("dataset") for r in (a, b)]
+        if any(d and (not d.get("revision") or not d.get("split")) for d in datasets):
+            reasons.append("数据集修订或 split 未记录")
+        elif any(not d for d in datasets) and any(
+            read_json(
+                self.artifacts,
+                self.artifacts
+                / r["directory"]
+                / "tasks"
+                / Path(t).name
+                / "swe-provenance.json",
+            )
+            for r in (a, b)
+            for t in r["experiment"]["benchmark"]["tasks"]
+        ):
+            reasons.append("历史 SWE 数据集名称 / 修订 / split 未记录")
         for field, label in [
             ("benchmark", "Benchmark"),
             ("task_hashes", "任务内容哈希"),
@@ -504,7 +591,7 @@ class Console:
                 "SELECT 1 FROM runs WHERE status='interrupted' AND historical=0"
             ).fetchone()
         if interrupted:
-            self.blocked = "存在中断运行。请检查遗留进程和 Docker 容器，处理后使用 agent-eval serve --recover 启动"
+            self.blocked = "存在中断运行。请检查遗留进程和 Docker 容器，处理后使用 agent-harness-eval serve --recover 启动"
         self.import_history()
         self.worker = threading.Thread(
             target=self.work, daemon=True, name="evaluation-worker"
@@ -553,7 +640,7 @@ class Console:
                     sys.executable,
                     "-u",
                     "-m",
-                    "agent_eval.cli",
+                    "agent_harness_eval.cli",
                     "run",
                     str(config),
                     "--output",

@@ -1,0 +1,181 @@
+{
+  "swe-live-bkcrab-corrected": {
+    "bkcrab": {
+      "status": "accepted",
+      "reason": "修正后台额外请求后重新执行；请求/用量完整，官方独立复评通过。仅代表这一题的一次运行。",
+      "evidence": {
+        "artifacts/swe-live-bkcrab-corrected/manifest.json": "065d6c30ed2aa110d781c1b53ca82e92bc0f795438cf7aadbec798c0b38fc2ab",
+        "artifacts/swe-live-bkcrab-corrected/jobs/bkcrab/django__django-13741__oBM3nqU/result.json": "93378d89a654a452401060cca5564c69ad3b4ddff3c2c3f091e8b354a5b0a356",
+        "artifacts/swe-live-bkcrab-corrected/jobs/bkcrab/django__django-13741__oBM3nqU/agent/wire_responses.jsonl": "e1820c70e83c132740a65456ddc8b6d491eb6c72319070ec6a560e5e743e7d23",
+        "artifacts/swe-live-official/bkcrab-corrected.json": "56a4693c1e65a3467bbf29da75aec54338267a592220a666ce56516f36bec87b",
+        "artifacts/swe-live-bkcrab-corrected/jobs/bkcrab/django__django-13741__oBM3nqU/agent/events.jsonl": "e00da26163e5e5c78d3e8eb9965b94521c56e857f97106f5a808defabb587392",
+        "artifacts/swe-live-bkcrab-corrected/jobs/bkcrab/django__django-13741__oBM3nqU/agent/native_wire_requests.jsonl": "3adb42ee8142e3dad675c93518eac444c29fd47ec55136c9f3e5bdb24d3a5008",
+        "artifacts/swe-live-bkcrab-corrected/jobs/bkcrab/django__django-13741__oBM3nqU/agent/wire_chunks.jsonl": "1a13f8d4de942b625b007ae016a922d3ee4834d9a497abd8bbd4a09f463cd586",
+        "artifacts/swe-live-bkcrab-corrected/jobs/bkcrab/django__django-13741__oBM3nqU/verifier/model.patch": "337091affbd57f3927820cd96c6f6442f1d8585fd63a784e2a6526cc62f8709e"
+      },
+      "findings": [
+        {
+          "title": "环境尝试失败后切换到可用测试环境",
+          "text": "前面遇到 pytest、Django、asgiref 依赖/环境问题；之后 auth_forms 返回 83 tests / OK，扩大范围的运行返回 754 tests / OK。",
+          "sources": [
+            "events.jsonl:208",
+            "events.jsonl:214",
+            "events.jsonl:220",
+            "events.jsonl:238",
+            "events.jsonl:268"
+          ]
+        },
+        {
+          "title": "工具时间不能逐个直接相加",
+          "text": "辅助检查报 SECRET_KEY 缺失与较大的测试任务按批返回。日志不能证明报错检查本身花了约 11 秒，因此不显示单工具精确耗时。",
+          "sources": [
+            "events.jsonl:265",
+            "events.jsonl:267",
+            "events.jsonl:268"
+          ]
+        }
+      ]
+    }
+  },
+  "swe-live-one": {
+    "dsh-standard": {
+      "status": "accepted",
+      "reason": "该任务请求/用量完整，官方独立复评通过；Agent 自述的测试数量仍须与原始输出核对。",
+      "evidence": {
+        "artifacts/swe-live-one/manifest.json": "a690617e9a310f4fc43c6fac5c3353f145f71502f0fc2db3d644dcfe90d60354",
+        "artifacts/swe-live-one/jobs/dsh-standard/django__django-13741__xvbW287/result.json": "faf8daddc03f8708d0c4cfe7d055b08987cd842f308511b0356c2333e2ac27d1",
+        "artifacts/swe-live-one/jobs/dsh-standard/django__django-13741__xvbW287/agent/wire_responses.jsonl": "dff166d3821e8218d67501fb9f1a06ca94874dcdca992481ea5d95c8458fc774",
+        "artifacts/swe-live-official/dsh-standard.json": "56a4693c1e65a3467bbf29da75aec54338267a592220a666ce56516f36bec87b",
+        "artifacts/swe-live-one/jobs/dsh-standard/django__django-13741__xvbW287/agent/events.jsonl": "c6d21bee097e270b867859132f4b10e4e41e5bc25a71d1b60088a93c74c40dd6",
+        "artifacts/swe-live-one/jobs/dsh-standard/django__django-13741__xvbW287/agent/native_wire_requests.jsonl": "feafff27a0e859d118977c211d1fa3cd811cfb1460d18c33b3df78dbed68f764",
+        "artifacts/swe-live-one/jobs/dsh-standard/django__django-13741__xvbW287/agent/wire_chunks.jsonl": "a92cb0e02118f896d1ef52b9aa9d8ae52f16a42ae3d1d9201e35126f9798380e",
+        "artifacts/swe-live-one/jobs/dsh-standard/django__django-13741__xvbW287/verifier/model.patch": "f5865ad32d0bc49bf0e003c2400a6fff6dd3eb48dfd34533cc8481c7a10ac2be"
+      },
+      "findings": [
+        {
+          "title": "重复执行同一测试，第二次用于提取摘要",
+          "text": "两次 auth_tests + AdminViewsPasswordChangeTest 命令仅尾部输出过滤不同。第二次明确出现不存在的测试目标和 FAILED (errors=1)。这增加了执行工作，但不能据此说全部 auth 测试失败。",
+          "sources": [
+            "events.jsonl:152",
+            "events.jsonl:153",
+            "events.jsonl:158",
+            "events.jsonl:159"
+          ]
+        },
+        {
+          "title": "最终陈述与测试输出不一致，需复核",
+          "text": "Agent 最终宣称 571 tests — OK；已记录的对应输出为 Ran 571 tests / FAILED (errors=1)。官方评测通过与这条自述是否准确是两件事。",
+          "sources": [
+            "events.jsonl:159",
+            "events.jsonl:237"
+          ]
+        },
+        {
+          "title": "错误后调整了测试目标",
+          "text": "后续改用正确的管理端测试目标，返回 9 tests / OK；可以看到恢复动作，但不能把此前错误输出改记为成功。",
+          "sources": [
+            "events.jsonl:176",
+            "events.jsonl:177"
+          ]
+        }
+      ]
+    },
+    "bkcrab": {
+      "status": "diagnostic",
+      "reason": "初次运行混入额外 skills learning 请求，28 个请求只有 27 个响应，用量不完整；以 corrected 为有效记录。",
+      "evidence": {
+        "artifacts/swe-live-one/manifest.json": "a690617e9a310f4fc43c6fac5c3353f145f71502f0fc2db3d644dcfe90d60354",
+        "artifacts/swe-live-one/jobs/bkcrab/django__django-13741__JZDJtMy/result.json": "c9ecd173c61d499ff9f5c9b9be65c856add63b2e1eb498ff42991e3e367e4d58",
+        "artifacts/swe-live-one/jobs/bkcrab/django__django-13741__JZDJtMy/agent/wire_responses.jsonl": "96d8bbcac7c4dc3535338f7451a694803389827a0ba583516867cb911a943035"
+      }
+    }
+  },
+  "controls-01": {
+    "positive": {
+      "status": "diagnostic",
+      "reason": "历史调试记录：依赖、执行或验证器问题，不能作为能力结论；保留用于排障。",
+      "evidence": {
+        "artifacts/controls-01/manifest.json": "ef263c37af8912518da7662ffb9f550470a393e5c61164a26d93eabbfb5f7c42"
+      }
+    },
+    "negative": {
+      "status": "diagnostic",
+      "reason": "调试期间未执行到该 Agent；不是一条有效测评结果。",
+      "evidence": {
+        "artifacts/controls-01/manifest.json": "ef263c37af8912518da7662ffb9f550470a393e5c61164a26d93eabbfb5f7c42"
+      }
+    }
+  },
+  "native-01": {
+    "bkcrab": {
+      "status": "diagnostic",
+      "reason": "历史调试记录：依赖、执行或验证器问题，不能作为能力结论；保留用于排障。",
+      "evidence": {
+        "artifacts/native-01/manifest.json": "f5e8d63168b2ecdf2cc5b3b224cc263a43048b92994e62c53c5539da4c13c04e",
+        "artifacts/native-01/jobs/bkcrab/file-create__JuZmyjb/result.json": "75002105b50a9f18a1ef01b03e224e9d5f42a7c3b82ae4d25ecdc94e2f19d687",
+        "artifacts/native-01/jobs/bkcrab/file-preserve__RFAV6Uo/result.json": "e57ca2e97947bc4be262fdb53d548a6686a0177c0843a8545a5898d53808adf1"
+      }
+    },
+    "dsh-standard": {
+      "status": "diagnostic",
+      "reason": "历史调试记录：依赖、执行或验证器问题，不能作为能力结论；保留用于排障。",
+      "evidence": {
+        "artifacts/native-01/manifest.json": "f5e8d63168b2ecdf2cc5b3b224cc263a43048b92994e62c53c5539da4c13c04e",
+        "artifacts/native-01/jobs/dsh-standard/file-create__b8wjh62/result.json": "c61bda531fa358afaa991da38d300738634ae5fff03b1803708ead4ded07f87d",
+        "artifacts/native-01/jobs/dsh-standard/file-preserve__CzBWRMB/result.json": "0cdb34051caec9fc372de450365292151a428ed2b7aa1d64ffcdfb9195514b38"
+      }
+    }
+  },
+  "swe-controls-01": {
+    "oracle": {
+      "status": "diagnostic",
+      "reason": "历史调试记录：依赖、执行或验证器问题，不能作为能力结论；保留用于排障。",
+      "evidence": {
+        "artifacts/swe-controls-01/manifest.json": "c5773ee02cfd91fff00b24a5df957079518e229974d9f15b1e6cd90b681a207f",
+        "artifacts/swe-controls-01/jobs/oracle/django__django-13741__Be4ZcYp/result.json": "db0d74b1faec1941e7e389b2013b175a07b71e2d946d30318db5ba2437df27d5"
+      }
+    },
+    "nop": {
+      "status": "diagnostic",
+      "reason": "调试期间未执行到该 Agent；不是一条有效测评结果。",
+      "evidence": {
+        "artifacts/swe-controls-01/manifest.json": "c5773ee02cfd91fff00b24a5df957079518e229974d9f15b1e6cd90b681a207f"
+      }
+    }
+  },
+  "swe-controls-02": {
+    "oracle": {
+      "status": "diagnostic",
+      "reason": "历史调试记录：依赖、执行或验证器问题，不能作为能力结论；保留用于排障。",
+      "evidence": {
+        "artifacts/swe-controls-02/manifest.json": "75b8ac1533faac290d98a113f7c68381672b2e059af31310da3e6a8de06ff3ec",
+        "artifacts/swe-controls-02/jobs/oracle/django__django-13741__v4U6XKf/result.json": "2eec0e80226473887cf0dc1a70f9af61b3ca80ca2780b385dcf6bcd456b10ed1"
+      }
+    },
+    "nop": {
+      "status": "diagnostic",
+      "reason": "调试期间未执行到该 Agent；不是一条有效测评结果。",
+      "evidence": {
+        "artifacts/swe-controls-02/manifest.json": "75b8ac1533faac290d98a113f7c68381672b2e059af31310da3e6a8de06ff3ec"
+      }
+    }
+  },
+  "swe-controls-final": {
+    "nop": {
+      "status": "diagnostic",
+      "reason": "历史调试记录：依赖、执行或验证器问题，不能作为能力结论；保留用于排障。",
+      "evidence": {
+        "artifacts/swe-controls-final/manifest.json": "e1fa602f9df91056a694c9947fb413a4f2824843a0822995ce3ba080f04a400a",
+        "artifacts/swe-controls-final/jobs/nop/django__django-13741__JdbYv4q/result.json": "7508df2b938ecb439478e4ab44dc0459868756d58ed8ed2e161535d0279e944a"
+      }
+    },
+    "oracle": {
+      "status": "diagnostic",
+      "reason": "历史调试记录：依赖、执行或验证器问题，不能作为能力结论；保留用于排障。",
+      "evidence": {
+        "artifacts/swe-controls-final/manifest.json": "e1fa602f9df91056a694c9947fb413a4f2824843a0822995ce3ba080f04a400a",
+        "artifacts/swe-controls-final/jobs/oracle/django__django-13741__zufvmd2/result.json": "d2bcc9e9b6b333d6ec65c6d438995faa1a2cf2e31c8d87101ae6138bb5184e49"
+      }
+    }
+  }
+}

@@ -15,4 +15,4 @@ text = config.read_text()
 assert 'network_mode = "no-network"' in text
 config.write_text(text.replace('network_mode = "no-network"', 'network_mode = "allowlist"\nallowed_hosts = ["api.deepseek.com"]'))
 PY
-.venv/bin/agent-eval validate experiments/swe-live-one.json
+.venv/bin/agent-harness-eval validate experiments/swe-live-one.json

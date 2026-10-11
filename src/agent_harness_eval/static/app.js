@@ -12,7 +12,7 @@ const labels = {
 const modes = { offline: "离线对照", mock: "模拟模型", live: "真实模型" };
 let runs = [],
   templates = [],
-  filter = "all",
+  filter = "effective",
   search = "",
   epoch = 0,
   polling = false;
@@ -120,11 +120,11 @@ function renderRunRows() {
   const rows = runs.filter(
     (r) =>
       (filter === "all" ||
-        (filter === "running"
-          ? ["running", "queued"].includes(r.status)
-          : filter === "problem"
-            ? ["failed", "incomplete", "interrupted"].includes(r.status)
-            : r.status === filter)) &&
+        (filter === "effective"
+          ? r.accepted_agents.length > 0
+          : filter === "debug"
+            ? Object.values(r.reviews).some((x) => x.status === "diagnostic")
+            : r.category === filter)) &&
       `${r.name} ${r.benchmark} ${r.agents.join(" ")} ${r.directory}`
         .toLowerCase()
         .includes(search.toLowerCase()),
@@ -139,13 +139,21 @@ function renderRunRows() {
         "span",
         r.benchmark +
           " · " +
-          (r.historical ? "历史记录" : r.directory.slice(0, 12)),
+          { real: "真实评测", selftest: "平台自测", debug: "调试记录" }[
+            r.category
+          ] +
+          " · " +
+          r.directory,
         "run-sub",
       ),
     );
     const agents = el("td"),
       list = el("div", undefined, "agent-list");
-    r.agents.forEach((a) => list.append(el("span", a)));
+    (filter === "effective" ? r.accepted_agents : r.agents).forEach((a) => {
+      const item = el("span", a + " · " + reviewNames[r.reviews[a].status]);
+      item.title = r.agent_descriptions[a] + "；" + r.reviews[a].reason;
+      list.append(item);
+    });
     agents.append(list);
     const mode = el("td");
     mode.append(el("span", modes[r.mode] || r.mode, "mode"));
@@ -164,7 +172,11 @@ function renderRunRows() {
   $("#run-count").textContent = rows.length;
   stats(
     [
-      ["全部实验", runs.length, "保留每次运行的原始记录"],
+      [
+        "有效真实结果",
+        runs.reduce((sum, r) => sum + r.accepted_agents.length, 0),
+        "按复核后的 Agent 记录计，不等于题目数",
+      ],
       [
         "正在执行",
         runs.filter((r) => ["running", "queued"].includes(r.status)).length,
@@ -188,6 +200,9 @@ function renderRunRows() {
 }
 async function renderRuns(token) {
   view.replaceChildren($("#runs-template").content.cloneNode(true));
+  $("#filters")
+    .querySelectorAll("button")
+    .forEach((b) => b.classList.toggle("active", b.dataset.filter === filter));
   $("#search").value = search;
   $("#search").oninput = (e) => {
     search = e.target.value;
@@ -260,7 +275,7 @@ async function renderCreate(token) {
     checks($("#agent-options"), "agents", t.agents);
     checks($("#task-options"), "tasks", t.tasks);
     $("#template-info").textContent =
-      t.error || `${t.benchmark} · ${modes[t.mode]} · 输入依赖已找到`;
+      t.error || `${t.benchmark} · ${modes[t.mode]} · 输入依赖已找到 · ${datasetLabel(t.dataset)}`;
     $("#template-info").classList.toggle("warning", !t.available);
     $("#submit").disabled = !t.available || Boolean(data.blocked);
     $("#summary-model").textContent = `${modes[t.mode]} / ${t.model}`;
@@ -332,7 +347,7 @@ function agentRows(report) {
     ];
   });
 }
-function reportTable(report) {
+function reportTable(report, reviews = {}) {
   return table(
     [
       "Agent",
@@ -345,7 +360,14 @@ function reportTable(report) {
       "输出 tokens",
       "费用 USD",
     ],
-    agentRows(report),
+    agentRows(report).map((row) => {
+      const review = reviews[row[0]];
+      if (review?.status === "diagnostic") {
+        row[0] += " · 仅供诊断";
+        row[6] = row[7] = "不纳入对比";
+      }
+      return row;
+    }),
   );
 }
 async function renderDetail(id, token, initial = true) {
@@ -363,7 +385,7 @@ async function renderDetail(id, token, initial = true) {
       el("h1", r.name, "detail-title"),
       el("p", r.directory),
     );
-    head.append(left, link("← 实验记录", "#runs", "button"));
+    head.append(left, link("对比本实验 Agent →", "#compare/" + r.id, "button primary"), link("← 实验记录", "#runs", "button"));
     const state = el("div", undefined, "detail-top");
     state.id = "detail-state";
     const metrics = el("section", undefined, "stats");
@@ -371,11 +393,28 @@ async function renderDetail(id, token, initial = true) {
     const results = el("section", undefined, "panel");
     const heading = el("div", undefined, "panel-heading"),
       headingText = el("div");
-    headingText.append(el("h2", "Agent 评测结果"), el("p", r.grading));
+    headingText.append(
+      el(
+        "h2",
+        Object.values(r.reviews).some((x) => x.status === "diagnostic")
+          ? "原始批次结果 · 含诊断条目"
+          : "原始批次结果",
+      ),
+      el("p", r.grading),
+    );
     heading.append(headingText);
     const scoreBody = el("div");
     scoreBody.id = "scores";
-    results.append(heading, scoreBody);
+    results.append(heading);
+    for (const a of r.agents)
+      results.append(
+        el(
+          "p",
+          `${a} · ${r.agent_descriptions[a]} · ${reviewNames[r.reviews[a].status]}：${r.reviews[a].reason}`,
+          "callout",
+        ),
+      );
+    results.append(scoreBody);
     const grids = el("section", undefined, "detail-grid"),
       logPanel = el("div", undefined, "panel");
     logPanel.append(el("h2", "执行日志 · 最近 32 KiB"));
@@ -392,7 +431,12 @@ async function renderDetail(id, token, initial = true) {
     const info = el("p", "原始证据：artifacts/" + r.directory, "section-space");
     configPanel.append(info, details);
     grids.append(logPanel, configPanel);
-    view.append(head, state, metrics, results, grids);
+    const traces = el("section", undefined, "trace-section");
+    traces.append(el("h2", "执行轨迹与证据"));
+    view.append(head, state, metrics, results, traces, grids);
+    tracePicker(r, traces).catch((e) =>
+      traces.append(el("p", e.message, "error")),
+    );
   }
   $("#detail-state").replaceChildren(
     badge(r.status),
@@ -418,7 +462,7 @@ async function renderDetail(id, token, initial = true) {
   );
   $("#scores").replaceChildren(
     r.report
-      ? reportTable(r.report)
+      ? reportTable(r.report, r.reviews)
       : r.trials.length
         ? table(
             ["Agent", "任务", "状态", "主指标", "Agent 秒数"],
@@ -450,10 +494,11 @@ async function renderCompare(token) {
     left = el("div");
   left.append(
     el("div", "COMPARE RUNS", "eyebrow"),
-    el("h1", "让比较建立在相同条件上。"),
+    el("h1", "跨实验批次对比"),
     el("p", "核对任务、模型与运行条件，再查看各项结果。"),
   );
   head.append(left);
+  head.append(link("← 实验内 Agent 对比", "#compare", "button"), link("跨实验轨迹查看", "#trace-compare", "button"));
   const form = el("form", undefined, "panel compare-form");
   for (const [name, title] of [
     ["left", "实验 A"],
@@ -513,12 +558,13 @@ async function renderCompare(token) {
         panel.append(
           el("div", "EXPERIMENT " + label, "eyebrow"),
           el("h2", r.name),
+          el("p", datasetLabel(r.experiment.benchmark.dataset)),
           el(
             "p",
             `${r.benchmark} · ${modes[r.mode]} · ${r.experiment.model.name}`,
           ),
           el("p", r.grading),
-          r.report ? reportTable(r.report) : el("p", "报告缺失"),
+          r.report ? reportTable(r.report, r.reviews) : el("p", "报告缺失"),
         );
         const details = el("details"),
           summary = el("summary", "查看运行条件"),
@@ -568,7 +614,7 @@ async function route() {
   $("#breadcrumb").textContent =
     page === "create"
       ? "创建实验"
-      : page === "compare"
+      : ["compare", "batch-compare", "trace-compare"].includes(page)
         ? "结果对比"
         : page === "run"
           ? "运行详情"
@@ -578,12 +624,14 @@ async function route() {
     .forEach((n) =>
       n.classList.toggle(
         "active",
-        n.dataset.nav === (page === "run" ? "runs" : page),
+        n.dataset.nav === (page === "run" ? "runs" : ["batch-compare", "trace-compare"].includes(page) ? "compare" : page),
       ),
     );
   try {
     if (page === "create") await renderCreate(token);
-    else if (page === "compare") await renderCompare(token);
+    else if (page === "compare") await renderExperimentCompare(token, id);
+    else if (page === "trace-compare") await renderEvidenceCompare(token);
+    else if (page === "batch-compare") await renderCompare(token);
     else if (page === "run" && id) await renderDetail(id, token);
     else await renderRuns(token);
   } catch (error) {

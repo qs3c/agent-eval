@@ -1,10 +1,10 @@
-# Agent Eval 本机评测控制台设计
+# Agent Harness Eval 本机评测控制台设计
 
 状态：已实现并完成本地验收，见 WEB_VALIDATION.md。日期：2026-10-11。
 
 ## 目标与方案
 
-在现有评测工作台上增加浏览器入口，完成创建实验、查看进度、对比结果三个流程。首版面向本机单用户，通过 `agent-eval serve` 启动，默认仅监听 `127.0.0.1`。
+在现有评测工作台上增加浏览器入口，完成创建实验、查看进度、对比结果三个流程。首版面向本机单用户，通过 `agent-harness-eval serve` 启动，默认仅监听 `127.0.0.1`。
 
 采用 FastAPI 提供管理 API 和同源静态 HTML/CSS/JavaScript 页面；使用 SQLite 保存控制台运行状态和冻结配置，现有 artifacts 文件继续保存原始证据。运行器以独立子进程调用现有 CLI，Harbor 继续管理 Docker 和 trial，不替换其调度。
 

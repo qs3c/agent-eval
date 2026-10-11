@@ -20,7 +20,7 @@
 
 ### Task 1: Durable queue and evidence reader
 
-Files: create `src/agent_eval/console.py`, `tests/test_console.py`.
+Files: create `src/agent_harness_eval/console.py`, `tests/test_console.py`.
 Interface: `Console(root: Path, allow_live=False)`; `templates()`, `submit(data)`, `runs()`, `detail(id)`, `logs(id)`, `compare(left,right)`, `start()`, `close()`.
 
 - [x] Write tests that create a temporary project with a minimal experiment and exercise invalid fields, missing dependencies and historical incomplete reports.
@@ -35,7 +35,7 @@ Interface: `Console(root: Path, allow_live=False)`; `templates()`, `submit(data)
 
 ### Task 2: API, command and browser interface
 
-Files: create `src/agent_eval/web.py`, `src/agent_eval/static/index.html`, `src/agent_eval/static/app.js`, `src/agent_eval/static/style.css`, `tests/test_web.py`; modify CLI, dependencies and ignore rules.
+Files: create `src/agent_harness_eval/web.py`, `src/agent_harness_eval/static/index.html`, `src/agent_harness_eval/static/app.js`, `src/agent_harness_eval/static/style.css`, `tests/test_web.py`; modify CLI, dependencies and ignore rules.
 Interface: `create_app(root: Path, allow_live=False)` exposes templates, runs, details, logs and comparison through the approved routes.
 
 - [x] Add API tests using TestClient for Origin/Host rejection, unknown ID, invalid submission, denied live run and static assets.
@@ -45,13 +45,13 @@ Interface: `create_app(root: Path, allow_live=False)` exposes templates, runs, d
 - [x] Add `serve --root --port --allow-live`, lifespan worker ownership and bounded request bodies. Pin installed FastAPI/Uvicorn versions with uv.
 - [x] Build an accessible Chinese sidebar/list/detail/create/compare interface using DOM textContent for data, native form validation and two-second read polling.
 - [x] Keep same-benchmark incompatible runs viewable with reasons. Show expected/recorded trials rather than synthetic progress.
-- [x] Run `.venv/bin/pytest -q` and `node --check src/agent_eval/static/app.js`.
+- [x] Run `.venv/bin/pytest -q` and `node --check src/agent_harness_eval/static/app.js`.
 
 ### Task 3: End-to-end validation and handoff
 
 Files: update README; create `WEB_VALIDATION.md`.
 
-- [x] Start `.venv/bin/agent-eval serve --port 8765` and verify `/api/templates` and `/` return HTTP 200.
+- [x] Start `.venv/bin/agent-harness-eval serve --port 8765` and verify `/api/templates` and `/` return HTTP 200.
 - [x] Submit one offline controls experiment, wait for actual Harbor completion, verify positive=1 and negative=0. Query after refresh and compare compatible historical reports.
 - [x] Use browser UI to inspect desktop and narrow viewport, exercise creation/details/comparison and inspect for console errors.
 - [x] Build wheel and inspect archive for static assets, document local start, live opt-in, interrupted recovery and validation limits.

@@ -98,6 +98,22 @@ def create_app(root: Path, allow_live=False, recover=False):
     def logs(run_id: str):
         return {"text": console.logs(run_id)}
 
+    @app.get("/api/runs/{run_id}/comparison")
+    def comparison(run_id: str):
+        return console.comparison(run_id)
+
+    @app.get("/api/runs/{run_id}/traces")
+    def traces(run_id: str):
+        from .trace_view import trace_list
+
+        return trace_list(console, run_id)
+
+    @app.get("/api/runs/{run_id}/traces/{trial_id}")
+    def trial_trace(run_id: str, trial_id: str):
+        from .trace_view import trace
+
+        return trace(console, run_id, trial_id)
+
     @app.get("/api/compare")
     def compare(left: str, right: str):
         return console.compare(left, right)

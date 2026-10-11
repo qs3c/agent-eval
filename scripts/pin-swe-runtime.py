@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent_eval.provenance import digest, write_json
+from agent_harness_eval.provenance import digest, write_json
 
 task = Path(sys.argv[1])
 uv = Path(shutil.which("uv") or ".tools/uv").resolve()
@@ -73,12 +73,12 @@ write_json(
     {"packages": resolved["packages"], "python": Path(resolved["python"]).name},
 )
 with dockerfile.open("a") as f:
-    f.write("COPY grader /opt/agent-eval-grader\n")
+    f.write("COPY grader /opt/agent-harness-eval-grader\n")
 verifier = task / "tests/test.sh"
 verifier.write_text(
     verifier.read_text().replace(
         "uv run parser.py",
-        "PYTHONHOME=/opt/agent-eval-grader/python PYTHONPATH=/opt/agent-eval-grader/site /opt/agent-eval-grader/python/bin/python3.11 parser.py",
+        "PYTHONHOME=/opt/agent-harness-eval-grader/python PYTHONPATH=/opt/agent-harness-eval-grader/site /opt/agent-harness-eval-grader/python/bin/python3.11 parser.py",
     )
 )
 

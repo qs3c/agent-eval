@@ -1,8 +1,8 @@
 import json
 import subprocess
 
-from agent_eval.benchmarks.swe import export, instrument, regrade_command
-from agent_eval.resources.capture_patch import capture
+from agent_harness_eval.benchmarks.swe import export, instrument, regrade_command
+from agent_harness_eval.resources.capture_patch import capture
 
 
 def git(repo, *args):

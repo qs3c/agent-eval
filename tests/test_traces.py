@@ -1,7 +1,7 @@
 import json
 
-from agent_eval.resources.mock_model import fixture, stream_events
-from agent_eval.traces import convert
+from agent_harness_eval.resources.mock_model import fixture, stream_events
+from agent_harness_eval.traces import convert
 
 
 def test_both_protocols_tool_roundtrip_and_atif(tmp_path):
@@ -80,3 +80,29 @@ def test_inflight_request_does_not_report_partial_total(tmp_path):
     )
     _, usage, coverage = convert(tmp_path, "fixture", "1")
     assert usage == {} and coverage["usage_complete"] is False
+
+
+def test_identity_and_missing_counter_validation():
+    from agent_harness_eval.traces import summarize_usage
+
+    requests = [{"request_id": "a"}, {"request_id": "b"}]
+    responses = [
+        {"request_id": "a", "usage": {"input_tokens": 1, "output_tokens": 2}}
+    ] * 2
+    assert summarize_usage(requests, responses)[0] == {}
+    responses[1] = {"request_id": "b", "usage": {"input_tokens": 1}}
+    assert summarize_usage(requests, responses)[0] == {}
+    responses[1]["usage"]["output_tokens"] = 0
+    assert summarize_usage(requests, responses)[0] == {
+        "input_tokens": 2,
+        "output_tokens": 2,
+    }
+
+
+def test_dsh_relay_coverage_is_not_native_provider_hook(tmp_path):
+    (tmp_path / "wire_requests.jsonl").write_text(
+        '{"messages":[{"role":"user","content":"hi"}]}\n'
+    )
+    _, _, coverage = convert(tmp_path, "dsh-standard", "test")
+    assert coverage["provider_requests"] is True
+    assert coverage["native_provider_hook"] is False

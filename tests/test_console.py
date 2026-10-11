@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_eval.console import Console
+from agent_harness_eval.console import Console
 
 
 @pytest.fixture
@@ -90,7 +90,7 @@ def test_worker_failure_is_recorded(console, monkeypatch):
     def fail(*args, **kwargs):
         raise OSError("test process could not launch")
 
-    monkeypatch.setattr("agent_eval.console.subprocess.Popen", fail)
+    monkeypatch.setattr("agent_harness_eval.console.subprocess.Popen", fail)
     console.start()
     try:
         deadline = time.monotonic() + 3
@@ -125,7 +125,7 @@ def test_comparison_requires_content_identity(console):
     for name in ("one", "two"):
         run = console.artifacts / name
         run.mkdir()
-        from agent_eval.config import load
+        from agent_harness_eval.config import load
 
         exp = load(console.root / "experiments/controls.json").model_dump(mode="json")
         summary = {
@@ -185,7 +185,7 @@ def test_shutdown_terminates_owned_process_group(console, monkeypatch):
     def sleeper(args, **kwargs):
         return original([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
 
-    monkeypatch.setattr("agent_eval.console.subprocess.Popen", sleeper)
+    monkeypatch.setattr("agent_harness_eval.console.subprocess.Popen", sleeper)
     console.start()
     process = None
     try:
@@ -208,3 +208,91 @@ def test_corrupt_nested_report_is_unavailable(console):
         json.dumps({"agents": {"broken": None}, "trials": []})
     )
     assert console.detail(row["id"])["report"] is None
+
+
+def test_dataset_identity_is_frozen_and_checked(console):
+    template = console.root / "experiments/controls.json"
+    value = json.loads(template.read_text())
+    value["benchmark"].update(
+        score_kind="resolved",
+        dataset={
+            "name": "SWE-bench/SWE-bench_Verified",
+            "revision": "abc",
+            "split": "test",
+        },
+        evaluation={
+            "name": "harness",
+            "version": "1",
+            "environment": "image@sha256:abc",
+        },
+    )
+    template.write_text(json.dumps(value))
+    first = console.submit({"template": "controls"})
+    value["benchmark"]["dataset"]["revision"] = "def"
+    template.write_text(json.dumps(value))
+    second = console.submit({"template": "controls"})
+    data = console.comparison(first["id"])
+    assert data["benchmark"]["dataset"]["revision"] == "abc"
+    assert data["score_kind"] == "resolved"
+    assert data["agents"]["positive"]["score"] is None
+    assert data["agents"]["positive"]["missing"] == 2
+    assert (
+        "数据集版本 / split 不一致"
+        in console.compare(first["id"], second["id"])["differences"]
+    )
+    value["benchmark"]["dataset"]["revision"] = None
+    template.write_text(json.dumps(value))
+    third = console.submit({"template": "controls"})
+    assert (
+        "数据集修订或 split 未记录"
+        in console.compare(third["id"], third["id"])["differences"]
+    )
+
+
+def test_comparison_reads_finished_records_and_scopes_traces(console):
+    item = console.submit({"template": "controls"})
+    root = Path(console.row(item["id"])["path"])
+    task = Path(item["experiment"]["benchmark"]["tasks"][0]).name
+    result = root / "jobs/positive/trial-one/result.json"
+    result.parent.mkdir(parents=True)
+    result.write_text(
+        json.dumps(
+            {
+                "task_name": "display-name",
+                "task_id": {"path": "/tasks/" + task},
+                "finished_at": "2026-10-11T00:00:01Z",
+                "verifier_result": {"rewards": {"reward": 1}},
+                "agent_result": {"n_input_tokens": 100},
+            }
+        )
+    )
+    data = console.comparison(item["id"])
+    assert data["agents"]["positive"]["missing"] == 1
+    assert data["agents"]["negative"]["missing"] == 2
+    assert data["tasks"][task]["positive"]["score"] == 1
+    from agent_harness_eval.trace_view import trace_list
+
+    traces = trace_list(console, item["id"])
+    assert traces[0]["task"] == task
+    assert traces[0]["id"] == data["tasks"][task]["positive"]["trials"][0]["id"]
+    # Corrupt metric still records an unscored attempt; it is never silently discarded.
+    value = json.loads(result.read_text())
+    value["verifier_result"]["rewards"] = {"reward": "invalid"}
+    result.write_text(json.dumps(value))
+    assert console.comparison(item["id"])["agents"]["positive"]["unscored"] == 1
+
+
+def test_legacy_swe_inference_respects_explicit_metric(console):
+    item = console.submit({"template": "controls"})
+    root = Path(console.row(item["id"])["path"])
+    for task in item["experiment"]["benchmark"]["tasks"]:
+        path = root / "tasks" / Path(task).name / "swe-provenance.json"
+        path.parent.mkdir(parents=True)
+        path.write_text('{"instance_id":"frozen-swe-task"}')
+    assert console.comparison(item["id"])["score_kind"] == "resolved"
+    (root / "manifest.json").write_text(json.dumps({"experiment": item["experiment"]}))
+    assert console.comparison(item["id"])["score_kind"] == "metric"
+    assert (
+        "历史 SWE 数据集名称 / 修订 / split 未记录"
+        in console.compare(item["id"], item["id"])["differences"]
+    )

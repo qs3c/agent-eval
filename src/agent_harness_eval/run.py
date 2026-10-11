@@ -45,7 +45,7 @@ async def run_experiment(exp: Experiment, output: Path):
         "created_at": datetime.now(UTC).isoformat(),
         "harbor": importlib.metadata.version("harbor"),
         "workbench": {
-            "version": importlib.metadata.version("agent-eval-workbench"),
+            "version": importlib.metadata.version("agent-harness-eval"),
             "files": {
                 str(path.relative_to(Path(__file__).parent)): digest(path)
                 for path in sorted(Path(__file__).parent.rglob("*"))

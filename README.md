@@ -1,13 +1,13 @@
-# Agent Eval
+# Agent Harness Eval
 
-独立的 Agent 评测仓库。调度、容器隔离和 verifier 复用 Harbor 0.24.0；Agent 保留原生执行循环。Agent 适配器与 benchmark 任务相互独立。
+重点测试、比较和研究 Agent Harness 层差异的独立评测仓库。调度、容器隔离和 verifier 复用 Harbor 0.24.0；Agent 保留原生执行循环。Agent 适配器与 benchmark 任务相互独立。
 
 ## 本机 Web 控制台
 
 ```bash
 export PATH="$PWD/.tools:$PATH"
 uv sync --locked --python 3.12
-.venv/bin/agent-eval serve --port 8765
+.venv/bin/agent-harness-eval serve --port 8765
 ```
 
 打开 <http://127.0.0.1:8765>。提供中文实验列表、模板创建、任务进度、执行日志和结果对比页面。默认本机单用户，FastAPI 同时提供页面与 API；原有 CLI 命令保持可用。
@@ -16,7 +16,7 @@ uv sync --locked --python 3.12
 - 控制台状态和输入保存在 `.console/`，原始输出仍保存在 `artifacts/web-<id>/`；均不提交 Git。每次提交产生独立 ID，不覆盖旧实验。
 - 历史 `artifacts/` 只读登记。`completed` 表示结果完整且无运行异常，不表示全部任务得满分；缺失报告显示结果不完整。控制台读取的是 Harbor 内置评分，官方 SWE 复评仍用 `swe-regrade` 并单独核对产物。
 - 配对比较检查 benchmark、任务内容哈希、模型配置、重复次数、资源和超时等条件。不兼容时展示差异，不输出配对结论；未知费用保持未知。
-- 浏览器刷新不影响执行。服务关闭会终止自己启动的评测进程组；意外重启将未完成运行标为中断，不自动重跑。存在中断运行时暂停队列。检查对应输出中的 trial 名称和遗留进程、Docker 容器并完成清理后，用 `.venv/bin/agent-eval serve --recover` 确认恢复；中断记录保留为失败，不重新执行。若旧进程仍持有锁，新服务拒绝启动。
+- 浏览器刷新不影响执行。服务关闭会终止自己启动的评测进程组；意外重启将未完成运行标为中断，不自动重跑。存在中断运行时暂停队列。检查对应输出中的 trial 名称和遗留进程、Docker 容器并完成清理后，用 `.venv/bin/agent-harness-eval serve --recover` 确认恢复；中断记录保留为失败，不重新执行。若旧进程仍持有锁，新服务拒绝启动。
 - 默认禁止创建真实模型运行。需要时由调用环境注入 `DEEPSEEK_API_KEY`，使用 `serve --allow-live`，并在页面明确确认本次不设费用上限；历史授权不自动沿用到新任务。重启后执行旧队列仍检查本次启动策略。不要将密钥填入模板或页面。
 
 首版不提供远程访问、账号系统、取消按钮或断点续跑。页面轮询读取文件，适合本地少量实验；数据增长后再引入结果索引。模板准备依赖原有安装步骤。验收见 [WEB_VALIDATION.md](WEB_VALIDATION.md)。
@@ -25,9 +25,9 @@ uv sync --locked --python 3.12
 
 ## 结构
 
-- `src/agent_eval/agents/`：Harbor installed-agent 适配器；不包含 SWE 评分逻辑。
+- `src/agent_harness_eval/agents/`：Harbor installed-agent 适配器；不包含 SWE 评分逻辑。
 - `tasks/`：两个非 SWE 的文件任务，演示独立 benchmark 和多指标评分。
-- `src/agent_eval/benchmarks/`：SWE 任务加工、完整补丁提取、predictions 导出、官方复评入口。
+- `src/agent_harness_eval/benchmarks/`：SWE 任务加工、完整补丁提取、predictions 导出、官方复评入口。
 - `experiments/`：Agent、任务、重复次数、资源与模型配置的组合。
 - `locks/`、`uv.lock`：Python 与 DSH npm 依赖锁。
 - `integrations/bkcrab-eval.patch`：BKCrab 仓库中独立入口的可移植补丁；当前工作区已添加该入口。
@@ -41,7 +41,7 @@ uv sync --locked --python 3.12
 export PATH="$PWD/.tools:$PATH"
 uv sync --locked --python 3.12
 .venv/bin/pytest -q
-.venv/bin/agent-eval run experiments/controls.json --output artifacts/controls-new
+.venv/bin/agent-harness-eval run experiments/controls.json --output artifacts/controls-new
 ```
 
 构建原生 Agent。若是全新 BKCrab checkout，先在该 checkout 中用 `git apply --check` 检查并应用本仓库 `integrations/bkcrab-eval.patch`；已有入口不要重复应用。
@@ -49,8 +49,8 @@ uv sync --locked --python 3.12
 ```bash
 export BKCRAB_SOURCE=/home/xavier/Desktop/github/bkcrab
 bash scripts/prepare-native.sh
-.venv/bin/agent-eval validate experiments/native-mock.json
-.venv/bin/agent-eval run experiments/native-mock.json --output artifacts/native-new
+.venv/bin/agent-harness-eval validate experiments/native-mock.json
+.venv/bin/agent-harness-eval run experiments/native-mock.json --output artifacts/native-new
 ```
 
 已有 `.cache/dsh-bundle03` 时，构建命令会拒绝覆盖；重建应选新的输出目录并更新实验引用。运行目录也拒绝覆盖。配置的相对路径以配置文件所在目录为基准。
@@ -79,10 +79,10 @@ BKCrab 使用 `agent.NewManager` 和原生 `HandleMessage`，文件工具与 she
 
 ```bash
 bash scripts/prepare-swe.sh django__django-13741
-.venv/bin/agent-eval run experiments/swe-controls.json --output artifacts/swe-new
-.venv/bin/agent-eval run experiments/swe-native-mock.json --output artifacts/swe-native-new
-.venv/bin/agent-eval swe-export artifacts/swe-new artifacts/swe-new-predictions
-.venv/bin/agent-eval swe-regrade artifacts/swe-new-predictions/oracle.attempt-1.jsonl \
+.venv/bin/agent-harness-eval run experiments/swe-controls.json --output artifacts/swe-new
+.venv/bin/agent-harness-eval run experiments/swe-native-mock.json --output artifacts/swe-native-new
+.venv/bin/agent-harness-eval swe-export artifacts/swe-new artifacts/swe-new-predictions
+.venv/bin/agent-harness-eval swe-regrade artifacts/swe-new-predictions/oracle.attempt-1.jsonl \
   --dataset datasets/swe-smoke/records.json --run-id oracle-control
 # 审阅命令后加 --execute 执行。没有真实模型调用；会构建/运行 Docker 环境。
 ```
@@ -104,7 +104,7 @@ Harbor 上游模板内置 SWE parser **4.0.3**；官方独立复评固定 **4.1.
 set -a
 source .env
 set +a
-.venv/bin/agent-eval run experiments/swe-live-one.json --output artifacts/swe-live-new
+.venv/bin/agent-harness-eval run experiments/swe-live-one.json --output artifacts/swe-live-new
 ```
 
 容器内 relay 仅转发官方 `api.deepseek.com`，分别使用 OpenAI Chat Completions / Anthropic Messages 协议；模型名、max_tokens=32768、thinking=enabled、effort=high、temperature=1、top_p=0.95 统一。Agent 原生循环、工具、系统提示和上下文管理仍各自保留。`native_wire_requests.jsonl` 保留归一化前请求，`wire_requests.jsonl` 为实际发送请求；流式事件、错误、usage 单独保存。
@@ -118,3 +118,38 @@ set +a
 报告保留运行异常、缺失 attempt、原始指标和分母，同时给出已评分均值及未评分按零计入的值。逐任务配对要求所有 attempt 都评分完成。不同 benchmark 不合成总分，小样本不输出显著性结论。
 
 来源哈希可以识别 BKCrab dirty checkout，但不能代替源码归档；本地未提交依赖变更须另行保存后才能异机重建。此次未改动 BKCrab 既有变更，未推送任何远程仓库。无模型验收见 `VALIDATION.md`，真实单题试跑与官方复评见 `LIVE_VALIDATION.md`。
+
+控制台默认展示已复核的真实评测；平台自测和调试记录可单独筛选。同一批次可能同时包含有效和诊断 Agent，批次完成次数不等于通过题目数。
+
+“结果对比”可选两条真实任务轨迹，查看请求/工具次数、缓存输入、测试返回、最终补丁与逐轮证据；原有汇总比较保留在“批次汇总对比”。历史样本的解释性注释保存在 `console_reviews.json`，只有证据哈希仍匹配时展示为已复核；新实验不会自动继承结论。缺少响应或计时证据时显示未知，不生成推测性的耗时归因。
+
+Trace 的原生埋点、代理采集、v2 时间口径与历史兼容说明见 [Trace 采集文档](docs/trace-collection.md)。新的代理计时随下次真实运行产生；已有实验不会补造历史时间。
+
+## 实验内 Agent 对比与版本
+
+打开 `/#compare`，先选择一个实验，查看本次全部任务的各 Agent 总览，再在逐题矩阵中选择两个 Agent。点击任务可并排展开补丁、测试输出和原生轨迹；重复尝试有独立选择器。运行详情中的「对比本实验 Agent」会直接进入该实验。只有一个 Agent 的实验也能查看成绩与单条轨迹。
+
+SWE 主分使用 `resolved` 语义：每题先计算所配置尝试的成功比例，再对任务等权平均。一次尝试就是本次子集解决率；多次尝试不会偷偷取最优。未结束、缺失、异常、无有效评分或额外记录均有独立计数，完整评分前只显示「已观测成功次数 / 计划次数」的暂定比例，不把未评分解释为失败。非二值 benchmark 保留其原始主指标单位。整体表始终覆盖本次全部任务，不随下方筛选改变。
+
+输入/输出 Token、执行秒数、USD 费用来自运行器原始结果。完整覆盖计划尝试时才显示总量，否则显示未知以及已知部分和覆盖次数；轨迹页另行核对原始请求完整性。诊断记录和待复核结果不会自动变成有效评测。Harbor 内置评分与官方独立复评仍分别标注。
+
+新实验可以在模板 `benchmark` 中声明以下信息，和选题清单一起冻结到实验配置及 manifest：
+
+```json
+{
+  "id": "swe-verified-sample",
+  "tasks": ["../datasets/swe-live-one/django__django-13741"],
+  "primary_metric": "reward",
+  "score_kind": "resolved",
+  "dataset": {
+    "name": "princeton-nlp/SWE-bench_Verified",
+    "revision": null,
+    "split": "test"
+  },
+  "evaluation": null
+}
+```
+
+`dataset.revision` 应填写实际获取数据时固定的修订；`evaluation` 可记录 `name`、`version`、`environment`（例如实际评分器版本、环境镜像摘要）。这些是可追溯的配置声明，控制台不会据此下载/切换数据，也不会验证声明的远程版本。需要先准备对应版本的真实任务目录，再创建实验。现有 SWE 模板记录了已知的数据集来源与 test split，未保存的修订仍为 null；旧实验绝不使用新模板追填版本。旧 SWE 的 resolved 语义仅从冻结的 SWE 任务证据识别，不覆盖显式主指标声明。
+
+跨实验批次比较保留为辅助入口。它检查数据集名称/修订/split、评分器/环境声明、任务内容哈希、模型、主指标、重复次数与资源等条件；旧 SWE 的数据集版本不明时不声称可直接配对。不同版本和不同选题的实验不会自动合并成总分。`GET /api/runs/{run_id}/comparison` 提供只读的整体统计和逐题结果；不会启动评测。

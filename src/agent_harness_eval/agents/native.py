@@ -36,7 +36,7 @@ class Native(BaseInstalledAgent):
         await environment.upload_file(source, "/installed-agent/model_server.py")
         await environment.upload_file(source, "/logs/agent/model_server.py")
         if live:
-            with tempfile.TemporaryDirectory(prefix="agent-eval-secret-") as tmp:
+            with tempfile.TemporaryDirectory(prefix="agent-harness-eval-secret-") as tmp:
                 secret = Path(tmp) / "key"
                 secret.touch(mode=0o600)
                 secret.write_text(os.environ[self.model_config["api_key_env"]])

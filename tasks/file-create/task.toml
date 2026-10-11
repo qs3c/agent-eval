@@ -1,0 +1,14 @@
+schema_version = "1.4"
+[metadata]
+purpose = "Integration fixture, not a model quality benchmark"
+[agent]
+timeout_sec = 60
+network_mode = "no-network"
+[verifier]
+timeout_sec = 30
+network_mode = "no-network"
+[environment]
+workdir = "/app"
+network_mode = "no-network"
+cpus = 2
+memory_mb = 4096

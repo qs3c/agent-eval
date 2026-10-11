@@ -1,0 +1,36 @@
+{
+  "name": "swe-native-mock",
+  "model": {
+    "mode": "mock",
+    "name": "deepseek-v4-flash"
+  },
+  "agents": [
+    {
+      "id": "bkcrab",
+      "implementation": "agent_eval.agents.bkcrab:Bkcrab",
+      "version": "source-snapshot",
+      "kwargs": {
+        "binary": "../.cache/bkcrab-eval",
+        "provenance": "../.cache/bkcrab-provenance.json"
+      }
+    },
+    {
+      "id": "dsh-standard",
+      "implementation": "agent_eval.agents.dsh:DeepSeekStandard",
+      "version": "0.2.1-alpha.2",
+      "kwargs": {
+        "bundle": "../.cache/dsh-bundle03/runtime.tar.gz",
+        "provenance": "../.cache/dsh-bundle03/provenance.json"
+      }
+    }
+  ],
+  "benchmark": {
+    "id": "swe-verified-smoke",
+    "tasks": [
+      "../datasets/swe-smoke/django__django-13741"
+    ]
+  },
+  "timeout_seconds": 120,
+  "setup_timeout_seconds": 600,
+  "concurrency": 1
+}

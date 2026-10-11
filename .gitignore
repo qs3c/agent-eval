@@ -7,3 +7,8 @@ __pycache__/
 artifacts/
 datasets/
 .env
+logs/
+*.oracle-control.json
+*.nop-control.json
+.ruff_cache/
+*.mock-negative.json

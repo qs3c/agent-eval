@@ -1,0 +1,404 @@
+diff --git a/cmd/bkcrab-eval/main.go b/cmd/bkcrab-eval/main.go
+new file mode 100644
+index 0000000..566a0fb
+--- /dev/null
++++ b/cmd/bkcrab-eval/main.go
+@@ -0,0 +1,210 @@
++// bkcrab-eval runs one task through the production Agent in an externally isolated environment.
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"flag"
++	"fmt"
++	"io"
++	"log/slog"
++	"os"
++	"os/signal"
++	"path/filepath"
++	"sync"
++	"syscall"
++	"time"
++
++	"github.com/qs3c/bkcrab/internal/agent"
++	"github.com/qs3c/bkcrab/internal/bus"
++	"github.com/qs3c/bkcrab/internal/config"
++	"github.com/qs3c/bkcrab/internal/provider"
++	"github.com/qs3c/bkcrab/internal/workspace"
++)
++
++func main() {
++	if err := run(); err != nil {
++		fmt.Fprintln(os.Stderr, err)
++		os.Exit(1)
++	}
++}
++
++func run() error {
++	var work, home, out, prompt, model, endpoint, keyEnv string
++	var maxTokens, window, iterations int
++	var timeout time.Duration
++	flag.StringVar(&work, "workspace", "", "absolute task workspace")
++	flag.StringVar(&home, "home", "", "fresh isolated state directory")
++	flag.StringVar(&out, "output", "", "evidence directory")
++	flag.StringVar(&prompt, "prompt-file", "", "task instruction file")
++	flag.StringVar(&model, "model", "", "provider model id")
++	flag.StringVar(&endpoint, "api-base", "", "OpenAI-compatible API base")
++	flag.StringVar(&keyEnv, "api-key-env", "EVAL_MODEL_API_KEY", "credential environment variable")
++	flag.IntVar(&maxTokens, "max-tokens", 8192, "maximum output tokens per call")
++	flag.IntVar(&window, "context-window", 131072, "context capacity, recorded explicitly")
++	flag.IntVar(&iterations, "max-iterations", 100, "tool iteration limit")
++	flag.DurationVar(&timeout, "timeout", 20*time.Minute, "whole task wall-clock limit")
++	flag.Parse()
++	for _, p := range []string{work, home, out, prompt} {
++		if !filepath.IsAbs(p) {
++			return errors.New("workspace, home, output and prompt-file must be absolute")
++		}
++	}
++	if model == "" || endpoint == "" || maxTokens <= 0 || window <= maxTokens || iterations <= 0 || timeout <= 0 {
++		return errors.New("invalid model configuration or limits")
++	}
++	if fi, err := os.Stat(work); err != nil || !fi.IsDir() {
++		return errors.New("workspace must exist")
++	}
++	if _, err := os.Stat(home); !os.IsNotExist(err) {
++		return errors.New("home must be new for each attempt")
++	}
++	if err := os.MkdirAll(home, 0700); err != nil {
++		return err
++	}
++	if err := os.MkdirAll(out, 0700); err != nil {
++		return err
++	}
++	if err := os.Setenv("BKCRAB_HOME", home); err != nil {
++		return err
++	}
++	text, err := os.ReadFile(prompt)
++	if err != nil {
++		return err
++	}
++	key := os.Getenv(keyEnv)
++	if key == "" {
++		return fmt.Errorf("missing credential environment variable %s", keyEnv)
++	}
++	sink, err := newEvidence(filepath.Join(out, "events.jsonl"), key)
++	if err != nil {
++		return err
++	}
++	defer sink.file.Close()
++	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
++	prov := &tracedProvider{inner: provider.NewOpenAI(key, endpoint), sink: sink}
++	disabled := false
++	rc := config.ResolvedAgent{ID: "eval", UserID: "eval", DisplayName: "BKCrab", Home: home, Workspace: work, Model: model, MaxTokens: maxTokens, ContextWindow: window, Temperature: 0, MaxToolIterations: iterations, MaxParallelToolCalls: 4, AutoPersist: &disabled}
++	ws := &taskWorkspace{LocalFS: workspace.NewLocalFS(filepath.Dir(work)), name: filepath.Base(work)}
++	manager, err := agent.NewManager([]config.ResolvedAgent{rc}, prov, bus.New(), agent.WithUserID("eval"), agent.WithWorkspaceStore(ws), agent.WithSkillsLearner(config.SkillsLearnerCfg{Enabled: &disabled}))
++	if err != nil {
++		return err
++	}
++	defer manager.CloseAll()
++	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
++	defer cancel()
++	ctx, deadline := context.WithTimeout(ctx, timeout)
++	defer deadline()
++	ctx = agent.ContextWithStream(ctx, nil, sink, nil, "eval", "eval", "trial")
++	sink.write("run_config", map[string]any{"model": model, "endpoint": endpoint, "max_tokens": maxTokens, "context_window": window, "max_iterations": iterations, "profile": "isolated-coding", "disabled_services": []string{"gateway", "IM", "RAG", "MCP", "cross-task memory", "skills learning", "database goals/cron"}, "workspace": work})
++	started := time.Now()
++	answer := manager.DefaultAgent().HandleMessage(ctx, bus.InboundMessage{Channel: "eval", ChatID: "trial", UserID: "eval", OwnerUserID: "eval", AgentID: "eval", Text: string(text)})
++	reason := "completed"
++	if ctx.Err() != nil {
++		reason = "cancelled"
++		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
++			reason = "timeout"
++		}
++	}
++	sink.mu.Lock()
++	modelFailed := sink.failed
++	iterationCap := sink.iterationCap
++	sink.mu.Unlock()
++	if iterationCap && reason == "completed" {
++		reason = "iteration_limit"
++	}
++	if modelFailed && reason == "completed" {
++		reason = "agent_error"
++	}
++	sink.write("run_end", map[string]any{"reason": reason, "final_response": answer, "elapsed_seconds": time.Since(started).Seconds()})
++	sink.mu.Lock()
++	logErr := sink.err
++	sink.mu.Unlock()
++	if err := sink.file.Sync(); err != nil {
++		return err
++	}
++	if logErr != nil {
++		return logErr
++	}
++	if reason != "completed" {
++		return fmt.Errorf("task stopped: %s", reason)
++	}
++	return nil
++}
++
++type evidence struct {
++	mu           sync.Mutex
++	file         *os.File
++	secret       string
++	seq          int64
++	err          error
++	failed       bool
++	iterationCap bool
++}
++
++func newEvidence(path, secret string) (*evidence, error) {
++	f, e := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
++	return &evidence{file: f, secret: secret}, e
++}
++func (s *evidence) write(kind string, data any) {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	s.seq++
++	b, e := json.Marshal(map[string]any{"seq": s.seq, "time": time.Now().UTC(), "type": kind, "data": data})
++	if e == nil {
++		b = redact(b, s.secret)
++		_, e = s.file.Write(append(b, '\n'))
++	}
++	if e != nil {
++		s.err = e
++	}
++}
++func (s *evidence) AppendSessionEvent(_ context.Context, _, _, _, kind string, data []byte) (int64, error) {
++	s.write(kind, json.RawMessage(data))
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	if kind == "error" {
++		s.failed = true
++	}
++	var payload struct {
++		Metadata struct {
++			IterationCapReached bool `json:"iterationCapReached"`
++		} `json:"metadata"`
++	}
++	if json.Unmarshal(data, &payload) == nil && payload.Metadata.IterationCapReached {
++		s.iterationCap = true
++	}
++	return s.seq, s.err
++}
++
++// Scope mapping is an evaluation transport concern. All real tools use the same task root.
++type taskWorkspace struct {
++	*workspace.LocalFS
++	name string
++}
++
++func (w *taskWorkspace) LocalScopeDir(_, _, _ string) (string, bool) {
++	return w.LocalFS.LocalScopeDir(w.name, "", "")
++}
++func (w *taskWorkspace) Put(c context.Context, _, _, _, p string, r io.Reader, n int64, t string) error {
++	return w.LocalFS.Put(c, w.name, "", "", p, r, n, t)
++}
++func (w *taskWorkspace) Get(c context.Context, _, _, _, p string) (io.ReadCloser, error) {
++	return w.LocalFS.Get(c, w.name, "", "", p)
++}
++func (w *taskWorkspace) Stat(c context.Context, _, _, _, p string) (*workspace.ObjectInfo, error) {
++	return w.LocalFS.Stat(c, w.name, "", "", p)
++}
++func (w *taskWorkspace) List(c context.Context, _, _, _ string) ([]workspace.ObjectInfo, error) {
++	return w.LocalFS.List(c, w.name, "", "")
++}
++func (w *taskWorkspace) Delete(c context.Context, _, _, _, p string) error {
++	return w.LocalFS.Delete(c, w.name, "", "", p)
++}
++func (w *taskWorkspace) Move(context.Context, string, string, string, string, string) error {
++	return errors.New("evaluation task workspace cannot move")
++}
++func (w *taskWorkspace) SignedURL(context.Context, string, string, string, string, time.Duration) (string, error) {
++	return "", workspace.ErrSignedURLUnsupported
++}
+diff --git a/cmd/bkcrab-eval/trace.go b/cmd/bkcrab-eval/trace.go
+new file mode 100644
+index 0000000..aea116f
+--- /dev/null
++++ b/cmd/bkcrab-eval/trace.go
+@@ -0,0 +1,81 @@
++package main
++
++import (
++	"bytes"
++	"context"
++	"fmt"
++	"github.com/qs3c/bkcrab/internal/provider"
++	"sync/atomic"
++	"time"
++)
++
++func redact(b []byte, secret string) []byte {
++	if secret != "" {
++		return bytes.ReplaceAll(b, []byte(secret), []byte("[REDACTED]"))
++	}
++	return b
++}
++
++type tracedProvider struct {
++	inner provider.Provider
++	sink  *evidence
++	calls atomic.Int64
++}
++
++func (p *tracedProvider) request(m []provider.Message, t []provider.Tool, model string, n int, temp float64) int64 {
++	id := p.calls.Add(1)
++	p.sink.write("model_request", map[string]any{"call_id": id, "messages": m, "tools": t, "model": model, "max_tokens": n, "temperature": temp, "boundary": "provider interface before wire serialization"})
++	return id
++}
++func (p *tracedProvider) failure(err error) {
++	if err != nil {
++		p.sink.mu.Lock()
++		p.sink.failed = true
++		p.sink.mu.Unlock()
++	}
++}
++func (p *tracedProvider) Chat(c context.Context, m []provider.Message, t []provider.Tool, model string, n int, temp float64) (*provider.Response, error) {
++	id := p.request(m, t, model, n, temp)
++	start := time.Now()
++	r, e := p.inner.Chat(c, m, t, model, n, temp)
++	p.failure(e)
++	p.sink.write("model_response", map[string]any{"call_id": id, "response": r, "error": errorText(e), "elapsed_seconds": time.Since(start).Seconds()})
++	return r, e
++}
++func (p *tracedProvider) ChatStream(c context.Context, m []provider.Message, t []provider.Tool, model string, n int, temp float64) (*provider.StreamReader, error) {
++	id := p.request(m, t, model, n, temp)
++	r, e := p.inner.ChatStream(c, m, t, model, n, temp)
++	if e != nil {
++		p.failure(e)
++		p.sink.write("model_error", map[string]any{"call_id": id, "error": e.Error()})
++		return nil, e
++	}
++	ch := make(chan provider.StreamChunk)
++	out := provider.NewStreamReader(ch)
++	go func() {
++		defer close(ch)
++		for {
++			chunk, ok := r.Next()
++			if !ok {
++				break
++			}
++			p.sink.write("model_stream_chunk", map[string]any{"call_id": id, "chunk": chunk})
++			select {
++			case ch <- chunk:
++			case <-c.Done():
++				out.SetErr(c.Err())
++				return
++			}
++		}
++		out.SetErr(r.Err())
++		p.failure(r.Err())
++		p.sink.write("model_stream_end", map[string]any{"call_id": id, "error": errorText(r.Err())})
++	}()
++	return out, nil
++}
++func errorText(e error) any {
++	if e == nil {
++		return nil
++	}
++	return fmt.Sprint(e)
++}
+diff --git a/cmd/bkcrab-eval/main_test.go b/cmd/bkcrab-eval/main_test.go
+new file mode 100644
+index 0000000..48ad014
+--- /dev/null
++++ b/cmd/bkcrab-eval/main_test.go
+@@ -0,0 +1,95 @@
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"io"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/qs3c/bkcrab/internal/provider"
++	"github.com/qs3c/bkcrab/internal/workspace"
++)
++
++func TestTaskWorkspaceAllScopesUseTaskRoot(t *testing.T) {
++	root := t.TempDir()
++	w := &taskWorkspace{LocalFS: workspace.NewLocalFS(root), name: "task"}
++	ctx := context.Background()
++	if err := w.Put(ctx, "agent", "project", "session", "result.txt", strings.NewReader("ready\n"), 6, "text/plain"); err != nil {
++		t.Fatal(err)
++	}
++	data, err := os.ReadFile(filepath.Join(root, "task", "result.txt"))
++	if err != nil || string(data) != "ready\n" {
++		t.Fatalf("task root write: %q %v", data, err)
++	}
++	r, err := w.Get(ctx, "other", "other", "other", "result.txt")
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer r.Close()
++	data, err = io.ReadAll(r)
++	if err != nil || string(data) != "ready\n" {
++		t.Fatalf("scope mapping: %q %v", data, err)
++	}
++	dir, ok := w.LocalScopeDir("a", "p", "s")
++	if !ok || dir != filepath.Join(root, "task") {
++		t.Fatalf("shell root %q", dir)
++	}
++	if _, err := w.Stat(ctx, "a", "p", "s", "result.txt"); err != nil {
++		t.Fatal(err)
++	}
++	if err := w.Delete(ctx, "a", "p", "s", "result.txt"); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := os.Stat(filepath.Join(root, "task", "result.txt")); !os.IsNotExist(err) {
++		t.Fatal("file not removed")
++	}
++}
++
++func TestEvidenceRedactsAndPreservesJSON(t *testing.T) {
++	path := filepath.Join(t.TempDir(), "events.jsonl")
++	sink, err := newEvidence(path, "test-api-key")
++	if err != nil {
++		t.Fatal(err)
++	}
++	sink.write("test", map[string]string{"value": "test-api-key"})
++	sink.file.Close()
++	data, _ := os.ReadFile(path)
++	if strings.Contains(string(data), "test-api-key") || !json.Valid(data) {
++		t.Fatalf("bad evidence %s", data)
++	}
++}
++
++type failingStream struct{}
++
++func (failingStream) Chat(context.Context, []provider.Message, []provider.Tool, string, int, float64) (*provider.Response, error) {
++	return nil, errors.New("fixture failure")
++}
++func (failingStream) ChatStream(context.Context, []provider.Message, []provider.Tool, string, int, float64) (*provider.StreamReader, error) {
++	ch := make(chan provider.StreamChunk)
++	r := provider.NewStreamReader(ch)
++	r.SetErr(errors.New("fixture stream failure"))
++	close(ch)
++	return r, nil
++}
++func TestStreamErrorPropagates(t *testing.T) {
++	sink, err := newEvidence(filepath.Join(t.TempDir(), "events.jsonl"), "")
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer sink.file.Close()
++	p := &tracedProvider{inner: failingStream{}, sink: sink}
++	r, err := p.ChatStream(context.Background(), nil, nil, "fixture", 1, 0)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, ok := r.Next(); ok {
++		t.Fatal("unexpected chunk")
++	}
++	if r.Err() == nil || !strings.Contains(r.Err().Error(), "fixture stream failure") {
++		t.Fatalf("lost failure %v", r.Err())
++	}
++}

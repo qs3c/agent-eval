@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 from ..provenance import digest, write_json
+from ..manifests import load_manifest
 from ..report import task_key
 
 
@@ -48,7 +49,7 @@ def instrument(task: Path):
 
 
 def export(run: Path, output: Path):
-    manifest = json.loads((run / "manifest.json").read_text())
+    manifest = load_manifest(run)
     exp = manifest["experiment"]
     output.mkdir(parents=True, exist_ok=False)
     provenance = []

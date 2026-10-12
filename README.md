@@ -119,7 +119,9 @@ set +a
 
 报告保留运行异常、缺失 attempt、原始指标和分母，同时给出已评分均值及未评分按零计入的值。逐任务配对要求所有 attempt 都评分完成。不同 benchmark 不合成总分，小样本不输出显著性结论。
 
-来源哈希可以识别 BKCrab dirty checkout，但不能代替源码归档；本地未提交依赖变更须另行保存后才能异机重建。此次未改动 BKCrab 既有变更，未推送任何远程仓库。无模型验收见 `VALIDATION.md`，真实单题试跑与官方复评见 `LIVE_VALIDATION.md`。
+新的 manifest v2 将文件清单分离为去重附件，主清单只保存配置、摘要和引用。新准备的 SWE 任务使用公共评分运行时归档；历史实验可运行 `agent-harness-eval manifest-index artifacts/<run>` 生成小索引，原清单不覆盖。审计使用 `manifest-verify`；详见 [清单格式](docs/manifest-format.md)。
+
+新的 BKCrab 源码快照以 Git commit/tree 标识已提交内容，并保存未提交差异和未跟踪文件；旧快照只有来源哈希，不能代替源码归档，历史实验不会自动补造证据。无模型验收见 `VALIDATION.md`，真实单题试跑与官方复评见 `LIVE_VALIDATION.md`。
 
 控制台默认展示已复核的真实评测；平台自测和调试记录可单独筛选。同一批次可能同时包含有效和诊断 Agent，批次完成次数不等于通过题目数。
 

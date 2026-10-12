@@ -20,7 +20,8 @@ from pathlib import Path
 from pydantic import Field
 
 from .config import Experiment, Strict, load
-from .provenance import tree_manifest, write_json
+from .provenance import validate_tree, write_json
+from .manifests import load_manifest
 from .report import duration, task_key
 
 
@@ -65,8 +66,11 @@ def read_json(root, path, *, max_bytes=16 * 1024 * 1024):
 
 
 def read_manifest(root):
-    # Frozen multi-task provenance can exceed the ordinary JSON limit.
-    return read_json(root, root / "manifest.json", max_bytes=64 * 1024 * 1024)
+    try:
+        safe_file(root, root / "manifest.json")
+        return load_manifest(root)
+    except (OSError, ValueError, TypeError):
+        return None
 
 
 def usable_report(value):
@@ -236,7 +240,7 @@ class Console:
         try:
             for i, task in enumerate(config["benchmark"]["tasks"]):
                 source = Path(task)
-                tree_manifest(
+                validate_tree(
                     source
                 )  # Reject symlinks before copying executable inputs.
                 target = frozen / "tasks" / source.name
@@ -458,9 +462,7 @@ class Console:
         ]
         kind = benchmark.get("score_kind", "metric")
         original = (
-            (read_manifest(root) or {})
-            .get("experiment", {})
-            .get("benchmark", {})
+            (read_manifest(root) or {}).get("experiment", {}).get("benchmark", {})
         )
         if (
             "score_kind" not in original

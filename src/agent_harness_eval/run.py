@@ -1,5 +1,6 @@
 import asyncio
 import importlib.metadata
+import json
 import os
 import shutil
 from datetime import UTC, datetime
@@ -11,6 +12,7 @@ from harbor.models.job.config import JobConfig, RetryConfig
 from harbor.models.trial.config import AgentConfig, EnvironmentConfig, TaskConfig
 
 from .config import Experiment
+from .manifests import compact_manifest
 from .provenance import digest, tree_manifest, write_json
 from .report import report
 
@@ -41,6 +43,7 @@ async def run_experiment(exp: Experiment, output: Path):
             )
     output.mkdir(parents=True, exist_ok=False)
     copied_tasks = []
+    task_hash_cache = {}
     manifest = {
         "created_at": datetime.now(UTC).isoformat(),
         "harbor": importlib.metadata.version("harbor"),
@@ -65,8 +68,23 @@ async def run_experiment(exp: Experiment, output: Path):
     }
     for task in exp.benchmark.tasks:
         target = output / "tasks" / task.name
+        # A cache scoped to this freeze reuses hashes only for the same unchanged
+        # inode (e.g. shared prepared runtime archives), never by name or version.
+        inventory = tree_manifest(task, hash_cache=task_hash_cache)
         shutil.copytree(task, target, symlinks=True)
-        manifest["tasks"][task.name] = tree_manifest(target)
+        # Detect source changes during copying, including additions/deletions.
+        if inventory != tree_manifest(task, hash_cache=task_hash_cache):
+            raise ValueError(f"Task changed while freezing: {task}")
+        runtime = target / "runtime-provenance.json"
+        if runtime.is_file():
+            identity = json.loads(runtime.read_text())
+            inventory["environment"] = {"base_image": identity.get("image")}
+            grader = target / "grader-provenance.json"
+            if grader.is_file():
+                inventory["environment"]["runtime_archive_sha256"] = json.loads(
+                    grader.read_text()
+                ).get("archive_sha256")
+        manifest["tasks"][task.name] = inventory
         copied_tasks.append(TaskConfig(path=target))
     artifact_paths = {}
     for agent in exp.agents:
@@ -78,9 +96,29 @@ async def run_experiment(exp: Experiment, output: Path):
                 target = output / "agent-artifacts" / agent.id / source.name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
+                if key == "provenance":
+                    identity = json.loads(source.read_text())
+                    if identity.get("changes_directory"):
+                        changes = source.parent / identity["changes_directory"]
+                        if (
+                            changes.is_symlink()
+                            or changes.parent.resolve() != source.parent.resolve()
+                        ):
+                            raise ValueError(
+                                "Source evidence directory escapes provenance"
+                            )
+                        for name, expected in identity["changes"].items():
+                            evidence = changes / name
+                            if (
+                                evidence.is_symlink()
+                                or evidence.parent.resolve() != changes.resolve()
+                                or digest(evidence) != expected
+                            ):
+                                raise ValueError("Source change evidence hash mismatch")
+                        shutil.copytree(changes, target.parent / changes.name)
                 artifact_paths[agent.id][key] = str(target)
                 manifest["agent_artifacts"][agent.id][key] = digest(target)
-    write_json(output / "manifest.json", manifest)
+    write_json(output / "manifest.json", compact_manifest(output, manifest))
     # Separate named jobs preserve agent identity even when two configs use the same adapter.
     try:
         for agent in exp.agents:

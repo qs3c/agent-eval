@@ -8,12 +8,16 @@ from .run import execute
 
 
 def main():
-    p = argparse.ArgumentParser(description="Agent harness evaluation workbench (Harbor)")
+    p = argparse.ArgumentParser(
+        description="Agent harness evaluation workbench (Harbor)"
+    )
     sub = p.add_subparsers(dest="command", required=True)
     q = sub.add_parser("serve", help="启动本机评测控制台")
     q.add_argument("--root", type=Path, default=Path.cwd())
     q.add_argument("--port", type=int, default=8765)
-    q.add_argument("--host", default="127.0.0.1", help="监听的具体 IP 地址（例如 Tailscale IP）")
+    q.add_argument(
+        "--host", default="127.0.0.1", help="监听的具体 IP 地址（例如 Tailscale IP）"
+    )
     q.add_argument("--allow-live", action="store_true")
     q.add_argument(
         "--recover",
@@ -27,6 +31,9 @@ def main():
             q.add_argument("--output", type=Path, required=True)
     q = sub.add_parser("report")
     q.add_argument("run", type=Path)
+    for name in ("manifest-index", "manifest-verify"):
+        q = sub.add_parser(name)
+        q.add_argument("run", type=Path)
     q = sub.add_parser("snapshot-bkcrab")
     q.add_argument("source", type=Path)
     q.add_argument("binary", type=Path)
@@ -64,11 +71,22 @@ def main():
         execute(load(args.config), args.output)
     elif args.command == "report":
         report(args.run)
+    elif args.command == "manifest-index":
+        from .manifests import index_legacy_manifest
+
+        print(index_legacy_manifest(args.run))
+    elif args.command == "manifest-verify":
+        from .manifests import verify_manifest
+
+        verify_manifest(args.run)
+        print("Manifest audit passed")
     elif args.command == "snapshot-bkcrab":
         write_json(
             args.output,
             {
-                **source_manifest(args.source.resolve()),
+                **source_manifest(
+                    args.source.resolve(), args.output.with_suffix(".source")
+                ),
                 "binary_sha256": digest(args.binary),
                 "profile": "isolated-coding",
             },

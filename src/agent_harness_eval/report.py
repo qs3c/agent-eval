@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from .manifests import load_manifest
 from .provenance import write_json
 
 
@@ -26,7 +27,7 @@ def task_key(value):
 
 
 def report(root: Path) -> dict:
-    manifest = json.loads((root / "manifest.json").read_text())
+    manifest = load_manifest(root)
     exp = manifest["experiment"]
     metric = exp["benchmark"]["primary_metric"]
     trials = []

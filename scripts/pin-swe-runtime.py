@@ -62,7 +62,7 @@ resolved = json.loads(
             "fastcore<1.11",
             "python",
             str(Path(__file__).with_name("materialize-grader.py").resolve()),
-            str((task / "environment/grader").resolve()),
+            str((task / "environment/grader-runtime.tar").resolve()),
             str((task / "tests/config.json").resolve()),
         ],
         text=True,
@@ -70,10 +70,20 @@ resolved = json.loads(
 )
 write_json(
     task / "grader-provenance.json",
-    {"packages": resolved["packages"], "python": Path(resolved["python"]).name},
+    {
+        "packages": resolved["packages"],
+        "python": Path(resolved["python"]).name,
+        "archive_sha256": resolved["bundle"]["sha256"],
+        "file_count": resolved["bundle"]["file_count"],
+        "inventory_sha256": resolved["bundle"]["inventory_sha256"],
+    },
+)
+shutil.copyfile(
+    Path(resolved["bundle"]["path"]).parent / resolved["bundle"]["inventory"],
+    task / "grader-files.json",
 )
 with dockerfile.open("a") as f:
-    f.write("COPY grader /opt/agent-harness-eval-grader\n")
+    f.write("ADD grader-runtime.tar /opt/agent-harness-eval-grader/\n")
 verifier = task / "tests/test.sh"
 verifier.write_text(
     verifier.read_text().replace(

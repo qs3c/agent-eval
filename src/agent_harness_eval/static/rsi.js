@@ -7,6 +7,7 @@ const rsiCategories = { agent_provenance: "源码版本", trial_artifact: "任�
   guardian_incident: "守护事件", manual_intervention: "人工介入记录", manual_intervention_index: "人工介入索引",
   manual_diagnostic_snapshot: "人工诊断快照", legacy_run_watchdog: "历史监控记录" };
 const rsiActionNames = { improve: "分析与改进", evaluate: "父子复评", publish: "发布草稿 PR" };
+const rsiExecutorNames = { "builtin-bkcrab": "BKCrab", "builtin-dsh": "DSH" };
 const rsiUi = { tab: "cases", search: "", evidence: new Map(), pending: false };
 
 function rsiSelect(items, label) {
@@ -60,12 +61,53 @@ function rsiHeader(title, description, actions = []) {
   buttons.append(...actions); head.append(text, buttons); return head;
 }
 function rsiConfigNote(data) {
-  const box = el("div", undefined, "rsi-config"), text = el("div");
-  text.append(el("strong", "执行配置未就绪"), el("p", "已有证据可直接查阅。配置执行 Agent 后，即可从案例创建候选版本。"));
-  const detail = el("details"), summary = el("summary", "如何配置");
-  detail.append(summary, el("p", "在服务工作目录的 rsi-profiles 中，将 bkcrab.json.example 另存为 .json，填写适配器、目标仓库与检查命令。配置生效后刷新本页。"));
-  box.append(rsiBadge("待配置", "warning"), text, detail);
-  return data.profiles.length ? null : box;
+  const config = data.executor_settings;
+  // Older servers/custom-profile-only integrations can still render their existing records.
+  if (!config) return null;
+  const token = epoch, box = rsiPanel("执行 Agent", "选择负责分析证据和修改代码的 Agent；被改进的目标由诊断案例决定。");
+  box.classList.add("rsi-executor-panel");
+  const form = el("form", undefined, "rsi-executor-form"), row = el("div", undefined, "rsi-executor-row");
+  const select = rsiSelect(config.options.map(o => [o.id, o.name]), "执行 Agent"); select.value = config.executor;
+  const status = el("div", undefined, "rsi-executor-status"), save = rsiButton(config.configured ? "保存设置" : "保存并启用", null, true); save.type = "submit";
+  const description = el("p");
+  const detail = el("details"), summary = el("summary", "模型设置");
+  const fields = el("div", undefined, "rsi-form-grid"), model = el("input"); model.value = config.model; model.required = true; model.maxLength = 120;
+  const timeout = rsiSelect([["600", "10 分钟"], ["1800", "30 分钟"], ["3600", "60 分钟"], ["7200", "120 分钟"]], "执行时限");
+  if (![600, 1800, 3600, 7200].includes(config.timeout_seconds)) { const option = el("option", config.timeout_seconds + " 秒"); option.value = config.timeout_seconds; timeout.append(option); }
+  timeout.value = String(config.timeout_seconds);
+  const key = el("input"); key.type = "password"; key.autocomplete = "new-password"; key.placeholder = config.has_api_key ? "已配置，留空保持原密钥" : "输入 DeepSeek API Key";
+  key.maxLength = 4096;
+  fields.append(rsiField("模型", model, "连接 DeepSeek 官方服务；BKCrab 与 DSH 使用同一模型设置。"), rsiField("执行时限", timeout));
+  detail.append(summary, fields, rsiField("API Key", key, config.has_api_key ? "服务端已有凭据，不会回传到浏览器。" : "仅保存到服务端；保存设置不会调用模型。"));
+  detail.open = !config.has_api_key;
+  const error = el("p", undefined, "error"); error.setAttribute("role", "alert");
+  function updateStatus() {
+    const chosen = config.options.find(o => o.id === select.value);
+    status.replaceChildren(rsiBadge(!chosen.installed ? "运行环境未就绪" : !config.has_api_key ? "待填写 API Key" : config.configured && select.value === config.executor ? "已启用" : "可启用", chosen.installed && config.has_api_key ? "success" : "warning"));
+    description.textContent = chosen.description + " · 独立 Docker 环境";
+    save.disabled = !chosen.installed;
+    if (!chosen.installed) description.textContent += "，服务器运行包尚未安装。";
+  }
+  select.onchange = updateStatus;
+  row.append(rsiField("执行 Agent", select), status, save); form.append(row, description, detail, error); box.append(form); updateStatus();
+  form.onsubmit = async event => {
+    event.preventDefault(); if (save.disabled) return;
+    if (!config.has_api_key && !key.value.trim()) { detail.open = true; error.textContent = "请填写模型 API Key。"; key.focus(); return; }
+    save.disabled = true; save.textContent = "正在保存…"; error.textContent = "";
+    try {
+      const payload = { executor: select.value, model: model.value.trim(), timeout_seconds: Number(timeout.value) };
+      if (key.value.trim()) payload.api_key = key.value.trim();
+      await api("/api/rsi/executor-settings", { method: "PUT", body: JSON.stringify(payload) });
+      key.value = "";
+      if (epoch === token) {
+        const route = routeInfo();
+        if (route.page === "rsi-case") await renderRsiCase(token, route.id); else await renderRsi(token);
+        notice("执行 Agent 设置已保存，可从诊断案例创建候选。保存设置未启动模型调用。");
+      }
+    } catch (err) { if (epoch === token) error.textContent = err.message; }
+    finally { save.disabled = false; save.textContent = "保存设置"; }
+  };
+  return box;
 }
 
 async function renderRsi(token, identity, initial = true) {
@@ -121,10 +163,10 @@ async function renderRsi(token, identity, initial = true) {
       const matches = data.candidates.filter(c => `${c.id} ${c.profile_id} ${c.parent_commit} ${rsiPhases[c.phase] || c.phase}`.toLowerCase().includes(query));
       const actions = el("div", undefined, "rsi-list-actions"), create = rsiButton("＋ 创建候选版本", () => rsiCandidateDialog(token, data), true);
       create.disabled = !data.profiles.length || !data.cases.some(c => c.status === "ready");
-      actions.append(el("p", !data.profiles.length ? "配置执行 Agent 后可创建候选。" : !data.cases.some(c => c.status === "ready") ? "先创建一份已冻结的诊断案例。" : "基于已冻结的证据，启动一次独立改进。"), create); body.append(actions);
+      actions.append(el("p", !data.profiles.length ? "在上方选择执行 Agent 并保存，即可创建候选。" : !data.cases.some(c => c.status === "ready") ? "先创建一份已冻结的诊断案例。" : "基于已冻结的证据，启动一次独立改进。"), create); body.append(actions);
       if (!matches.length) body.append(rsiEmpty(query ? "没有匹配的候选" : "还没有候选版本", query ? "换个关键词重试。" : "候选生成后，这里将展示检查结果、复评结论与草稿 PR。"));
       else body.append(table(["候选 / 配置", "父版本", "检查状态", "最近复评", "交付"], matches.map(c => {
-        const name = el("div"); name.append(link(c.id.slice(0, 8) + " →", "#rsi/" + c.id, "rsi-text-link"), el("p", c.profile_id));
+        const name = el("div"); name.append(link(c.id.slice(0, 8) + " →", "#rsi/" + c.id, "rsi-text-link"), el("p", rsiExecutorNames[c.profile_id] || c.profile_id));
         return [name, c.parent_candidate ? link(c.parent_candidate.slice(0, 8), "#rsi/" + c.parent_candidate) : (c.parent_commit || "").slice(0, 10),
           rsiBadge(rsiPhases[c.phase] || c.phase, c.phase === "validated" ? "success" : ["failed", "interrupted"].includes(c.phase) ? "warning" : "neutral"),
           rsiAssessments[c.evaluations.at(-1)?.assessment] || "尚未复评", c.pr_url ? link("草稿 PR ↗", c.pr_url, "rsi-text-link") : "未发布"];
@@ -204,13 +246,16 @@ function rsiCandidateDialog(token, data, caseId) {
   }
   const source = rsiSelect(data.cases.filter(c => c.status === "ready").map(c => [c.id, `${c.agent} · ${rsiTitle(c)} · ${c.id.slice(0, 8)}`]), "诊断案例");
   if (caseId) source.value = caseId;
-  const profile = rsiSelect(data.profiles.map(p => [p.id, `${p.id} · ${p.version}`]), "执行配置");
+  const profile = rsiSelect(data.profiles.map(p => [p.id, p.name || `${p.id} · ${p.version}`]), "执行 Agent");
+  const preferred = "builtin-" + data.executor_settings?.executor;
+  if (data.profiles.some(p => p.id === preferred)) profile.value = preferred;
   const parent = rsiSelect([["", "配置中固定的源码版本"], ...data.candidates.filter(c => c.phase === "validated").map(c => [c.id, `${c.profile_id} · ${c.id.slice(0, 8)} · ${(c.commit || "").slice(0, 8)}`])], "父版本");
   const info = el("p", undefined, "rsi-inline-note");
-  const update = () => { const p = data.profiles.find(p => p.id === profile.value); info.textContent = `父子复评：${p.evaluation ? "已配置" : "未配置"} · 草稿 PR：${p.publication ? "已配置" : "未配置"}。运行改进可能调用执行 Agent 的模型。`; };
+  const update = () => { const p = data.profiles.find(p => p.id === profile.value); const c = data.cases.find(c => c.id === source.value); info.textContent = `被改进的 Agent：${c?.agent || "未知"}。${p.executor ? "执行模型：" + data.executor_settings.model + "。" : ""}父子复评：${p.evaluation ? "已配置" : "未配置"}。点击运行后将调用模型并产生费用。${p.executor && c?.agent !== "bkcrab" ? "当前内置检查仅检查补丁格式，不代表功能验证通过。" : ""}`; };
+  source.onchange = update;
   profile.onchange = update; update();
   const submit = rsiButton("创建并运行改进", null, true); submit.type = "submit";
-  form.append(rsiField("诊断案例", source), rsiField("执行配置", profile), rsiField("父版本", parent, "可从同一仓库中已通过检查的候选继续改进。"), info, error, submit);
+  form.append(rsiField("诊断案例", source), rsiField("执行 Agent", profile), rsiField("父版本", parent, "可从同一仓库中已通过检查的候选继续改进。"), info, error, submit);
   form.onsubmit = async event => {
     event.preventDefault(); if (submit.disabled) return;
     submit.disabled = true; submit.textContent = "正在创建候选…"; error.textContent = "";
@@ -298,7 +343,7 @@ async function renderRsiCandidate(token, identity, initial) {
   if (!initial && view.dataset.rsiSignature === signature) return;
   view.dataset.rsiSignature = signature;
   const shell = rsiShell(); shell.append(link("← 返回改进档案", "#rsi", "rsi-back"));
-  shell.append(rsiHeader("候选 " + identity.slice(0, 8), `${source.agent} · 执行配置 ${candidate.profile_id} · ${time(candidate.created_at)}`,
+  shell.append(rsiHeader("候选 " + identity.slice(0, 8), `改进目标 ${source.agent} · 执行 Agent ${rsiExecutorNames[candidate.profile_id] || candidate.profile_id} · ${time(candidate.created_at)}`,
     [link("查看诊断案例 →", "#rsi-case/" + candidate.case, "button")]));
   const status = el("div", undefined, "rsi-candidate-status");
   for (const [title, value, tone] of [["代码检查", rsiPhases[candidate.phase] || candidate.phase, candidate.phase === "validated" ? "success" : ["failed", "interrupted"].includes(candidate.phase) ? "warning" : "neutral"],
@@ -351,6 +396,7 @@ async function renderRsiCandidate(token, identity, initial) {
   if (candidate.source_checkout_dirty_ignored) versions.append(el("p", "原工作区有未提交改动；本候选仅使用固定的 Git 提交。"));
   diagnosis.append(versions); shell.append(diagnosis);
   const validation = rsiPanel("检查与复评", "检查结果与配对评测分别记录，不将未验证的修改标为效果改善。");
+  if (rsiExecutorNames[candidate.profile_id]) validation.append(el("p", source.agent === "bkcrab" ? "内置代码检查：Go 测试（go test ./...）。" : "内置代码检查仅验证补丁格式，不代表功能测试或模型效果验证通过。", "rsi-inline-note"));
   if (candidate.checks?.length) validation.append(table(["代码检查", "结果", "完成时间"], candidate.checks.map(c => ["检查 " + (c.index + 1), c.returncode === 0 ? rsiBadge("通过", "success") : rsiBadge("退出码 " + c.returncode, "warning"), time(c.finished_at)])));
   else validation.append(el("p", "暂无代码检查记录。", "rsi-inline-note"));
   if (candidate.evaluations.length) validation.append(table(["复评", "结论", "父分数", "候选分数", "异常（父 / 候选）", "可靠性 / 限制"], candidate.evaluations.map(e => [e.id.slice(0, 8), rsiAssessments[e.assessment] || e.assessment,

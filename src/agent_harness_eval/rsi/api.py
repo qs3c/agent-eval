@@ -3,6 +3,7 @@ from pydantic import Field
 
 from ..console import redact
 from .evidence import create_case
+from .executors import ExecutorSettings, builtin_profiles, catalog, save_settings
 from .models import Strict, load_profile
 from .runner import create_candidate
 from .store import Store
@@ -82,9 +83,14 @@ def router(console):
             ],
             "candidates": [public_candidate(c) for c in store.list("candidates")],
             "actions": store.actions(),
-            "profiles": profiles,
+            "profiles": builtin_profiles(console.root) + profiles,
+            "executor_settings": catalog(console.root),
             "allow_live": console.allow_live,
         }
+
+    @routes.put("/executor-settings")
+    def configure_executor(data: ExecutorSettings):
+        return save_settings(console.root, data)
 
     @routes.post("/cases", status_code=201)
     def new_case(data: CaseRequest):

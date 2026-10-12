@@ -30,6 +30,38 @@ const clickNamed = (doc, label) => {
   assert.ok(button, label); button.click(); return button;
 };
 const tick = () => new Promise(resolve => setImmediate(resolve));
+const executorSettings = { options: [{id:'bkcrab', name:'BKCrab', installed:true, description:'BKCrab 原生编码 Agent'}, {id:'dsh', name:'DSH', installed:true, description:'DeepSeek Harness · Standard'}], configured:false, executor:'bkcrab', model:'deepseek-flash', timeout_seconds:1800, has_api_key:true, ready:false };
+
+test('executor can be selected and saved in the page without editing profile files', async t => {
+  let settings = {...executorSettings}, saved;
+  const {run, doc, window} = setup(t, async (url, options) => {
+    if (options.method === 'PUT') { saved = JSON.parse(options.body); settings = {...settings, ...saved, configured:true, ready:true}; return settings; }
+    return url === '/api/rsi' ? overview({executor_settings:settings}) : {runs:[]};
+  });
+  await run('renderRsi(0)');
+  assert.deepEqual([...doc.querySelector('[aria-label="执行 Agent"]').options].map(o => o.text), ['BKCrab', 'DSH']);
+  const select = doc.querySelector('[aria-label="执行 Agent"]'); select.value = 'dsh'; select.dispatchEvent(new window.Event('change'));
+  await doc.querySelector('.rsi-executor-form').onsubmit({preventDefault(){}});
+  assert.deepEqual(saved, {executor:'dsh', model:'deepseek-flash', timeout_seconds:1800});
+  assert.equal(doc.querySelector('[aria-label="执行 Agent"]').value, 'dsh');
+  assert.match(doc.querySelector('.rsi-executor-status').textContent, /已启用/);
+  assert.doesNotMatch(doc.body.textContent, /另存为|rsi-profiles/);
+});
+
+test('missing model key is explained inline without sending an empty configuration', async t => {
+  const {run, doc} = setup(t, async () => { throw Error('Must not submit'); });
+  run(`view.append(rsiConfigNote({executor_settings:${JSON.stringify({...executorSettings, has_api_key:false})}}))`);
+  await doc.querySelector('form').onsubmit({preventDefault(){}});
+  assert.match(doc.querySelector('.error').textContent, /请填写模型 API Key/);
+  assert.equal(doc.querySelector('details').open, true);
+});
+
+test('candidate form uses the saved executor while preserving the target Agent', t => {
+  const {run, doc} = setup(t, async () => ({}));
+  run(`rsiCandidateDialog(0, ${JSON.stringify(overview({executor_settings:{...executorSettings, executor:'dsh'}, profiles:[{...profile,id:'builtin-bkcrab',name:'BKCrab',executor:'bkcrab'}, {...profile,id:'builtin-dsh',name:'DSH',executor:'dsh'}]}))})`);
+  assert.equal(doc.querySelector('[aria-label="执行 Agent"]').value, 'builtin-dsh');
+  assert.match(doc.querySelector('.rsi-inline-note').textContent, /被改进的 Agent：bkcrab/);
+});
 
 test('archive exposes useful titles, searchable objectives and honest empty states', async t => {
   const { run, doc, window } = setup(t, async url => url === '/api/rsi' ? overview() : { runs: [] });

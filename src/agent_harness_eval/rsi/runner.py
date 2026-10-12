@@ -21,7 +21,14 @@ class Diagnosis(Strict):
 async def create_candidate(store, case_id, profile_id, parent=None):
     case = store.get("cases", case_id)
     evidence = verify_case(store, case)
-    profile = load_profile(store.project, profile_id)
+    if profile_id in {"builtin-bkcrab", "builtin-dsh"}:
+        from .executors import builtin_profile
+
+        profile = builtin_profile(
+            store.project, profile_id.removeprefix("builtin-"), case["agent"]
+        )
+    else:
+        profile = load_profile(store.project, profile_id)
     source = profile.repository
     parent_commit = await git(
         source, "rev-parse", "--verify", profile.parent_ref + "^{commit}"

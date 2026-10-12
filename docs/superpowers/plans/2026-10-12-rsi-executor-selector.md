@@ -24,4 +24,6 @@
 - [x] Add `rsi/native_adapter.py` and a Docker runtime recipe: run the selected native loop with the existing JSON diagnosis protocol. Bind only candidate workspace, evidence and output; clean containers on termination. Add mocked subprocess tests and an opt-in offline Docker smoke test.
 - [x] Extend `rsi/api.py`, `runner.py` with catalog/settings endpoints and generated built-in profile snapshots; preserve the custom profile path.
 - [x] Replace the frontend manual-config warning with the executor settings card and dropdown; expose the same selection in candidate creation. Test save errors, persisted choice and disabled state explanations.
-- [ ] Build the shared runtime on the server, run Linux/API and frontend tests, inspect browser screenshots, commit/push and update the idle service. Preserve all historical cases and source checkouts.
+- [x] Build the shared runtime on the server, run Linux/API and frontend tests, inspect browser screenshots, commit/push and update the idle service. Preserve all historical cases and source checkouts.
+
+Acceptance: 53 Linux checks (including both offline native Docker starts) and 10 frontend tests passed. Deployed to port 18766; browser saved BKCrab, candidate form inherited it and allowed DSH while retaining the BKCrab target. Existing 2 cases, 0 candidates and 0 actions preserved; no paid model invocation.

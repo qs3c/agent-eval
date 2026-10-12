@@ -64,6 +64,33 @@ def test_redaction(console, monkeypatch):
     assert "sk-abcdefghijklmnopqrstuvwxyz" not in text
 
 
+def test_large_live_manifest_is_imported_and_comparable(console):
+    from agent_harness_eval.console import read_json, read_manifest
+
+    run = console.artifacts / "swe-live-20"
+    run.mkdir()
+    exp = json.loads((console.root / "experiments/controls.json").read_text())
+    exp["name"] = "swe-live-20"
+    exp["model"] = {"mode": "live", "spending": "unbounded"}
+    exp["benchmark"]["tasks"] = [f"tasks/task-{i}" for i in range(20)]
+    exp["benchmark"]["score_kind"] = "resolved"
+    manifest = {"experiment": exp, "created_at": "2026-10-11T16:31:50+00:00",
+                "tasks": {"task-0": {"sha256": "frozen-hash"}},
+                "provenance": "x" * (17 * 1024 * 1024)}
+    path = run / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    assert read_json(run, path) is None  # Other JSON retains its smaller bound.
+    item = next(r for r in console.runs() if r["name"] == "swe-live-20")
+    assert item["mode"] == "live" and item["expected"] == 40
+    assert console.detail(item["id"])["task_hashes"] == {"task-0": "frozen-hash"}
+    comparison = console.comparison(item["id"])
+    assert comparison["task_count"] == 20
+    assert comparison["score_kind"] == "resolved"
+    with path.open("wb") as stream:
+        stream.truncate(64 * 1024 * 1024 + 1)
+    assert read_manifest(run) is None
+
+
 def test_singleton_restart_blocks_and_keeps_queue(console):
     first = console.submit({"template": "controls"})
     second = console.submit({"template": "controls"})

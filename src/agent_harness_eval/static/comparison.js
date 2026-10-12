@@ -27,6 +27,7 @@ function pairCategory(a, b, binary) {
 async function renderExperimentCompare(token, requestedRun) {
   await refreshRuns();
   if (epoch !== token) return;
+  const experiments = runs.filter(run => run.mode === "live");
   view.replaceChildren();
   const head = el("section", undefined, "page-head"), heading = el("div");
   heading.append(el("div", "AGENT COMPARISON", "eyebrow"), el("h1", "先看整体，再看每一道题。"),
@@ -34,7 +35,7 @@ async function renderExperimentCompare(token, requestedRun) {
   head.append(heading, link("跨实验批次对比", "#batch-compare", "button"));
   const selector = el("div", undefined, "panel compare-form"), label = el("label", "实验"), select = el("select");
   select.setAttribute("aria-label", "选择对比实验");
-  for (const run of runs) {
+  for (const run of experiments) {
     const option = el("option", `${run.name} · ${run.dataset?.name || run.benchmark}${run.dataset?.revision ? ` @${run.dataset.revision}` : ""} · ${run.agents.length} 个 Agent · ${modes[run.mode]} · ${time(run.created)}`);
     option.value = run.id;
     select.append(option);
@@ -44,13 +45,13 @@ async function renderExperimentCompare(token, requestedRun) {
   const body = el("div");
   body.setAttribute("aria-live", "polite");
   view.append(head, selector, body);
-  if (!runs.length) {
-    body.append(el("p", "尚无实验记录。创建实验后，可在这里查看一个或多个任务的表现。", "empty"));
+  if (!experiments.length) {
+    body.append(el("p", "尚无真实模型实验记录。完成真实实验后，可在这里查看任务表现。", "empty"));
     select.disabled = true;
     return;
   }
-  const preferred = runs.find(r => r.id === requestedRun) || runs.find(r => r.mode === "live" && r.agents.length > 1) || runs.find(r => r.agents.length > 1) || runs[0];
-  if (requestedRun && !runs.some(r => r.id === requestedRun)) notice("指定实验不存在，已选择可用实验。");
+  const preferred = experiments.find(r => r.id === requestedRun) || experiments[0];
+  if (requestedRun && !experiments.some(r => r.id === requestedRun)) notice("指定实验不是真实模型实验或不存在，已选择最新真实实验。");
   select.value = preferred.id;
   let version = 0;
   async function load() {
@@ -71,7 +72,7 @@ async function renderExperimentCompare(token, requestedRun) {
   };
   const refresh = el("button", "刷新结果", "button");
   refresh.type = "button";
-  refresh.onclick = load;
+  refresh.onclick = () => { ++version; renderExperimentCompare(token, select.value); };
   selector.append(refresh);
   await load();
 }

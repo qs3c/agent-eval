@@ -50,10 +50,10 @@ def safe_file(root, path):
     return path
 
 
-def read_json(root, path):
+def read_json(root, path, *, max_bytes=16 * 1024 * 1024):
     try:
         path = safe_file(root, path)
-        if path.stat().st_size > 16 * 1024 * 1024:
+        if path.stat().st_size > max_bytes:
             return None
         data = json.loads(
             path.read_text(),
@@ -62,6 +62,11 @@ def read_json(root, path):
         return data if isinstance(data, dict) else None
     except (OSError, ValueError):
         return None
+
+
+def read_manifest(root):
+    # Frozen multi-task provenance can exceed the ordinary JSON limit.
+    return read_json(root, root / "manifest.json", max_bytes=64 * 1024 * 1024)
 
 
 def usable_report(value):
@@ -269,7 +274,7 @@ class Console:
             for path in sorted(self.artifacts.iterdir()):
                 if not path.is_dir() or path.is_symlink():
                     continue
-                manifest = read_json(path, path / "manifest.json")
+                manifest = read_manifest(path)
                 if not manifest or not isinstance(manifest.get("experiment"), dict):
                     continue
                 try:
@@ -303,7 +308,7 @@ class Console:
 
     def evidence(self, row):
         path = safe_file(self.artifacts, Path(row["path"]))
-        manifest = read_json(path, path / "manifest.json")
+        manifest = read_manifest(path)
         report = read_json(path, path / "report.json")
         if not usable_report(report):
             report = None
@@ -453,7 +458,7 @@ class Console:
         ]
         kind = benchmark.get("score_kind", "metric")
         original = (
-            (read_json(root, root / "manifest.json") or {})
+            (read_manifest(root) or {})
             .get("experiment", {})
             .get("benchmark", {})
         )

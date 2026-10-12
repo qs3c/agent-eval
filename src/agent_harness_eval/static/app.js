@@ -489,6 +489,7 @@ async function renderDetail(id, token, initial = true) {
 async function renderCompare(token) {
   await refreshRuns();
   if (epoch !== token) return;
+  const experiments = runs.filter(run => run.mode === "live");
   view.replaceChildren();
   const head = el("section", undefined, "page-head"),
     left = el("div");
@@ -508,7 +509,7 @@ async function renderCompare(token) {
       select = el("select");
     select.name = name;
     select.required = true;
-    runs.forEach((r) => {
+    experiments.forEach((r) => {
       const opt = el(
         "option",
         `${r.name} · ${time(r.created)} · ${labels[r.status]}`,
@@ -519,16 +520,16 @@ async function renderCompare(token) {
     label.append(select);
     form.append(label);
   }
-  if (runs.length > 1) form.elements.right.selectedIndex = 1;
+  if (experiments.length > 1) form.elements.right.selectedIndex = 1;
   const button = el("button", "对比结果 →", "button primary");
   button.type = "submit";
-  button.disabled = runs.length < 2;
+  button.disabled = experiments.length < 2;
   form.append(button);
   const result = el("div");
   result.id = "compare-result";
   view.append(head, form, result);
-  if (runs.length < 2)
-    result.append(el("div", "至少需要两次实验记录才能比较。", "empty"));
+  if (experiments.length < 2)
+    result.append(el("div", "至少需要两次真实模型实验记录才能比较。", "empty"));
   form.onsubmit = async (e) => {
     e.preventDefault();
     button.disabled = true;

@@ -21,6 +21,7 @@ class GuardianConfig(BaseModel):
     command: list[str] = Field(default_factory=list)
     version: str | None = None
     pass_env: list[str] = Field(default_factory=list)
+    model: dict | None = None
     poll_seconds: float = Field(default=15, ge=0.1, le=300)
     idle_seconds: float = Field(default=300, ge=1)
     confirmations: int = Field(default=2, ge=1, le=10)
@@ -36,7 +37,7 @@ class GuardianConfig(BaseModel):
 
     @model_validator(mode="after")
     def driver_contract(self):
-        if self.mode == "assist" and (not self.command or not self.version):
+        if self.mode == "assist" and not self.model and (not self.command or not self.version):
             raise ValueError("assist requires a guardian command and explicit version")
         if self.mode == "observe" and self.command:
             raise ValueError("observe does not execute a guardian command")
@@ -44,4 +45,8 @@ class GuardianConfig(BaseModel):
             raise ValueError("guardian command arguments must be nonempty")
         if any(not name.isidentifier() for name in self.pass_env):
             raise ValueError("pass_env contains environment variable names, not values")
+        if self.model is not None:
+            from ..config import Model
+
+            self.model = Model.model_validate(self.model).model_dump()
         return self

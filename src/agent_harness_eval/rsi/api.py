@@ -128,7 +128,7 @@ def router(console):
             path = root / name
             if path.is_file() and not path.is_symlink():
                 with path.open(encoding="utf-8") as stream:
-                    record[key] = redact(stream.read(65536))
+                    record[key] = console.models.redact(redact(stream.read(65536)))
         return record
 
     @routes.post("/candidates/{identity}/actions", status_code=201)

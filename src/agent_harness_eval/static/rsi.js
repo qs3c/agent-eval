@@ -62,50 +62,37 @@ function rsiHeader(title, description, actions = []) {
 }
 function rsiConfigNote(data) {
   const config = data.executor_settings;
-  // Older servers/custom-profile-only integrations can still render their existing records.
   if (!config) return null;
-  const token = epoch, box = rsiPanel("执行 Agent", "选择负责分析证据和修改代码的 Agent；被改进的目标由诊断案例决定。");
+  const token = epoch, box = rsiPanel("执行 Agent", "选择负责分析证据和修改代码的 Agent，并从全局模型池指定模型。");
   box.classList.add("rsi-executor-panel");
   const form = el("form", undefined, "rsi-executor-form"), row = el("div", undefined, "rsi-executor-row");
   const select = rsiSelect(config.options.map(o => [o.id, o.name]), "执行 Agent"); select.value = config.executor;
-  const status = el("div", undefined, "rsi-executor-status"), save = rsiButton(config.configured ? "保存设置" : "保存并启用", null, true); save.type = "submit";
-  const description = el("p");
-  const detail = el("details"), summary = el("summary", "模型设置");
-  const fields = el("div", undefined, "rsi-form-grid"), model = el("input"); model.value = config.model; model.required = true; model.maxLength = 120;
+  const model = rsiSelect([["", "请选择全局模型"], ...(config.models || []).map(m => [m.id, m.label + " · " + m.name])], "执行模型");
   const timeout = rsiSelect([["600", "10 分钟"], ["1800", "30 分钟"], ["3600", "60 分钟"], ["7200", "120 分钟"]], "执行时限");
-  if (![600, 1800, 3600, 7200].includes(config.timeout_seconds)) { const option = el("option", config.timeout_seconds + " 秒"); option.value = config.timeout_seconds; timeout.append(option); }
+  if (![600, 1800, 3600, 7200].includes(config.timeout_seconds)) { const o = el("option", config.timeout_seconds + " 秒"); o.value = config.timeout_seconds; timeout.append(o); }
   timeout.value = String(config.timeout_seconds);
-  const key = el("input"); key.type = "password"; key.autocomplete = "new-password"; key.placeholder = config.has_api_key ? "已配置，留空保持原密钥" : "输入 DeepSeek API Key";
-  key.maxLength = 4096;
-  fields.append(rsiField("模型", model, "连接 DeepSeek 官方服务；BKCrab 与 DSH 使用同一模型设置。"), rsiField("执行时限", timeout));
-  detail.append(summary, fields, rsiField("API Key", key, config.has_api_key ? "服务端已有凭据，不会回传到浏览器。" : "仅保存到服务端；保存设置不会调用模型。"));
-  detail.open = !config.has_api_key;
-  const error = el("p", undefined, "error"); error.setAttribute("role", "alert");
-  function updateStatus() {
+  const save = rsiButton("保存设置", null, true); save.type = "submit";
+  const status = el("div", undefined, "rsi-executor-status"), error = el("p", undefined, "error"); error.setAttribute("role", "alert");
+  const link = el("a", "管理全局模型池 →", "rsi-model-link"); link.href = "#models";
+  function statusUpdate() {
     const chosen = config.options.find(o => o.id === select.value);
-    status.replaceChildren(rsiBadge(!chosen.installed ? "运行环境未就绪" : !config.has_api_key ? "待填写 API Key" : config.configured && select.value === config.executor ? "已启用" : "可启用", chosen.installed && config.has_api_key ? "success" : "warning"));
-    description.textContent = chosen.description + " · 独立 Docker 环境";
-    save.disabled = !chosen.installed;
-    if (!chosen.installed) description.textContent += "，服务器运行包尚未安装。";
+    const selected = (config.models || []).find(m => m.id === model.value);
+    const ready = chosen.installed && selected?.has_api_key && (select.value !== "dsh" || selected.messages_base);
+    status.replaceChildren(rsiBadge(!chosen.installed ? "运行环境未就绪" : !selected ? "请选择模型" : !selected.has_api_key ? "模型缺少凭据" : select.value === "dsh" && !selected.messages_base ? "DSH 需要 Messages 接口" : config.configured && select.value === config.executor && model.value === config.model_id ? "已启用" : "可启用", ready ? "success" : "warning"));
+    save.disabled = !ready;
   }
-  select.onchange = updateStatus;
-  row.append(rsiField("执行 Agent", select), status, save); form.append(row, description, detail, error); box.append(form); updateStatus();
+  function choose() { model.value = config.bindings?.["executor_" + select.value] || ""; statusUpdate(); }
+  select.onchange = choose; model.onchange = statusUpdate; choose();
+  row.append(rsiField("执行 Agent", select), rsiField("执行模型", model), rsiField("执行时限", timeout), save);
+  form.append(row, status, link, error); box.append(form);
   form.onsubmit = async event => {
     event.preventDefault(); if (save.disabled) return;
-    if (!config.has_api_key && !key.value.trim()) { detail.open = true; error.textContent = "请填写模型 API Key。"; key.focus(); return; }
-    save.disabled = true; save.textContent = "正在保存…"; error.textContent = "";
+    save.disabled = true; error.textContent = "";
     try {
-      const payload = { executor: select.value, model: model.value.trim(), timeout_seconds: Number(timeout.value) };
-      if (key.value.trim()) payload.api_key = key.value.trim();
-      await api("/api/rsi/executor-settings", { method: "PUT", body: JSON.stringify(payload) });
-      key.value = "";
-      if (epoch === token) {
-        const route = routeInfo();
-        if (route.page === "rsi-case") await renderRsiCase(token, route.id); else await renderRsi(token);
-        notice("执行 Agent 设置已保存，可从诊断案例创建候选。保存设置未启动模型调用。");
-      }
-    } catch (err) { if (epoch === token) error.textContent = err.message; }
-    finally { save.disabled = false; save.textContent = "保存设置"; }
+      await api("/api/rsi/executor-settings", {method:"PUT", body:JSON.stringify({executor:select.value, model_id:model.value, timeout_seconds:Number(timeout.value)})});
+      if (epoch === token) { const route = routeInfo(); if (route.page === "rsi-case") await renderRsiCase(token, route.id); else await renderRsi(token); notice("执行 Agent 与模型选择已保存。"); }
+    } catch (err) {error.textContent = err.message;}
+    finally {statusUpdate();}
   };
   return box;
 }
@@ -251,7 +238,7 @@ function rsiCandidateDialog(token, data, caseId) {
   if (data.profiles.some(p => p.id === preferred)) profile.value = preferred;
   const parent = rsiSelect([["", "配置中固定的源码版本"], ...data.candidates.filter(c => c.phase === "validated").map(c => [c.id, `${c.profile_id} · ${c.id.slice(0, 8)} · ${(c.commit || "").slice(0, 8)}`])], "父版本");
   const info = el("p", undefined, "rsi-inline-note");
-  const update = () => { const p = data.profiles.find(p => p.id === profile.value); const c = data.cases.find(c => c.id === source.value); info.textContent = `被改进的 Agent：${c?.agent || "未知"}。${p.executor ? "执行模型：" + data.executor_settings.model + "。" : ""}父子复评：${p.evaluation ? "已配置" : "未配置"}。点击运行后将调用模型并产生费用。${p.executor && c?.agent !== "bkcrab" ? "当前内置检查仅检查补丁格式，不代表功能验证通过。" : ""}`; };
+  const update = () => { const p = data.profiles.find(p => p.id === profile.value); const c = data.cases.find(c => c.id === source.value); info.textContent = `被改进的 Agent：${c?.agent || "未知"}。${p.executor ? "执行模型：" + (data.executor_settings.models?.find(m => m.id === data.executor_settings.bindings?.["executor_" + p.executor])?.name || data.executor_settings.model || "未指定") + "。" : ""}父子复评：${p.evaluation ? "已配置" : "未配置"}。点击运行后将调用模型并产生费用。${p.executor && c?.agent !== "bkcrab" ? "当前内置检查仅检查补丁格式，不代表功能验证通过。" : ""}`; };
   source.onchange = update;
   profile.onchange = update; update();
   const submit = rsiButton("创建并运行改进", null, true); submit.type = "submit";

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -43,6 +44,14 @@ def create_app(root: Path, allow_live=False, recover=False, *, bind_host="127.0.
     from .rsi.api import router
 
     app.include_router(router(console))
+    from .model_pool import router as model_router
+
+    app.include_router(model_router(console.root))
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request, exc):
+        # Pydantic input/context can contain a submitted API key.
+        return JSONResponse({"detail": "配置字段无效，请检查名称、接口地址、Token 数值和必填项"}, status_code=422)
 
     @app.middleware("http")
     async def local_only(request: Request, call_next):

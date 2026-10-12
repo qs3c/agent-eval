@@ -13,6 +13,7 @@ from uuid import uuid4
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from agent_harness_eval.model_pool import ModelPool
 from agent_harness_eval.rsi.executors import credential
 
 
@@ -93,7 +94,11 @@ def execute(args, context):
         + json.dumps(instruction, ensure_ascii=False),
         encoding="utf-8",
     )
-    key = credential(args.root)
+    key = (
+        ModelPool(args.root).credential(args.key_ref)
+        if getattr(args, "key_ref", None)
+        else credential(args.root)
+    )
     if not key:
         raise ValueError("模型 API Key 未配置")
     with tempfile.TemporaryDirectory(prefix="eval-rsi-key-") as temporary:
@@ -126,11 +131,14 @@ def execute(args, context):
                 "--model",
                 args.model,
                 "--api-base",
-                "https://api.deepseek.com/v1",
+                getattr(args, "api_base", "https://api.deepseek.com")
+                .rstrip("/")
+                .removesuffix("/v1")
+                + "/v1",
                 "--max-tokens",
-                "32768",
+                str(getattr(args, "max_tokens", 32768)),
                 "--context-window",
-                "1000000",
+                str(getattr(args, "context_window", 1000000)),
                 "--timeout",
                 str(args.timeout) + "s",
             ]
@@ -158,9 +166,14 @@ def execute(args, context):
                 "HOME": "/tmp/rsi-home",
                 "DSH_HOME": "/tmp/dsh-rsi-home",
                 "DSH_PERMISSION_MODE": "danger-full-access",
-                "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+                "DEEPSEEK_BASE_URL": (
+                    getattr(args, "messages_base", None)
+                    or "https://api.deepseek.com/anthropic"
+                )
+                .rstrip("/")
+                .removesuffix("/v1"),
                 "EVAL_MODEL": args.model,
-                "EVAL_MAX_TOKENS": "32768",
+                "EVAL_MAX_TOKENS": str(getattr(args, "max_tokens", 32768)),
                 "DSH_PRIMARY_RUNTIME": "",
                 "DSH_TOOLS_MODE": "native",
                 "CGO_ENABLED": "0",
@@ -187,6 +200,11 @@ def main():
     parser.add_argument("--root", type=Path)
     parser.add_argument("--executor", choices=["bkcrab", "dsh"])
     parser.add_argument("--model")
+    parser.add_argument("--api-base", default="https://api.deepseek.com")
+    parser.add_argument("--messages-base")
+    parser.add_argument("--key-ref")
+    parser.add_argument("--max-tokens", type=int, default=32768)
+    parser.add_argument("--context-window", type=int, default=1000000)
     parser.add_argument("--check-target", choices=["bkcrab", "dsh", "dsh-standard"])
     parser.add_argument("--workspace", type=Path)
     args = parser.parse_args()

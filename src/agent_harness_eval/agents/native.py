@@ -76,7 +76,7 @@ class Native(BaseInstalledAgent):
         context.cost_usd = 0.0 if self.model_config["mode"] == "mock" else None
         context.metadata = {
             "coverage": coverage,
-            "evidence_kind": "live official DeepSeek"
+            "evidence_kind": "live model: " + self.model_config.get("api_base", "https://api.deepseek.com")
             if self.model_config["mode"] == "live"
             else "mock provider; not model performance",
         }

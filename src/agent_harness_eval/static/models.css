@@ -1,0 +1,16 @@
+.models-page {display:grid;gap:24px;max-width:1440px;margin:auto}
+.model-cards,.model-bindings-grid,.model-edit-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.models-page .model-cards,.models-page .model-bindings-form {padding:0 24px 24px}
+.models-page .rsi-empty {margin:0 24px 24px}
+.model-card {border:1px solid var(--line,#dfe7df);border-radius:12px;padding:22px;background:#fff;min-width:0}
+.model-card-head {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.model-card h3 {margin:0;font-size:18px}.model-card p {margin:12px 0;font-size:13px;overflow-wrap:anywhere}
+.model-card .model-name {font-size:16px;color:#244d40}.model-card .model-endpoint {color:#64766e}
+.model-assignments {border-top:1px solid #edf0ec;padding-top:14px;min-height:38px}
+.model-bindings-form {display:grid;gap:20px}.model-bindings-form>button {justify-self:start}
+.model-edit-grid .rsi-field:nth-child(3),.model-edit-grid .rsi-field:nth-child(4),.model-edit-grid .rsi-field:nth-child(5) {grid-column:1/-1}
+.model-bindings-grid select,.model-edit-grid input {width:100%;min-width:0}.model-bindings-grid .rsi-field {padding:18px;background:#f6f8f5;border-radius:10px}
+.rsi-executor-row .rsi-field {min-width:0}.rsi-model-link {font-size:13px;color:#2b6654}
+.rsi-executor-status {margin-top:12px}
+@media(max-width:700px){.model-cards,.model-bindings-grid,.model-edit-grid{grid-template-columns:1fr}.model-card{padding:16px}.models-page{gap:16px}}
+@media(max-width:600px){nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}nav a{white-space:nowrap;padding:9px 10px;justify-content:flex-start}.models-page .model-cards,.models-page .model-bindings-form{padding:0 16px 20px}.models-page .rsi-section-head{padding:20px 16px}.models-page .rsi-head{gap:16px}.models-page .rsi-head .rsi-actions{width:100%}.model-bindings-grid .rsi-field{padding:12px}}

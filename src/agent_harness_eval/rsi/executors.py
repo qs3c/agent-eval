@@ -11,6 +11,7 @@ from uuid import uuid4
 from pydantic import Field, SecretStr
 
 from ..guardian.evidence import read, write
+from ..model_pool import ModelInput, ModelPool
 from .models import Profile, Strict
 
 EXECUTORS = {"bkcrab": "BKCrab", "dsh": "DSH"}
@@ -23,9 +24,10 @@ TARGETS = {
 
 class ExecutorSettings(Strict):
     executor: Literal["bkcrab", "dsh"]
-    model: str = Field(
-        default="deepseek-flash", pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$"
+    model: str | None = Field(
+        default=None, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$"
     )
+    model_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     timeout_seconds: int = Field(default=1800, ge=60, le=7200)
     api_key: SecretStr | None = Field(default=None, max_length=4096)
 
@@ -75,7 +77,12 @@ def settings(root):
 
 def catalog(root):
     saved, native = settings(root), runtime(root)
-    has_key = bool(credential(root))
+    pool = ModelPool(root)
+    public = pool.public()
+    executor = saved.executor if saved else "bkcrab"
+    selected = public["bindings"].get("executor_" + executor)
+    entry = next((m for m in public["models"] if m["id"] == selected), None)
+    has_key = bool(entry and entry["has_api_key"])
     return {
         "options": [
             {
@@ -90,7 +97,10 @@ def catalog(root):
         ],
         "configured": saved is not None,
         "executor": saved.executor if saved else "bkcrab",
-        "model": saved.model if saved else "deepseek-flash",
+        "model": entry["name"] if entry else None,
+        "model_id": selected,
+        "models": public["models"],
+        "bindings": public["bindings"],
         "timeout_seconds": saved.timeout_seconds if saved else 1800,
         "has_api_key": has_key,
         "ready": bool(
@@ -100,6 +110,8 @@ def catalog(root):
 
 
 def save_settings(root, value: ExecutorSettings):
+    if value.model_id:
+        ModelPool(root).resolve("executor_" + value.executor, value.model_id)
     directory = Path(root) / ".rsi"
     directory.mkdir(parents=True, exist_ok=True)
     if directory.is_symlink():
@@ -114,13 +126,45 @@ def save_settings(root, value: ExecutorSettings):
             stream.write(key)
         os.replace(temporary, directory / "executor-key")
     write(directory / "executor-settings.json", value.model_dump(exclude={"api_key"}))
+    pool = ModelPool(root)
+    public = pool.public()
+    scene = "executor_" + value.executor
+    if value.model_id:
+        pool.bind({scene: value.model_id})
+    elif value.model or (value.api_key and value.api_key.get_secret_value().strip()):
+        # Compatibility for existing callers; the browser edits models only in the pool.
+        selected = public["bindings"].get(scene)
+        entry = next((m for m in public["models"] if m["id"] == selected), None)
+        data = {
+            k: v for k, v in (entry or {}).items() if k not in {"id", "has_api_key"}
+        }
+        data.update(
+            label=data.get("label", "DeepSeek"),
+            name=value.model or data.get("name", "deepseek-flash"),
+            api_key=value.api_key,
+        )
+        updated = pool.save(ModelInput(**data), selected)
+        if not selected:
+            pool.bind(
+                {
+                    "executor_bkcrab": updated["models"][-1]["id"],
+                    "executor_dsh": updated["models"][-1]["id"],
+                }
+            )
     return catalog(root)
 
 
 def builtin_profiles(root):
     current, native = catalog(root), runtime(root)
-    if not current["configured"] or not current["has_api_key"]:
+    if not current["configured"]:
         return []
+    available = []
+    for key in EXECUTORS:
+        try:
+            ModelPool(root).resolve("executor_" + key)
+            available.append(key)
+        except ValueError:
+            pass
     return [
         {
             "id": "builtin-" + key,
@@ -131,7 +175,7 @@ def builtin_profiles(root):
             "publication": True,
         }
         for key, name in EXECUTORS.items()
-        if key in native.get("executors", {})
+        if key in native.get("executors", {}) and key in available
     ]
 
 
@@ -142,8 +186,7 @@ def builtin_profile(root, executor, target):
     current, native = settings(root), runtime(root)
     if not current or executor not in native.get("executors", {}):
         raise ValueError("请先在页面保存执行 Agent 设置；服务器需安装原生运行环境")
-    if not credential(root):
-        raise ValueError("请在执行 Agent 设置中填写模型 API Key")
+    model = ModelPool(root).resolve("executor_" + executor)
     repository = root.parent / TARGETS[target]
     if not (repository / ".git").exists():
         raise ValueError("服务器未找到该 Agent 的源码仓库")
@@ -179,9 +222,19 @@ def builtin_profile(root, executor, target):
                     "--executor",
                     executor,
                     "--model",
-                    current.model,
+                    model["name"],
+                    "--api-base",
+                    model["api_base"],
+                    "--messages-base",
+                    model["messages_base"] or "",
+                    "--key-ref",
+                    model["api_key_env"].removeprefix("EVAL_POOL_KEY_"),
+                    "--max-tokens",
+                    str(model["max_tokens"]),
+                    "--context-window",
+                    str(model["context_window"]),
                 ],
-                "version": f"native-rsi/v1;{executor}={native['executors'][executor]};model={current.model}",
+                "version": f"native-rsi/v2;{executor}={native['executors'][executor]};model={model['name']};pool={model['pool_id']}",
                 "timeout_seconds": current.timeout_seconds + 60,
                 "pass_env": ["DEEPSEEK_API_KEY"],
             },

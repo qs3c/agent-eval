@@ -11,8 +11,8 @@ const rsi = fs.readFileSync(path.join(staticDir, 'rsi.js'), 'utf8');
 const source = { id: 'a'.repeat(32), agent: 'bkcrab', trials: ['django__django-15022__attempt'], objective: 'Fix process cleanup', status: 'ready', created_at: '2026-10-12T08:20:00Z', exported_bytes: 4096, evidence: [] };
 const profile = { id: 'bkcrab', version: 'test', evaluation: true, publication: true };
 const candidate = { id: 'b'.repeat(32), case: source.id, profile_id: 'bkcrab', parent_commit: 'c'.repeat(40), phase: 'created', evaluations: [], can_evaluate: true, can_publish: true, created_at: source.created_at };
-function setup(t, handler) {
-  const dom = new JSDOM('<div id="notice"></div><div id="view"></div>', { url: 'http://localhost/#rsi', runScripts: 'outside-only' });
+function setup(t, handler, full = false) {
+  const dom = new JSDOM(full ? fs.readFileSync(path.join(staticDir, 'index.html'), 'utf8') : '<div id="notice"></div><div id="view"></div>', { url: 'http://localhost/#rsi', runScripts: 'outside-only' });
   t.after(() => dom.window.close());
   dom.window.fetch = async (url, options = {}) => {
     const result = await handler(url, options);
@@ -21,7 +21,7 @@ function setup(t, handler) {
   dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   dom.window.HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new dom.window.Event('close')); };
   const context = dom.getInternalVMContext();
-  vm.runInContext(app + '\n' + rsi, context);
+  vm.runInContext(app + '\n' + rsi + '\n' + fs.readFileSync(path.join(staticDir, 'models.js'), 'utf8') + '\n' + fs.readFileSync(path.join(staticDir, 'comparison.js'), 'utf8'), context);
   return { window: dom.window, doc: dom.window.document, run: code => vm.runInContext(code, context) };
 }
 const overview = (extra = {}) => ({ cases: [source], candidates: [], actions: [], profiles: [], allow_live: false, ...extra });
@@ -30,7 +30,8 @@ const clickNamed = (doc, label) => {
   assert.ok(button, label); button.click(); return button;
 };
 const tick = () => new Promise(resolve => setImmediate(resolve));
-const executorSettings = { options: [{id:'bkcrab', name:'BKCrab', installed:true, description:'BKCrab 原生编码 Agent'}, {id:'dsh', name:'DSH', installed:true, description:'DeepSeek Harness · Standard'}], configured:false, executor:'bkcrab', model:'deepseek-flash', timeout_seconds:1800, has_api_key:true, ready:false };
+const poolModel = {id:'d'.repeat(32), label:'编码模型', name:'deepseek-flash', api_base:'https://api.deepseek.com', messages_base:'https://api.deepseek.com/anthropic', has_api_key:true, max_tokens:32768, context_window:1000000};
+const executorSettings = { options: [{id:'bkcrab', name:'BKCrab', installed:true, description:'BKCrab 原生编码 Agent'}, {id:'dsh', name:'DSH', installed:true, description:'DeepSeek Harness · Standard'}], configured:false, executor:'bkcrab', model:'deepseek-flash', timeout_seconds:1800, has_api_key:true, ready:false, model_id:poolModel.id, models:[poolModel], bindings:{executor_bkcrab:poolModel.id,executor_dsh:poolModel.id} };
 
 test('executor can be selected and saved in the page without editing profile files', async t => {
   let settings = {...executorSettings}, saved;
@@ -42,18 +43,20 @@ test('executor can be selected and saved in the page without editing profile fil
   assert.deepEqual([...doc.querySelector('[aria-label="执行 Agent"]').options].map(o => o.text), ['BKCrab', 'DSH']);
   const select = doc.querySelector('[aria-label="执行 Agent"]'); select.value = 'dsh'; select.dispatchEvent(new window.Event('change'));
   await doc.querySelector('.rsi-executor-form').onsubmit({preventDefault(){}});
-  assert.deepEqual(saved, {executor:'dsh', model:'deepseek-flash', timeout_seconds:1800});
+  assert.deepEqual(saved, {executor:'dsh', model_id:poolModel.id, timeout_seconds:1800});
   assert.equal(doc.querySelector('[aria-label="执行 Agent"]').value, 'dsh');
   assert.match(doc.querySelector('.rsi-executor-status').textContent, /已启用/);
   assert.doesNotMatch(doc.body.textContent, /另存为|rsi-profiles/);
 });
 
-test('missing model key is explained inline without sending an empty configuration', async t => {
+test('missing model links to global pool without credential fields or submitting', async t => {
   const {run, doc} = setup(t, async () => { throw Error('Must not submit'); });
-  run(`view.append(rsiConfigNote({executor_settings:${JSON.stringify({...executorSettings, has_api_key:false})}}))`);
+  run(`view.append(rsiConfigNote({executor_settings:${JSON.stringify({...executorSettings, has_api_key:false, models:[], bindings:{}})}}))`);
   await doc.querySelector('form').onsubmit({preventDefault(){}});
-  assert.match(doc.querySelector('.error').textContent, /请填写模型 API Key/);
-  assert.equal(doc.querySelector('details').open, true);
+  assert.equal(doc.querySelector('input[type=password]'), null);
+  assert.equal(doc.querySelector('details'), null);
+  assert.equal(doc.querySelector('a').getAttribute('href'), '#models');
+  assert.equal(doc.querySelector('button[type=submit]').disabled, true);
 });
 
 test('candidate form uses the saved executor while preserving the target Agent', t => {
@@ -160,4 +163,50 @@ test('accepted action remains disabled if the subsequent status refresh fails', 
   assert.equal(posted, true);
   assert.equal(button.disabled, true);
   assert.match(doc.querySelector('[role=alert]').textContent, /操作已加入队列/);
+});
+
+const modelData = {models:[poolModel], bindings:{executor_bkcrab:poolModel.id,executor_dsh:poolModel.id,experiment:poolModel.id,guardian:poolModel.id}, scenes:{executor_bkcrab:'执行 Agent · BKCrab',executor_dsh:'执行 Agent · DSH',experiment:'实验 Agent',guardian:'守护 Agent'}};
+test('global model edit omits blank key and saves separate scene defaults', async t => {
+  const calls=[];
+  const {run, doc} = setup(t, async (url, options) => {if(options.method) calls.push([url,JSON.parse(options.body)]); return modelData;});
+  await run('renderModels(0)');
+  assert.equal(doc.querySelectorAll('.model-bindings-grid select').length,4);
+  clickNamed(doc,'编辑'); doc.querySelector('[name=label]').value='新名称';
+  await doc.querySelector('dialog form').onsubmit({preventDefault(){}});
+  assert.equal(calls[0][1].label,'新名称'); assert.equal('api_key' in calls[0][1],false);
+  await doc.querySelector('.model-bindings-form').onsubmit({preventDefault(){}});
+  assert.equal(calls[1][0],'/api/model-bindings'); assert.equal(calls[1][1].guardian,poolModel.id);
+});
+test('bound model removal requires reassignment', async t => {
+  const {run,doc} = setup(t,async () => modelData);
+  await run('renderModels(0)'); clickNamed(doc,'移除');
+  assert.match(doc.querySelector('dialog').textContent,/先在场景默认模型中更换/);
+  assert.equal(doc.querySelector('dialog button[type=submit]'),null);
+});
+test('model save failure retains input and displays error', async t => {
+  const {run,doc} = setup(t,async (url,options) => options.method ? {detail:'保存失败'} : modelData);
+  await run('renderModels(0)');clickNamed(doc,'编辑');doc.querySelector('[name=label]').value='保留名称';
+  await doc.querySelector('dialog form').onsubmit({preventDefault(){}});
+  assert.match(doc.querySelector('dialog .error').textContent,/保存失败/);
+  assert.equal(doc.querySelector('[name=label]').value,'保留名称');
+  assert.equal(doc.querySelector('dialog button[type=submit]').disabled,false);
+});
+
+test('experiment form submits pool selections and leaves offline contracts unchanged', async t => {
+  let saved;
+  const template = {id:'live',name:'live-test',mode:'live',model:'legacy',agents:['bkcrab'],tasks:['task'],benchmark:'test',available:true,guardian_mode:'assist',defaults:{attempts:1,concurrency:1,timeout_seconds:300,cpus:2,memory_mb:4096}};
+  const {run,doc,window} = setup(t,async (url,options) => {
+    if (url === '/api/models') return modelData;
+    if (options.method === 'POST') {saved=JSON.parse(options.body);return {id:'created'};}
+    return {templates:[template,{...template,id:'offline',mode:'offline',guardian_mode:'observe'}],allow_live:true};
+  },true);
+  await run('renderCreate(0)');
+  assert.equal(doc.querySelector('[aria-label="实验模型"]').value,poolModel.id);
+  await doc.querySelector('#create-form').onsubmit({preventDefault(){}});
+  assert.equal(saved.model_id,poolModel.id); assert.equal(saved.guardian_model_id,poolModel.id);
+  const templates=doc.querySelector('#template');templates.value='offline';templates.dispatchEvent(new window.Event('change'));
+  assert.equal(doc.querySelector('[aria-label="实验模型"]').disabled,true);
+  assert.equal(doc.querySelector('[aria-label="守护模型"]').disabled,true);
+  await doc.querySelector('#create-form').onsubmit({preventDefault(){}});
+  assert.equal('model_id' in saved,false);assert.equal('guardian_model_id' in saved,false);
 });

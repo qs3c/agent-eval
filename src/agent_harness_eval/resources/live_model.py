@@ -18,6 +18,18 @@ LOCK = threading.Lock()
 LOGS = Path("/logs/agent")
 
 
+def upstream_url(config, messages=False):
+    base = config.get("api_base", "https://api.deepseek.com").rstrip("/")
+    if messages:
+        base = config.get("messages_base") or ("https://api.deepseek.com/anthropic" if base.removesuffix("/v1") == "https://api.deepseek.com" else "")
+        if not base:
+            raise ValueError("模型未配置 Messages 接口")
+        return base.rstrip("/").removesuffix("/v1") + "/v1/messages"
+    if base == "https://api.deepseek.com":
+        return base + "/chat/completions"
+    return base.removesuffix("/v1") + "/v1/chat/completions"
+
+
 def append(name, value):
     with LOCK, (LOGS / name).open("a") as f:
         f.write(json.dumps(value, ensure_ascii=False) + "\n")
@@ -25,6 +37,9 @@ def append(name, value):
 
 def normalize(body, messages, config):
     result = dict(body)
+    if config.get("api_base", "https://api.deepseek.com").rstrip("/").removesuffix("/v1") != "https://api.deepseek.com":
+        result.update(model=config["name"], max_tokens=config["max_tokens"])
+        return result
     result.update(
         model=config["name"],
         max_tokens=config["max_tokens"],
@@ -166,7 +181,7 @@ class Handler(BaseHTTPRequestHandler):
             headers["x-api-key"] = self.server.api_key
             headers["anthropic-version"] = "2023-06-01"
         request = Request(
-            "https://api.deepseek.com" + paths[self.path],
+            upstream_url(self.server.model_config, messages),
             json.dumps(body).encode(),
             headers,
         )

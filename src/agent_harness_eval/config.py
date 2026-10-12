@@ -17,6 +17,8 @@ class Model(Strict):
     name: str = "mock"
     api_base: str = "https://api.deepseek.com"
     api_key_env: str = "DEEPSEEK_API_KEY"
+    messages_base: str | None = None
+    pool_id: str | None = None
     spending: Literal["disabled", "unbounded"] = "disabled"
     max_tokens: int = Field(default=8192, gt=0)
     context_window: int = Field(default=131072, gt=0)

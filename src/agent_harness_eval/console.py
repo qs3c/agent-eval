@@ -42,6 +42,8 @@ class Submission(Strict):
     cpus: int | None = Field(default=None, ge=1, le=64)
     memory_mb: int | None = Field(default=None, ge=256, le=131072)
     confirm_unbounded: bool = False
+    model_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    guardian_model_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 
 def safe_file(root, path):
@@ -133,6 +135,10 @@ class Console:
         self.process = None
         self.lock = None
         self.blocked = None
+        from .model_pool import ModelPool
+
+        self.models = ModelPool(self.root)
+        self.models.migrate()
 
     @contextmanager
     def connect(self):
@@ -162,13 +168,18 @@ class Console:
             if exp.model.mode == "live" and not self.allow_live:
                 error = "真实模型执行未开启：启动服务时需指定 --allow-live"
             elif exp.model.mode == "live" and not os.environ.get(exp.model.api_key_env):
-                error = "服务环境中缺少模型凭据"
+                try:
+                    self.models.resolve("experiment")
+                except ValueError:
+                    if not any(m["has_api_key"] for m in self.models.public()["models"]):
+                        error = "请在模型设置中添加实验 Agent 模型"
             rows.append(
                 {
                     "id": path.stem,
                     "name": exp.name,
                     "mode": exp.model.mode,
                     "model": exp.model.name,
+                    "guardian_mode": exp.guardian.mode if exp.guardian else None,
                     "agents": [a.id for a in exp.agents],
                     "tasks": [p.name for p in exp.benchmark.tasks],
                     "benchmark": exp.benchmark.id,
@@ -200,12 +211,24 @@ class Console:
             self.root / "experiments" / (request.template + ".json"),
         )
         exp = load(path)
+        if exp.model.mode != "live" and request.model_id:
+            raise ValueError("离线和模拟实验不能切换为真实模型")
+        if exp.model.mode == "live" and (request.model_id or self.models.public()["bindings"].get("experiment")):
+            exp.model = type(exp.model).model_validate(self.models.resolve("experiment", request.model_id))
+        if request.guardian_model_id and (not exp.guardian or exp.guardian.mode != "assist"):
+            raise ValueError("仅自主介入模式使用守护模型；模型选择不会自动启用介入")
+        if exp.guardian and exp.guardian.mode == "assist" and (request.guardian_model_id or self.models.public()["bindings"].get("guardian")):
+            exp.guardian.model = self.models.resolve("guardian", request.guardian_model_id)
+            exp.guardian.command = []
+            exp.guardian.version = "model-pool-driver/v1"
+        if exp.guardian and exp.guardian.model and exp.guardian.mode == "assist" and (not self.allow_live or not request.confirm_unbounded):
+            raise ValueError("守护模型运行需要开启 --allow-live 并确认费用")
         if exp.model.mode == "live":
             if not self.allow_live or not request.confirm_unbounded:
                 raise ValueError(
                     "真实运行需要服务开启 --allow-live，并明确确认不设费用上限"
                 )
-            if not os.environ.get(exp.model.api_key_env):
+            if not (self.models.environment(exp.model.model_dump()).get(exp.model.api_key_env) or os.environ.get(exp.model.api_key_env)):
                 raise ValueError("服务环境中缺少模型凭据")
         config = exp.model_dump(mode="json")
         for field in (
@@ -445,7 +468,7 @@ class Console:
             with path.open("rb") as stream:
                 stream.seek(max(0, path.stat().st_size - 32768))
                 return (
-                    redact(stream.read(32768).decode(errors="replace"))
+                    self.models.redact(redact(stream.read(32768).decode(errors="replace")))
                     or "评测进程正在运行，尚无标准输出。任务进度以已落盘结果为准。"
                 )
         except FileNotFoundError:
@@ -651,15 +674,18 @@ class Console:
         config = self.state / "inputs" / run_id / "config.json"
         model = json.loads(row["config"])["model"]
         guardian = json.loads(row["config"]).get("guardian")
+        child_env = {**os.environ, **self.models.environment(model, (guardian or {}).get("model"))}
         # Allow the independent supervisor to persist evidence and clean Docker.
         self.shutdown_seconds = (4 * guardian["command_seconds"] + guardian["cleanup_seconds"] + 30
                                  if guardian else 8)
         if model["mode"] == "live" and (
-            not self.allow_live or not os.environ.get(model["api_key_env"])
+            not self.allow_live or not child_env.get(model["api_key_env"])
         ):
             raise ValueError(
                 "当前服务未开启真实模型执行或缺少凭据；旧队列不绕过本次启动策略"
             )
+        if guardian and guardian.get("model") and guardian["mode"] == "assist" and not self.allow_live:
+            raise ValueError("当前服务未开启守护模型执行")
         with (self.state / "logs" / (run_id + ".log")).open("wb") as log:
             # Inherited flock prevents a restarted server launching alongside an orphan CLI.
             self.process = subprocess.Popen(
@@ -676,6 +702,7 @@ class Console:
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 cwd=self.root,
+                env=child_env,
                 start_new_session=True,
                 pass_fds=(self.lock.fileno(),),
             )

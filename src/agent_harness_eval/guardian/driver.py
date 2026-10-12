@@ -3,6 +3,8 @@
 import asyncio
 import json
 import os
+import sys
+from pathlib import Path
 
 from .evidence import append, now, write
 from .process import read_bounded, terminate
@@ -16,8 +18,20 @@ async def run_driver(config, incident, backend, active):
         in {"PATH", "HOME", "LANG", "LC_ALL", "SYSTEMROOT", "PYTHONPATH"}
         | set(config.pass_env)
     }
+    command = config.command
+    if config.model:
+        name = config.model["api_key_env"]
+        if not os.environ.get(name):
+            raise ValueError("守护模型凭据不存在")
+        env[name] = os.environ[name]
+        env["PYTHONPATH"] = (
+            str(Path(__file__).resolve().parents[2])
+            + os.pathsep
+            + env.get("PYTHONPATH", "")
+        )
+        command = [sys.executable, "-m", "agent_harness_eval.guardian.model_driver"]
     process = await asyncio.create_subprocess_exec(
-        *config.command,
+        *command,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -41,6 +55,7 @@ async def run_driver(config, incident, backend, active):
                 "agent_version": config.version,
                 "tools": ["snapshot", "exec", "finish"],
                 "max_actions": config.max_actions,
+                "model": config.model,
                 "instructions": (
                     "Investigate this experiment incident and act directly using tools. "
                     "Read incident.json and initial.json in the incident directory. "

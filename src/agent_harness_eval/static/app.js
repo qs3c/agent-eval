@@ -236,13 +236,19 @@ function checks(target, name, values) {
   );
 }
 async function renderCreate(token) {
-  const data = await api("/api/templates");
+  const [data, modelPool] = await Promise.all([api("/api/templates"), api("/api/models")]);
   if (epoch !== token) return;
   templates = data.templates;
   notice(data.blocked || "");
   view.replaceChildren($("#create-template").content.cloneNode(true));
   const select = $("#template"),
     form = $("#create-form");
+  const poolSection = rsiPanel("模型分配", "从全局模型池选择；本次选择随实验冻结，不修改场景默认模型。");
+  const experimentModel = poolSelect(modelPool, "实验模型", modelPool.bindings.experiment, "使用场景默认 / 模板模型");
+  const guardianModel = poolSelect(modelPool, "守护模型", modelPool.bindings.guardian, "使用场景默认 / 模板守护配置");
+  const modelHint = el("p", undefined, "muted"), manage = el("a", "管理全局模型池 →"); manage.href = "#models";
+  poolSection.append(rsiField("实验模型", experimentModel), rsiField("守护模型", guardianModel), modelHint, manage);
+  form.querySelector(".create-grid > div").append(poolSection);
   templates.forEach((t) => {
     const option = el("option", t.name + " · " + modes[t.mode]);
     option.value = t.id;
@@ -278,11 +284,21 @@ async function renderCreate(token) {
       t.error || `${t.benchmark} · ${modes[t.mode]} · 输入依赖已找到 · ${datasetLabel(t.dataset)}`;
     $("#template-info").classList.toggle("warning", !t.available);
     $("#submit").disabled = !t.available || Boolean(data.blocked);
-    $("#summary-model").textContent = `${modes[t.mode]} / ${t.model}`;
-    $("#live-confirm").hidden = t.mode !== "live";
+    experimentModel.disabled = t.mode !== "live";
+    guardianModel.disabled = t.guardian_mode !== "assist";
+    modelHint.textContent = t.mode !== "live" ? "此模板为离线或模拟实验，保留原模型契约。" : "实验 Agent 共用所选模型；守护模型仅在自主介入模式生效。";
+    modelSummary();
+    modelSummary();
     form.elements.confirm_unbounded.checked = false;
     updateCount();
   }
+  function modelSummary() {
+    const t = templates.find(t => t.id === select.value); if (!t) return;
+    const selected = modelPool.models.find(m => m.id === (experimentModel.value || modelPool.bindings.experiment));
+    $("#summary-model").textContent = `${modes[t.mode]} / ${t.mode === "live" && selected ? selected.label + " · " + selected.name : t.model}`;
+    $("#live-confirm").hidden = t.mode !== "live" && !(t.guardian_mode === "assist" && guardianModel.value);
+  }
+  experimentModel.onchange = modelSummary; guardianModel.onchange = modelSummary;
   select.onchange = choose;
   form.oninput = updateCount;
   choose();
@@ -296,6 +312,8 @@ async function renderCreate(token) {
         tasks: fd.getAll("tasks"),
         confirm_unbounded: fd.has("confirm_unbounded"),
       };
+    if (!experimentModel.disabled && experimentModel.value) payload.model_id = experimentModel.value;
+    if (!guardianModel.disabled && guardianModel.value) payload.guardian_model_id = guardianModel.value;
     for (const k of [
       "attempts",
       "concurrency",
@@ -642,7 +660,7 @@ async function route() {
   const { page, id } = routeInfo();
   notice();
   $("#breadcrumb").textContent =
-    ["rsi", "rsi-case"].includes(page) ? "RSI 改进" : page === "create"
+    page === "models" ? "模型设置" : ["rsi", "rsi-case"].includes(page) ? "RSI 改进" : page === "create"
       ? "创建实验"
       : ["compare", "batch-compare", "trace-compare"].includes(page)
         ? "结果对比"
@@ -664,6 +682,7 @@ async function route() {
   }
   try {
     if (page === "create") await renderCreate(token);
+    else if (page === "models") await renderModels(token);
     else if (page === "rsi") await renderRsi(token, id);
     else if (page === "rsi-case") await renderRsiCase(token, id);
     else if (page === "compare") await renderExperimentCompare(token, id);

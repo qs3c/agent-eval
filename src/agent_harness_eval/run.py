@@ -28,8 +28,11 @@ async def run_experiment(exp: Experiment, output: Path, *, manage_signals=True):
     if exp.model.mode == "live":
         if exp.model.spending != "unbounded":
             raise ValueError("live mode requires explicit spending policy: unbounded")
-        if exp.model.api_base != "https://api.deepseek.com":
-            raise ValueError("live relay currently supports only official DeepSeek")
+        from .model_pool import validate_endpoint
+
+        validate_endpoint(exp.model.api_base)
+        if any(a.id in {"dsh", "dsh-standard"} for a in exp.agents) and not (exp.model.messages_base or exp.model.api_base == "https://api.deepseek.com"):
+            raise ValueError("DSH 实验需要 Messages 接口地址")
         if not os.environ.get(exp.model.api_key_env):
             raise ValueError("live API key environment variable is missing")
     adapters = {}

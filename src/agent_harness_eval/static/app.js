@@ -657,6 +657,11 @@ async function route() {
         n.dataset.nav === (page === "rsi-case" ? "rsi" : page === "run" ? "runs" : ["batch-compare", "trace-compare"].includes(page) ? "compare" : page),
       ),
     );
+  if (["rsi", "rsi-case"].includes(page)) {
+    const loading = el("div", "正在加载改进档案…", "rsi-loading");
+    loading.setAttribute("role", "status");
+    view.replaceChildren(loading);
+  }
   try {
     if (page === "create") await renderCreate(token);
     else if (page === "rsi") await renderRsi(token, id);

@@ -6,6 +6,10 @@ DGM 的参考点是利用执行反馈修改 Agent 自身实现、经验验证及
 
 ## 使用界面
 
+首页以诊断案例 / 候选版本档案为主，支持搜索任务、Agent、目标与编号。点击“新建诊断案例”打开表单；没有已结束实验时显示说明及实验记录入口。未配置执行 Agent 时仍可浏览已有证据，页面给出配置指引。案例详情可以直接创建关联候选。
+
+证据索引按来源和完整性筛选，每页 20 项。人工快照、原始 Agent 轨迹和评分器输出分别标注；截断与缺失单独计数，长错误按需展开。候选详情分别展示代码检查、效果验证与交付状态，操作不可用时显示原因，补丁与 PR 正文折叠查看。
+
 在升级后的控制台打开 **RSI 改进**。选择已结束实验、Agent、异常尝试或全部已记录尝试，填写改进目标并冻结诊断材料。这一步不执行模型，也不需要已选择执行 Agent。
 
 案例档案可独立打开，查看每份材料的来源、读取范围、截断和缺失；不必先创建候选。
@@ -93,6 +97,18 @@ uv run agent-harness-eval rsi-action CANDIDATE_ID publish --execute
 服务正常停止会取消当前动作并清理进程组；异常中断记录在重启时变为 interrupted，不自动重放。独立 CLI 使用候选锁，活跃 CLI 不会被控制台恢复流程误标为已中断。整个宿主机失效或 SIGKILL 后仍需检查 Docker/外部程序遗留资源。CLI 和控制台执行目标为 Linux。
 
 ## 验证
+
+前端交互回归使用 Node 内置测试运行器与 jsdom，依赖仅安装到忽略目录，不影响服务运行：
+
+```powershell
+npm install --prefix .cache/rsi-ui --no-audit --no-fund jsdom@29.1.1
+$env:NODE_PATH = (Resolve-Path .cache/rsi-ui/node_modules).Path
+node --test tests/rsi_ui.test.cjs
+```
+
+Linux 对应命令：`NODE_PATH="$PWD/.cache/rsi-ui/node_modules" node --test tests/rsi_ui.test.cjs`。覆盖搜索、证据筛选与分页、空尝试拦截、表单提交内容、创建成功但入队失败的恢复、零分展示、入队成功后刷新失败的重复操作防护。
+
+2026-10-12 界面改版验收：7 项前端交互回归通过，Linux 上 12 项 RSI/Web API 回归通过。浏览器检查真实案例的档案搜索、来源筛选、空状态，以及 1440px / 390px 视口下的排版；窄屏文档宽度没有溢出，长表格在自身容器内滚动。新建表单和候选详情另外使用本地合成配置验收，未执行模型、发布 PR 或创建线上测试数据。截图保存在 `.cache/rsi-ui/`。
 
 `uv run pytest -q` 覆盖本地 Git fixture、证据完整性、失败适配器、检查失败、谱系、队列、Web 边界和模拟 GitHub 重试。`RSI_DOCKER_TESTS=1 uv run pytest tests/test_rsi_docker.py -q` 使用真实 Harbor/Docker，分别构建父版本与修复候选，各评两道控制题，预期从 0 到 1；这是确定性平台验收，不是模型效果数据。
 

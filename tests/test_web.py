@@ -45,6 +45,33 @@ def test_api_boundaries(client):
     assert client.post("/api/runs", json={"template": "missing"}).status_code == 422
 
 
+def test_explicit_bind_host_preserves_request_boundaries(tmp_path):
+    origin = "http://100.93.173.10:8765"
+    client = TestClient(create_app(tmp_path, bind_host="100.93.173.10"), base_url=origin)
+    assert client.get("/").status_code == 200
+    assert client.get("/api/runs").status_code == 200
+    for host in ("evil.example", "100.93.173.11:8765", "100.93.173.10.evil.example"):
+        assert client.get("/", headers={"Host": host}).status_code == 403
+    assert client.post("/api/runs", headers={"Origin": origin}, json={}).status_code == 422
+    assert client.post("/api/runs", headers={"Origin": "http://evil.example"}, json={}).status_code == 403
+    assert client.post("/api/runs", headers={"Origin": origin, "Sec-Fetch-Site": "cross-site"}, json={}).status_code == 403
+
+
+def test_default_host_rejects_remote_address(client):
+    assert client.get("/", headers={"Host": "100.93.173.10:8765"}).status_code == 403
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "::", "*.example.com"])
+def test_bind_host_requires_specific_ip(tmp_path, host):
+    with pytest.raises(ValueError):
+        create_app(tmp_path, bind_host=host)
+
+
+def test_ipv6_bind_host(tmp_path):
+    client = TestClient(create_app(tmp_path, bind_host="fd7a:115c:a1e0::1"), base_url="http://[fd7a:115c:a1e0::1]:8765")
+    assert client.get("/").status_code == 200
+
+
 def test_create_read_compare(client):
     response = client.post(
         "/api/runs",

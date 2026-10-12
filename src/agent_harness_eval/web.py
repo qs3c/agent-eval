@@ -1,6 +1,7 @@
 """Same-origin local API and static console."""
 
 import re
+from ipaddress import ip_address
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -11,7 +12,15 @@ from fastapi.staticfiles import StaticFiles
 from .console import Console, redact
 
 
-def create_app(root: Path, allow_live=False, recover=False):
+def create_app(root: Path, allow_live=False, recover=False, *, bind_host="127.0.0.1"):
+    address = ip_address(bind_host)
+    if address.is_unspecified:
+        raise ValueError("请指定具体监听 IP，不能使用通配地址")
+    authority = f"[{address}]" if address.version == 6 else str(address)
+    allowed_hosts = {"localhost", "127.0.0.1", "[::1]", authority}
+    host_pattern = re.compile(
+        "(?:" + "|".join(re.escape(host) for host in sorted(allowed_hosts)) + r")(?::\d{1,5})?"
+    )
     console = Console(root, allow_live=allow_live)
 
     @asynccontextmanager
@@ -35,8 +44,8 @@ def create_app(root: Path, allow_live=False, recover=False):
     @app.middleware("http")
     async def local_only(request: Request, call_next):
         host = request.headers.get("host", "")
-        if not re.fullmatch(r"(localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?", host):
-            return JSONResponse({"detail": "仅允许本机 Host"}, status_code=403)
+        if not host_pattern.fullmatch(host):
+            return JSONResponse({"detail": "Host 不在允许列表中"}, status_code=403)
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("origin")
             if origin and origin != f"{request.url.scheme}://{host}":

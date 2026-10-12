@@ -13,6 +13,7 @@ def main():
     q = sub.add_parser("serve", help="启动本机评测控制台")
     q.add_argument("--root", type=Path, default=Path.cwd())
     q.add_argument("--port", type=int, default=8765)
+    q.add_argument("--host", default="127.0.0.1", help="监听的具体 IP 地址（例如 Tailscale IP）")
     q.add_argument("--allow-live", action="store_true")
     q.add_argument(
         "--recover",
@@ -50,8 +51,8 @@ def main():
         from .web import create_app
 
         uvicorn.run(
-            create_app(args.root, args.allow_live, args.recover),
-            host="127.0.0.1",
+            create_app(args.root, args.allow_live, args.recover, bind_host=args.host),
+            host=args.host,
             port=args.port,
         )
     elif args.command == "validate":

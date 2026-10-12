@@ -286,7 +286,9 @@ async def supervise(config, guardian, agent_id, *, backend=None, worker_argv=Non
         write(heartbeat, {"time": now(), "phase": "finished", "failure": failure})
 
 
-async def run_guarded(exp, output, agent_config, tasks, agent_id):
+async def run_guarded(
+    exp, output, agent_config, tasks, agent_id, *, manage_signals=True
+):
     if sys.platform != "linux":
         raise ValueError("Experiment guardian execution requires Linux and Docker")
     semaphore = asyncio.Semaphore(exp.concurrency)
@@ -308,7 +310,8 @@ async def run_guarded(exp, output, agent_config, tasks, agent_id):
 
     loop, owner = asyncio.get_running_loop(), asyncio.current_task()
     previous = signal.getsignal(signal.SIGTERM)
-    loop.add_signal_handler(signal.SIGTERM, owner.cancel)
+    if manage_signals:
+        loop.add_signal_handler(signal.SIGTERM, owner.cancel)
     workers = [
         asyncio.create_task(one(task)) for task in tasks for _ in range(exp.attempts)
     ]
@@ -319,5 +322,6 @@ async def run_guarded(exp, output, agent_config, tasks, agent_id):
             if not worker.done():
                 worker.cancel()
         await asyncio.gather(*workers, return_exceptions=True)
-        loop.remove_signal_handler(signal.SIGTERM)
-        signal.signal(signal.SIGTERM, previous)
+        if manage_signals:
+            loop.remove_signal_handler(signal.SIGTERM)
+            signal.signal(signal.SIGTERM, previous)

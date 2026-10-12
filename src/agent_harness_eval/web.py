@@ -40,6 +40,9 @@ def create_app(root: Path, allow_live=False, recover=False, *, bind_host="127.0.
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.console = console
+    from .rsi.api import router
+
+    app.include_router(router(console))
 
     @app.middleware("http")
     async def local_only(request: Request, call_next):

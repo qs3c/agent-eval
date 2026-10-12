@@ -12,5 +12,6 @@ logs/
 *.nop-control.json
 .ruff_cache/
 .console/
+.rsi/
 dist/
 *.mock-negative.json

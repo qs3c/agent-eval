@@ -1,0 +1,209 @@
+import math
+import shutil
+from uuid import uuid4
+
+from ..config import load
+from ..guardian.config import GuardianConfig
+from ..guardian.evidence import now, read, write
+from ..manifests import load_manifest
+from ..provenance import digest, validate_tree
+from ..run import run_experiment
+from .git import assert_clean, clone
+from .models import Profile
+from .process import checked
+
+
+def compare(parent, candidate):
+    a, b = load_manifest(parent), load_manifest(candidate)
+    reports = [read(path / "report.json", {}) for path in (parent, candidate)]
+    problems = []
+    contracts = []
+    for manifest in (a, b):
+        agents = []
+        for agent in manifest["experiment"]["agents"]:
+            agents.append(
+                {
+                    **{
+                        k: v for k, v in agent.items() if k not in {"version", "kwargs"}
+                    },
+                    "kwargs": {
+                        k: v
+                        for k, v in agent.get("kwargs", {}).items()
+                        if k not in {"binary", "bundle", "provenance"}
+                    },
+                }
+            )
+        contracts.append(agents)
+    if len(contracts[0]) != 1 or contracts[0] != contracts[1]:
+        problems.append("contract mismatch: agents")
+    for field in (
+        "model",
+        "benchmark",
+        "attempts",
+        "timeout_seconds",
+        "setup_timeout_seconds",
+        "cpus",
+        "memory_mb",
+        "concurrency",
+        "guardian",
+    ):
+        left, right = a["experiment"].get(field), b["experiment"].get(field)
+        if field == "benchmark":
+            left, right = (
+                {k: v for k, v in left.items() if k != "tasks"},
+                {k: v for k, v in right.items() if k != "tasks"},
+            )
+        if left != right:
+            problems.append("contract mismatch: " + field)
+    task_hashes = [{k: v.get("sha256") for k, v in m["tasks"].items()} for m in (a, b)]
+    if task_hashes[0] != task_hashes[1] or any(not v for v in task_hashes[0].values()):
+        problems.append("task identity differs or is unknown")
+    metric = a["experiment"]["benchmark"]["primary_metric"]
+    expected = len(a["tasks"]) * a["experiment"]["attempts"]
+    if not expected:
+        problems.append("empty task set")
+    values, errors = [], []
+    for report in reports:
+        trials = report.get("trials", [])
+        if report.get("report_errors") or len(trials) != expected:
+            problems.append("incomplete or malformed report")
+        for task in a["tasks"]:
+            if (
+                sum(t.get("task") == task for t in trials)
+                != a["experiment"]["attempts"]
+            ):
+                problems.append("missing or duplicate task attempts")
+        if any(t.get("guardian", {}).get("assisted") for t in trials):
+            problems.append("externally assisted attempts")
+        scores = [
+            t.get("metrics", {}).get(metric) for t in trials if not t.get("exception")
+        ]
+        if any(type(s) not in (int, float) or not math.isfinite(s) for s in scores):
+            problems.append("unknown or invalid primary metric")
+        errors.append(sum(bool(t.get("exception")) for t in trials))
+        values.append(scores)
+    outcome = {
+        "assessment": "inconclusive",
+        "metric": metric,
+        "errors": {"parent": errors[0], "candidate": errors[1]},
+        "issues": sorted(set(problems)),
+        "note": "Measured on this configured set only; no statistical/general capability claim.",
+    }
+    if problems:
+        return outcome
+    outcome["reliability_change"] = (
+        "improved"
+        if errors[1] < errors[0]
+        else "regressed"
+        if errors[1] > errors[0]
+        else "equal"
+    )
+    if errors[0] or errors[1]:
+        outcome["issues"] = [
+            "execution errors prevent a complete score comparison; see reliability_change"
+        ]
+        return outcome
+    means = [sum(scores) / expected for scores in values]
+    outcome.update(
+        assessment="improved"
+        if means[1] > means[0]
+        else "regressed"
+        if means[1] < means[0]
+        else "equal",
+        scores={
+            "parent": means[0],
+            "candidate": means[1],
+            "delta": means[1] - means[0],
+        },
+    )
+    return outcome
+
+
+async def evaluate(store, record, allow_live):
+    profile = Profile.model_validate(record["profile"])
+    if not profile.evaluation:
+        raise ValueError("Profile has no paired evaluation template")
+    exp = load(profile.evaluation, validate_agent_artifacts=False)
+    if exp.model.mode == "live" and not allow_live:
+        raise ValueError(
+            "Live reevaluation requires server permission and explicit unbounded spending acknowledgement"
+        )
+    agent_id = store.get("cases", record["case"])["agent"]
+    agents = [a for a in exp.agents if a.id == agent_id]
+    if len(agents) != 1:
+        raise ValueError("Evaluation template must contain the case Agent")
+    exp.agents = agents
+    required = set(agents[0].kwargs) & {"binary", "bundle", "provenance"}
+    if not required <= set(profile.artifacts):
+        raise ValueError(
+            "Build must replace all existing source-dependent Agent artifacts"
+        )
+    if not {"binary", "bundle"}.intersection(profile.artifacts):
+        raise ValueError(
+            "Paired evaluation requires a candidate-built binary or bundle"
+        )
+    # Both versions use the same independent deadline protection, never assist.
+    if exp.guardian and exp.guardian.mode == "assist":
+        raise ValueError("RSI paired evaluation requires unassisted evaluation")
+    exp.guardian = exp.guardian or GuardianConfig()
+    root = store.path("candidates", record["id"])
+    await assert_clean(root / "workspace", record["commit"])
+    evaluation = {"id": uuid4().hex, "started_at": now(), "assessment": "running"}
+    record["evaluations"].append(evaluation)
+    store.save("candidates", record)
+    destination = root / "evaluations" / evaluation["id"]
+    destination.mkdir(parents=True)
+    try:
+        frozen_tasks = []
+        for task in exp.benchmark.tasks:
+            validate_tree(task)
+            frozen = destination / "inputs" / "tasks" / task.name
+            shutil.copytree(task, frozen)
+            frozen_tasks.append(frozen)
+        exp.benchmark.tasks = frozen_tasks
+        write(destination / "experiment.json", exp.model_dump(mode="json"))
+        for side, commit in (
+            ("parent", record["parent_commit"]),
+            ("candidate", record["commit"]),
+        ):
+            workspace, output = (
+                destination / (side + "-workspace"),
+                destination / (side + "-build"),
+            )
+            # Candidate clone includes both parent and child commits.
+            await clone(root / "workspace", workspace, commit)
+            output.mkdir()
+            await checked(
+                profile.build,
+                workspace,
+                destination / (side + "-build.json"),
+                {
+                    "workspace": workspace,
+                    "output": output,
+                    "evidence": store.path("cases", record["case"]) / "evidence",
+                },
+            )
+            await assert_clean(workspace, commit)
+            config = exp.model_copy(deep=True)
+            config.agents[0].version = commit
+            artifacts = {}
+            for key, relative in profile.artifacts.items():
+                artifact = output / relative
+                if (
+                    artifact.is_symlink()
+                    or not artifact.resolve().is_relative_to(output.resolve())
+                    or not artifact.is_file()
+                ):
+                    raise ValueError("Build output missing or escapes output directory")
+                config.agents[0].kwargs[key] = str(artifact)
+                artifacts[key] = {"sha256": digest(artifact), "commit": commit}
+            write(destination / (side + "-artifacts.json"), artifacts)
+            await run_experiment(config, destination / side, manage_signals=False)
+        evaluation.update(compare(destination / "parent", destination / "candidate"))
+    except BaseException as error:
+        evaluation.update(assessment="failed", error=str(error) or type(error).__name__)
+        raise
+    finally:
+        evaluation["finished_at"] = now()
+        write(destination / "comparison.json", evaluation)
+        store.save("candidates", record)

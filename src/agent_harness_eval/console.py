@@ -607,6 +607,9 @@ class Console:
         if interrupted:
             self.blocked = "存在中断运行。请检查遗留进程和 Docker 容器，处理后使用 agent-harness-eval serve --recover 启动"
         self.import_history()
+        from .rsi.store import Store
+
+        Store(self.root).recover()
         self.worker = threading.Thread(
             target=self.work, daemon=True, name="evaluation-worker"
         )
@@ -619,6 +622,12 @@ class Console:
                 continue
             row = self.claim()
             if row is None:
+                from .rsi.store import Store
+
+                action = Store(self.root).next_action()
+                if action:
+                    self.execute_rsi(action)
+                    continue
                 self.stop.wait(0.5)
                 continue
             try:
@@ -691,6 +700,37 @@ class Console:
                 "completed" if status == "completed" else "failed",
                 None if status == "completed" else "执行已结束，但有异常或结果不完整",
             )
+
+    def execute_rsi(self, action):
+        from .rsi.store import Store
+
+        store = Store(self.root)
+        self.shutdown_seconds = 150
+        argv = [sys.executable, "-m", "agent_harness_eval.cli", "rsi-work", action["id"], "--root", str(self.root)]
+        if self.allow_live:
+            argv.append("--allow-live")
+        try:
+            with (store.root / "actions" / (action["id"] + ".log")).open("wb") as log:
+                self.process = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, cwd=self.root,
+                                                start_new_session=True, pass_fds=(self.lock.fileno(),))
+                while self.process.poll() is None:
+                    if self.stop.wait(.3):
+                        self.terminate()
+                        break
+                code = self.process.wait()
+            if store.action(action["id"])["status"] == "queued":
+                store.finish(action["id"], "failed", f"Worker exited before claiming action ({code})")
+            # A simultaneous standalone CLI may have claimed this action. Its
+            # candidate lock must be checked before marking anything interrupted.
+            store.recover()
+        except Exception as error:  # noqa: BLE001 - protect the shared queue worker
+            if self.process:
+                self.terminate()
+            if store.action(action["id"])["status"] == "queued":
+                store.finish(action["id"], "failed", redact(str(error)))
+            store.recover()
+        finally:
+            self.process = None
 
     def terminate(self):
         process = self.process

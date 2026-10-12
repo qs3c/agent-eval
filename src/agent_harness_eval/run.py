@@ -18,7 +18,7 @@ from .provenance import digest, tree_manifest, write_json
 from .report import report
 
 
-async def run_experiment(exp: Experiment, output: Path):
+async def run_experiment(exp: Experiment, output: Path, *, manage_signals=True):
     if exp.guardian is not None:
         from .guardian.config import validate_tasks
 
@@ -167,7 +167,14 @@ async def run_experiment(exp: Experiment, output: Path):
             if exp.guardian is not None:
                 from .guardian.supervisor import run_guarded
 
-                await run_guarded(exp, output, cfg.agents[0], copied_tasks, agent.id)
+                await run_guarded(
+                    exp,
+                    output,
+                    cfg.agents[0],
+                    copied_tasks,
+                    agent.id,
+                    manage_signals=manage_signals,
+                )
                 continue
             job = await Job.create(cfg)
             await job.run()

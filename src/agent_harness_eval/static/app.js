@@ -642,7 +642,7 @@ async function route() {
   const { page, id } = routeInfo();
   notice();
   $("#breadcrumb").textContent =
-    page === "create"
+    ["rsi", "rsi-case"].includes(page) ? "RSI 改进" : page === "create"
       ? "创建实验"
       : ["compare", "batch-compare", "trace-compare"].includes(page)
         ? "结果对比"
@@ -654,11 +654,13 @@ async function route() {
     .forEach((n) =>
       n.classList.toggle(
         "active",
-        n.dataset.nav === (page === "run" ? "runs" : ["batch-compare", "trace-compare"].includes(page) ? "compare" : page),
+        n.dataset.nav === (page === "rsi-case" ? "rsi" : page === "run" ? "runs" : ["batch-compare", "trace-compare"].includes(page) ? "compare" : page),
       ),
     );
   try {
     if (page === "create") await renderCreate(token);
+    else if (page === "rsi") await renderRsi(token, id);
+    else if (page === "rsi-case") await renderRsiCase(token, id);
     else if (page === "compare") await renderExperimentCompare(token, id);
     else if (page === "trace-compare") await renderEvidenceCompare(token);
     else if (page === "batch-compare") await renderCompare(token);
@@ -677,10 +679,11 @@ setInterval(async () => {
   if (polling || document.hidden) return;
   const { page, id } = routeInfo(),
     token = epoch;
-  if (!["runs", "run"].includes(page)) return;
+  if (!["runs", "run"].includes(page) && !(page === "rsi" && id)) return;
   polling = true;
   try {
-    if (page === "runs") {
+    if (page === "rsi") await renderRsi(token, id, false);
+    else if (page === "runs") {
       await refreshRuns();
       if (epoch === token) renderRunRows();
     } else await renderDetail(id, token, false);

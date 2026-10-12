@@ -12,6 +12,9 @@ def main():
         description="Agent harness evaluation workbench (Harbor)"
     )
     sub = p.add_subparsers(dest="command", required=True)
+    from .rsi.cli import register
+
+    register(sub)
     q = sub.add_parser("serve", help="启动本机评测控制台")
     q.add_argument("--root", type=Path, default=Path.cwd())
     q.add_argument("--port", type=int, default=8765)
@@ -52,7 +55,11 @@ def main():
     q.add_argument("--run-id", required=True)
     q.add_argument("--execute", action="store_true")
     args = p.parse_args()
-    if args.command == "serve":
+    if args.command.startswith("rsi-"):
+        from .rsi.cli import execute as execute_rsi
+
+        execute_rsi(args)
+    elif args.command == "serve":
         import uvicorn
 
         from .web import create_app

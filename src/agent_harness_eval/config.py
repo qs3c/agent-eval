@@ -103,7 +103,7 @@ def reject_credentials(value):
             reject_credentials(child)
 
 
-def load(path: Path) -> Experiment:
+def load(path: Path, *, validate_agent_artifacts=True) -> Experiment:
     exp = Experiment.model_validate_json(path.read_text())
     exp.benchmark.tasks = [(path.parent / t).resolve() for t in exp.benchmark.tasks]
     names = [t.name for t in exp.benchmark.tasks]
@@ -123,6 +123,6 @@ def load(path: Path) -> Experiment:
         for key in ("bundle", "binary", "provenance"):
             if key in agent.kwargs:
                 agent.kwargs[key] = str((path.parent / agent.kwargs[key]).resolve())
-                if not Path(agent.kwargs[key]).is_file():
+                if validate_agent_artifacts and not Path(agent.kwargs[key]).is_file():
                     raise ValueError(f"missing agent artifact: {agent.kwargs[key]}")
     return exp

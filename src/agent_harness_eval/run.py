@@ -3,6 +3,7 @@ import importlib.metadata
 import json
 import os
 import shutil
+import sys
 from datetime import UTC, datetime
 from importlib import import_module
 from pathlib import Path
@@ -18,6 +19,12 @@ from .report import report
 
 
 async def run_experiment(exp: Experiment, output: Path):
+    if exp.guardian is not None:
+        from .guardian.config import validate_tasks
+
+        if sys.platform != "linux":
+            raise ValueError("Experiment guardian execution requires Linux and Docker")
+        validate_tasks(exp.benchmark.tasks)
     if exp.model.mode == "live":
         if exp.model.spending != "unbounded":
             raise ValueError("live mode requires explicit spending policy: unbounded")
@@ -157,6 +164,11 @@ async def run_experiment(exp: Experiment, output: Path):
                     )
                 ],
             )
+            if exp.guardian is not None:
+                from .guardian.supervisor import run_guarded
+
+                await run_guarded(exp, output, cfg.agents[0], copied_tasks, agent.id)
+                continue
             job = await Job.create(cfg)
             await job.run()
     finally:

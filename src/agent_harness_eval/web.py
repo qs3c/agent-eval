@@ -111,6 +111,22 @@ def create_app(root: Path, allow_live=False, recover=False, *, bind_host="127.0.
     def comparison(run_id: str):
         return console.comparison(run_id)
 
+    @app.get("/api/runs/{run_id}/incidents")
+    def incident_list(run_id: str):
+        from .console import safe_file
+        from .guardian.views import incidents
+
+        root = safe_file(console.artifacts, Path(console.row(run_id)["path"]))
+        return incidents(root)
+
+    @app.get("/api/runs/{run_id}/incidents/{incident_id}")
+    def incident_detail(run_id: str, incident_id: str):
+        from .console import safe_file
+        from .guardian.views import detail
+
+        root = safe_file(console.artifacts, Path(console.row(run_id)["path"]))
+        return detail(root, incident_id)
+
     @app.get("/api/runs/{run_id}/traces")
     def traces(run_id: str):
         from .trace_view import trace_list

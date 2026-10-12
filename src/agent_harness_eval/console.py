@@ -311,6 +311,8 @@ class Console:
         return dict(row)
 
     def evidence(self, row):
+        from .guardian.evidence import incident_summary
+
         path = safe_file(self.artifacts, Path(row["path"]))
         manifest = read_manifest(path)
         report = read_json(path, path / "report.json")
@@ -348,6 +350,7 @@ class Console:
                         "input_tokens": usage.get("n_input_tokens"),
                         "output_tokens": usage.get("n_output_tokens"),
                         "cost_usd": usage.get("cost_usd"),
+                        "guardian": incident_summary(result.parent),
                     }
                 )
         return manifest, report, completed, trials
@@ -534,6 +537,10 @@ class Console:
         ]:
             if a["experiment"][field] != b["experiment"][field]:
                 reasons.append(label + " 不一致")
+        if a["experiment"].get("guardian") != b["experiment"].get("guardian"):
+            reasons.append("实验守护策略不一致")
+        if any(t.get("guardian", {}).get("assisted") for r in (a, b) for t in r["trials"]):
+            reasons.append("存在外部辅助尝试，不能作为纯自主成绩直接配对")
         if (
             a["experiment"]["benchmark"]["primary_metric"]
             != b["experiment"]["benchmark"]["primary_metric"]
@@ -634,6 +641,10 @@ class Console:
             return
         config = self.state / "inputs" / run_id / "config.json"
         model = json.loads(row["config"])["model"]
+        guardian = json.loads(row["config"]).get("guardian")
+        # Allow the independent supervisor to persist evidence and clean Docker.
+        self.shutdown_seconds = (4 * guardian["command_seconds"] + guardian["cleanup_seconds"] + 30
+                                 if guardian else 8)
         if model["mode"] == "live" and (
             not self.allow_live or not os.environ.get(model["api_key_env"])
         ):
@@ -686,7 +697,7 @@ class Console:
         if process and process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGTERM)
-                process.wait(timeout=8)
+                process.wait(timeout=getattr(self, "shutdown_seconds", 8))
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=5)
@@ -696,7 +707,7 @@ class Console:
     def close(self):
         self.stop.set()
         if self.worker:
-            self.worker.join(timeout=20)
+            self.worker.join(timeout=getattr(self, "shutdown_seconds", 8) + 12)
         if self.lock:
             self.lock.close()
             self.lock = None

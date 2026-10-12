@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .guardian.config import GuardianConfig
+
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -62,6 +64,7 @@ class Experiment(Strict):
     setup_timeout_seconds: int = Field(default=600, gt=0)
     cpus: int = Field(default=2, gt=0)
     memory_mb: int = Field(default=4096, gt=0)
+    guardian: GuardianConfig | None = None
 
     @model_validator(mode="after")
     def validate_combinations(self):

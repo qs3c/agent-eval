@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from .guardian.evidence import incident_summary
 from .manifests import load_manifest
 from .provenance import write_json
 
@@ -67,6 +68,7 @@ def report(root: Path) -> dict:
                 "agent_seconds": duration(value.get("agent_execution") or {}),
                 "trial_seconds": duration(value),
                 "result": str(path.relative_to(root)),
+                "guardian": incident_summary(path.parent),
             }
         )
     expected = len(exp["benchmark"]["tasks"]) * exp["attempts"]
@@ -90,6 +92,12 @@ def report(root: Path) -> dict:
             if len(rows) == expected and all(t["cost_usd"] is not None for t in rows)
             else None,
         }
+        assisted = sum(t["guardian"]["assisted"] for t in rows)
+        if assisted:
+            summaries[agent["id"]]["assisted"] = assisted
+            summaries[agent["id"]]["score_note"] = (
+                "原始评分含外部辅助尝试，不代表纯自主成绩"
+            )
     by_task = defaultdict(dict)
     for a in summaries:
         for task in manifest["tasks"]:
@@ -124,6 +132,12 @@ def report(root: Path) -> dict:
         lines.append(
             f"| {name} | {s['expected']} | {s['recorded']} | {s['errors']} | {s['scored']} | {s['mean_on_scored']} | {s['missing']} |"
         )
+    for name, s in summaries.items():
+        if s.get("assisted"):
+            lines += [
+                "",
+                f"{name}: {s['assisted']} externally assisted attempts. Raw scores are retained; these are not autonomous results.",
+            ]
     lines += [
         "",
         "Unknown cost remains null. Missing/errored trials are explicitly counted; JSON also reports a diagnostic mean treating unscored attempts as zero. Zero is only a lower bound for nonnegative metrics.",

@@ -371,9 +371,10 @@ function reportTable(report, reviews = {}) {
   );
 }
 async function renderDetail(id, token, initial = true) {
-  const [r, logs] = await Promise.all([
+  const [r, logs, incidents] = await Promise.all([
     api("/api/runs/" + id),
     api("/api/runs/" + id + "/logs"),
+    api("/api/runs/" + id + "/incidents"),
   ]);
   if (epoch !== token) return;
   if (initial) {
@@ -433,7 +434,9 @@ async function renderDetail(id, token, initial = true) {
     grids.append(logPanel, configPanel);
     const traces = el("section", undefined, "trace-section");
     traces.append(el("h2", "执行轨迹与证据"));
-    view.append(head, state, metrics, results, traces, grids);
+    const guardian = el("section", undefined, "panel");
+    guardian.id = "guardian-incidents";
+    view.append(head, state, metrics, results, guardian, traces, grids);
     tracePicker(r, traces).catch((e) =>
       traces.append(el("p", e.message, "error")),
     );
@@ -485,6 +488,32 @@ async function renderDetail(id, token, initial = true) {
           ),
   );
   $("#logs").textContent = logs.text;
+  const guardian = $("#guardian-incidents");
+  const assisted = r.trials.filter(t => t.guardian?.assisted).length;
+  const incidentSignature = JSON.stringify([incidents, assisted, r.experiment.guardian]);
+  if (guardian.dataset.signature === incidentSignature) return;
+  guardian.dataset.signature = incidentSignature;
+  guardian.replaceChildren(el("h2", "实验运行守护"), el("p",
+    `${r.experiment.guardian ? (r.experiment.guardian.mode === "assist" ? "自主介入模式" : "观察与期限兜底模式") : "本实验未配置通用守护"} · ${incidents.incidents.length} 条事件 · ${assisted} 次外部辅助尝试`));
+  if (assisted) guardian.append(el("p", "原始评分保留；受辅助尝试不能解释为 Agent 独立完成。", "callout"));
+  if (!incidents.incidents.length) guardian.append(el("p", "暂无守护事件。历史人工介入材料仍保存在原实验目录。", "muted"));
+  for (const incident of incidents.incidents) {
+    const button = el("button", `${incident.agent} / ${incident.trial} · ${incident.reason} · ${incident.outcome.status || "调查中"}${incident.assisted ? " · 已介入" : ""}`, "button");
+    button.type = "button";
+    button.onclick = async () => {
+      try {
+        const data = await api(`/api/runs/${encodeURIComponent(id)}/incidents/${incident.id}`);
+        if (epoch !== token || !button.isConnected) return;
+        const content = el("div");
+        content.append(el("p", data.summary || "守护尚未提交诊断总结。"), el("p", `证据：${data.directory}`),
+          table(["时间", "记录", "工具 / 动作", "命令", "退出码 / 错误"], data.actions.map(a =>
+            [time(a.time), a.kind, a.tool || "", a.command || "", a.error || (a.returncode ?? "")])), el("p", data.note, "muted"));
+        button.replaceWith(content);
+      } catch (error) { notice(error.message); }
+    };
+    guardian.append(button);
+  }
+  if (incidents.truncated) guardian.append(el("p", "事件超过页面展示上限，请读取原始实验目录。"));
 }
 async function renderCompare(token) {
   await refreshRuns();

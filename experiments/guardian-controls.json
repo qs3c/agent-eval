@@ -1,0 +1,10 @@
+{
+  "name": "guardian-file-controls",
+  "agents": [
+    {"id": "positive", "implementation": "agent_harness_eval.agents.control:Control", "version": "fixture-v1"},
+    {"id": "negative", "implementation": "nop", "version": "harbor-0.24.0"}
+  ],
+  "benchmark": {"id": "file-smoke", "tasks": ["../tasks/file-create", "../tasks/file-preserve"]},
+  "concurrency": 2,
+  "guardian": {"mode": "observe", "poll_seconds": 5}
+}

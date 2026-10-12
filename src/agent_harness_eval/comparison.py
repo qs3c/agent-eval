@@ -42,6 +42,9 @@ def summarize(experiment, trials, score_kind, terminal):
                     values.append(value)
             complete = len(records) == attempts and len(values) == attempts
             cell = {
+                "assisted": sum(
+                    bool(r.get("guardian", {}).get("assisted")) for r in records
+                ),
                 "recorded": len(records),
                 "expected": attempts,
                 "missing": max(0, attempts - len(records)),
@@ -84,6 +87,7 @@ def summarize(experiment, trials, score_kind, terminal):
                 "expected": expected,
             }
         summaries[agent] = {
+            "assisted": sum(c["assisted"] for c in cells),
             **counts,
             "recorded": len(rows),
             "expected": expected,

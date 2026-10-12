@@ -8,12 +8,13 @@ function comparisonScore(value, kind) {
   return value == null ? "待评分" : kind === "resolved" ? `${number(value * 100)}%` : number(value);
 }
 function taskScore(cell, kind) {
+  const assistance = cell.assisted ? ` · 含 ${cell.assisted} 次辅助` : "";
   if (cell.score != null) {
-    if (kind === "resolved" && cell.expected === 1) return cell.score === 1 ? "已解决" : "未解决";
-    return comparisonScore(cell.score, kind);
+    if (kind === "resolved" && cell.expected === 1) return (cell.score === 1 ? "已解决" : "未解决") + assistance;
+    return comparisonScore(cell.score, kind) + assistance;
   }
   return `待完整评分 · ${cell.scored}/${cell.expected} 已评分` +
-    (cell.errors ? ` · ${cell.errors} 异常` : "") + (cell.extra ? ` · ${cell.extra} 额外记录` : "");
+    (cell.errors ? ` · ${cell.errors} 异常` : "") + (cell.extra ? ` · ${cell.extra} 额外记录` : "") + assistance;
 }
 function usageLabel(usage) {
   return usage.total != null ? number(usage.total) :
@@ -97,6 +98,7 @@ function drawExperimentComparison(data, body, active) {
       const a = agents[name];
       const score = a.final ? comparisonScore(a.score, kind) : a.provisional_score != null ? `${comparisonScore(a.provisional_score, kind)}（暂定）` : "待完整评分";
       const label = el("span", name);
+      if (a.assisted) label.append(el("small", `${a.assisted} 次外部辅助；评分含辅助结果`, "run-sub"));
       label.append(el("small", reviewNames[run.reviews[name]?.status] || "待复核", "run-sub"));
       return [label, score + (run.reviews[name]?.status === "diagnostic" ? "（诊断）" : ""), kind === "resolved" ? `${a.solved_tasks} / ${data.task_count}` : "不适用",
         `${a.scored} / ${a.expected}`, `${a.missing} / ${a.errors} / ${a.unscored} / ${a.extra}`,

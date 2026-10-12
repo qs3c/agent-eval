@@ -96,6 +96,13 @@ def test_trace_routes_are_scoped_to_registered_runs(client):
     assert client.get(f"/api/runs/{run['id']}/traces/not-a-trial").status_code == 404
 
 
+def test_incident_routes_are_scoped_to_registered_runs(client):
+    assert client.get("/api/runs/unknown/incidents").status_code == 404
+    run = client.post("/api/runs", json={"template": "controls"}).json()
+    assert client.get(f"/api/runs/{run['id']}/incidents").json()["incidents"] == []
+    assert client.get(f"/api/runs/{run['id']}/incidents/unknown").status_code == 404
+
+
 def test_experiment_comparison_api_without_starting_work(client):
     assert client.get("/api/runs/unknown/comparison").status_code == 404
     run = client.post("/api/runs", json={"template": "controls"}).json()

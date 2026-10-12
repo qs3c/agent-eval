@@ -129,6 +129,8 @@ set +a
 
 Trace 的原生埋点、代理采集、v2 时间口径与历史兼容说明见 [Trace 采集文档](docs/trace-collection.md)。新的代理计时随下次真实运行产生；已有实验不会补造历史时间。
 
+实验运行守护支持定时监测、介入前取证、可插拔 Agent 直接处置和独立超时兜底。配置、JSONL 接口、证据来源及无人值守边界见 [实验守护文档](docs/experiment-guardian.md)。首个 Agent 尚未指定；`experiments/guardian-controls.json` 提供无需模型的观察模式验收入口。
+
 ## 实验内 Agent 对比与版本
 
 打开 `/#compare`，先选择一个实验，查看本次全部任务的各 Agent 总览，再在逐题矩阵中选择两个 Agent。点击任务可并排展开补丁、测试输出和原生轨迹；重复尝试有独立选择器。运行详情中的「对比本实验 Agent」会直接进入该实验。只有一个 Agent 的实验也能查看成绩与单条轨迹。

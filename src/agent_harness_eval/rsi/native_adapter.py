@@ -218,7 +218,7 @@ def main():
     args = parser.parse_args()
     if args.check_target:
         command = (
-            ["go", "test", "./..."]
+            ["sh", "/installed-agent/check-bkcrab.sh"]
             if args.check_target == "bkcrab"
             else [
                 "git",

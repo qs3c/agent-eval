@@ -15,6 +15,7 @@ artifacts = (args.artifacts_root or root).resolve() / ".cache"
 stage = root / ".cache/rsi-native-build"
 stage.mkdir(parents=True, exist_ok=True)
 shutil.copyfile(root / "integrations/rsi/Dockerfile", stage / "Dockerfile")
+shutil.copyfile(root / "integrations/rsi/check-bkcrab.sh", stage / "check-bkcrab.sh")
 shutil.copyfile(artifacts / "bkcrab-eval", stage / "bkcrab-eval")
 shutil.copyfile(artifacts / "dsh-bundle03/runtime.tar.gz", stage / "runtime.tar.gz")
 subprocess.run(

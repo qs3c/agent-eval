@@ -211,6 +211,7 @@ def write_pr_body(store, record):
             "improved": "有所改善",
             "regressed": "出现退化",
             "unchanged": "无变化",
+            "equal": "无变化",
             "inconclusive": "无法得出结论",
             "running": "进行中",
             "failed": "失败",
@@ -237,6 +238,34 @@ def write_pr_body(store, record):
         ),
     ):
         zh = language == "中文"
+        details = []
+        if evaluation:
+            latest = evaluation[-1]
+            scores = latest.get("scores")
+            if scores:
+                details.append(
+                    f"- {'父分数' if zh else 'Parent score'}: {scores.get('parent')}; "
+                    f"{'候选分数' if zh else 'Candidate score'}: {scores.get('candidate')}; "
+                    f"{'差值' if zh else 'Delta'}: {scores.get('delta')}"
+                )
+            if latest.get("errors"):
+                details.append(
+                    f"- {'执行异常（父 / 子）' if zh else 'Execution errors (parent / candidate)'}: "
+                    f"{latest['errors'].get('parent')} / {latest['errors'].get('candidate')}"
+                )
+            if latest.get("issues") or latest.get("error"):
+                details.append(
+                    f"- {'比较限制 / 错误标识' if zh else 'Comparison issues / error identifiers'}: "
+                    + "; ".join(
+                        latest.get("issues", [])
+                        + ([latest["error"]] if latest.get("error") else [])
+                    )
+                )
+            details.append(
+                "- 结论仅适用于本次配置的任务集合，不代表统计显著性或通用能力提升。"
+                if zh
+                else "- Results apply only to this configured task set; no statistical significance or general capability improvement is claimed."
+            )
         labels = (
             (
                 "问题与修改",
@@ -280,6 +309,7 @@ def write_pr_body(store, record):
 - {labels[8]}: {", ".join(diagnosis.get("evidence_refs", []))}
 - {labels[9]}: {len(record.get("checks", []))}
 - {labels[10]}: {assessment_zh if zh else assessment_en}
+{chr(10).join(details)}
 
 ### {labels[2]}
 {limitations}
@@ -320,15 +350,31 @@ async def perform(store, action_id, allow_live=False):
                 await improve(store, record)
             elif action["kind"] == "evaluate":
                 from .evaluation import evaluate
+                from .publication import publish
 
-                await evaluate(
-                    store, record, allow_live and bool(action["confirm_live"])
-                )
+                previous_evaluations = len(record["evaluations"])
+                try:
+                    await evaluate(
+                        store, record, allow_live and bool(action["confirm_live"])
+                    )
+                except Exception:
+                    # Sync the failed result too, without hiding evaluation failure.
+                    if (
+                        record.get("pr_url")
+                        and len(record["evaluations"]) > previous_evaluations
+                        and record["evaluations"][-1].get("finished_at")
+                    ):
+                        await publish(store, record, best_effort=True)
+                    raise
                 write_pr_body(store, record)
+                if record.get("pr_url"):
+                    await publish(store, record, best_effort=True)
             else:
                 from .publication import publish
 
                 await publish(store, record)
+            record.pop("last_error", None)
+            store.save("candidates", record)
             store.finish(action_id, "completed")
         except asyncio.CancelledError:
             record["phase"] = "interrupted"

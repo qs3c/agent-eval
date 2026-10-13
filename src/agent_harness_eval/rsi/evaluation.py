@@ -148,7 +148,13 @@ async def evaluate(store, record, allow_live):
     exp.guardian = exp.guardian or GuardianConfig()
     root = store.path("candidates", record["id"])
     await assert_clean(root / "workspace", record["commit"])
-    evaluation = {"id": uuid4().hex, "started_at": now(), "assessment": "running"}
+    evaluation = {
+        "id": uuid4().hex,
+        "started_at": now(),
+        "assessment": "running",
+        "parent_commit": record["parent_commit"],
+        "candidate_commit": record["commit"],
+    }
     record["evaluations"].append(evaluation)
     store.save("candidates", record)
     destination = root / "evaluations" / evaluation["id"]

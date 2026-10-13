@@ -154,6 +154,25 @@ test('validated candidate preserves zero scores and shows distinct verification 
   assert.equal([...doc.querySelectorAll('button')].find(b => b.textContent === '运行父子复评').disabled, true);
 });
 
+for (const [state, label] of [['draft', '草稿 PR'], ['ready', '待审阅 PR'], ['closed', 'PR 已关闭'], ['merged', 'PR 已合并'], [null, 'PR 状态待同步']]) {
+  test(`candidate shows synchronized PR state ${state} and offers publish retry`, async t => {
+    const published = { ...candidate, phase: 'validated', pr_url: 'https://github.com/example/repo/pull/7', pr_state: state,
+      can_publish: true, pr_sync_error: 'GitHub unavailable', pr_ready_reason: '最新父子复评未明确改善，保留草稿。' };
+    let payload;
+    const { run, doc } = setup(t, async (url, options) => {
+      if (options.method === 'POST') { payload = JSON.parse(options.body); return {id: 'action'}; }
+      return url === '/api/rsi' ? overview() : url.includes('/cases/') ? source : published;
+    });
+    await run(`renderRsiCandidate(0, '${candidate.id}', true)`);
+    assert.ok(doc.querySelector('.rsi-candidate-status').textContent.includes(label));
+    assert.match(doc.body.textContent, /PR 同步失败，测评结果已保留/);
+    assert.ok([...doc.querySelectorAll('a')].some(a => a.textContent === '打开 PR ↗'));
+    if (state === 'draft') assert.match(doc.body.textContent, /最新父子复评未明确改善/);
+    await [...doc.querySelectorAll('button')].find(b => b.textContent === '同步 PR').onclick();
+    assert.equal(payload.kind, 'publish');
+  });
+}
+
 test('accepted action remains disabled if the subsequent status refresh fails', async t => {
   let posted = false;
   const { run, doc } = setup(t, async (url, options) => {

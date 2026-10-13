@@ -301,6 +301,8 @@ def test_publication_retry_recovers_existing_pr_without_push(setup, monkeypatch)
                     {
                         "url": "https://github.com/example/fixture/pull/7",
                         "headRefOid": candidate["commit"],
+                        "state": "OPEN",
+                        "isDraft": True,
                     }
                 ]
             ),
@@ -309,7 +311,7 @@ def test_publication_retry_recovers_existing_pr_without_push(setup, monkeypatch)
     monkeypatch.setattr(publication, "checked", existing)
     candidate, action = operate(store, candidate, "publish")
     assert action["status"] == "completed" and candidate["pr_url"].endswith("/7")
-    assert len(calls) == 1 and calls[0][2] == "list"
+    assert [call[2] for call in calls] == ["list", "edit"]
 
 
 def test_manual_snapshot_reference_and_frozen_instructions(tmp_path):

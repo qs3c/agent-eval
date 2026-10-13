@@ -60,6 +60,8 @@ class Agent(Control):
     assert action["status"] == "completed", action
     evaluation = candidate["evaluations"][-1]
     assert evaluation["assessment"] == "improved", evaluation
+    assert evaluation["parent_commit"] == candidate["parent_commit"]
+    assert evaluation["candidate_commit"] == candidate["commit"]
     assert evaluation["scores"] == {"parent": 0.0, "candidate": 1.0, "delta": 1.0}
     directory = (
         store.path("candidates", candidate["id"]) / "evaluations" / evaluation["id"]

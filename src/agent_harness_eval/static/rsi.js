@@ -6,7 +6,11 @@ const rsiAssessments = { improved: "本组评测改善", equal: "本组评测持
 const rsiCategories = { agent_provenance: "源码版本", trial_artifact: "任务产物", agent_trace: "Agent 轨迹", verifier_artifact: "评分器输出",
   guardian_incident: "守护事件", manual_intervention: "人工介入记录", manual_intervention_index: "人工介入索引",
   manual_diagnostic_snapshot: "人工诊断快照", legacy_run_watchdog: "历史监控记录" };
-const rsiActionNames = { improve: "分析与改进", evaluate: "父子复评", publish: "发布草稿 PR" };
+const rsiActionNames = { improve: "分析与改进", evaluate: "父子复评", publish: "发布 / 同步 PR" };
+const rsiPrStates = { draft: "草稿 PR", ready: "待审阅 PR", closed: "PR 已关闭", merged: "PR 已合并" };
+function rsiPrStatus(candidate) {
+  return candidate.pr_url ? rsiPrStates[candidate.pr_state] || "PR 状态待同步" : "未发布";
+}
 const rsiExecutorNames = { "builtin-bkcrab": "BKCrab", "builtin-dsh": "DSH" };
 const rsiUi = { tab: "cases", search: "", evidence: new Map(), pending: false };
 
@@ -154,7 +158,7 @@ async function renderRsi(token, identity, initial = true) {
         const name = el("div"); name.append(link(c.id.slice(0, 8) + " →", "#rsi/" + c.id, "rsi-text-link"), el("p", rsiExecutorNames[c.profile_id] || c.profile_id));
         return [name, c.parent_candidate ? link(c.parent_candidate.slice(0, 8), "#rsi/" + c.parent_candidate) : (c.parent_commit || "").slice(0, 10),
           rsiBadge(rsiPhases[c.phase] || c.phase, c.phase === "validated" ? "success" : ["failed", "interrupted"].includes(c.phase) ? "warning" : "neutral"),
-          rsiAssessments[c.evaluations.at(-1)?.assessment] || "尚未复评", c.pr_url ? link("草稿 PR ↗", c.pr_url, "rsi-text-link") : "未发布"];
+          rsiAssessments[c.evaluations.at(-1)?.assessment] || "尚未复评", c.pr_url ? link(rsiPrStatus(c) + " ↗", c.pr_url, "rsi-text-link") : "未发布"];
       })));
     }
   }
@@ -333,7 +337,7 @@ async function renderRsiCandidate(token, identity, initial) {
     [link("查看诊断案例 →", "#rsi-case/" + candidate.case, "button")]));
   const status = el("div", undefined, "rsi-candidate-status");
   for (const [title, value, tone] of [["代码检查", rsiPhases[candidate.phase] || candidate.phase, candidate.phase === "validated" ? "success" : ["failed", "interrupted"].includes(candidate.phase) ? "warning" : "neutral"],
-    ["效果验证", rsiAssessments[candidate.evaluations.at(-1)?.assessment] || "尚未复评", "neutral"], ["交付状态", candidate.pr_url ? "已创建草稿 PR" : "未发布", "neutral"]]) {
+    ["效果验证", rsiAssessments[candidate.evaluations.at(-1)?.assessment] || "尚未复评", "neutral"], ["交付状态", rsiPrStatus(candidate), "neutral"]]) {
     const item = el("div"); item.append(el("small", title), rsiBadge(value, tone)); status.append(item);
   }
   shell.append(status);
@@ -341,10 +345,16 @@ async function renderRsiCandidate(token, identity, initial) {
   const active = actions.find(a => ["queued", "running"].includes(a.status));
   if (active) panel.append(el("p", `${rsiActionNames[active.kind]} · ${rsiPhases[active.status]}，页面会自动更新。`, "rsi-inline-note"));
   const error = el("p", candidate.last_error || "", "error"); error.setAttribute("role", "alert");
+  if (candidate.pr_sync_error) {
+    const syncError = el("p", "PR 同步失败，测评结果已保留。点击“同步 PR”重试：" + candidate.pr_sync_error, "error");
+    syncError.setAttribute("role", "alert"); panel.append(syncError);
+  }
+  if (candidate.pr_state === "draft" && candidate.pr_ready_reason) panel.append(el("p", candidate.pr_ready_reason, "rsi-inline-note"));
+  if (candidate.pr_synced_at) panel.append(el("p", "PR 状态最后同步：" + time(candidate.pr_synced_at), "rsi-inline-note"));
   const controls = el("div", undefined, "rsi-action-grid"), buttons = [];
   const nextAction = candidate.phase === "created" ? "improve" : candidate.can_evaluate && !candidate.evaluations.length ? "evaluate" : candidate.can_publish && !candidate.pr_url ? "publish" : "evaluate";
   const confirm = el("input"); confirm.type = "checkbox"; confirm.id = "rsi-live";
-  for (const [kind, label, desc] of [["improve", "运行改进", "根据诊断证据修改源码，并执行配置检查。"], ["evaluate", "运行父子复评", "在相同条件下评测父版本与候选。"], ["publish", "发布草稿 PR", "发布已检查的修改，交由人工审阅。"]]) {
+  for (const [kind, label, desc] of [["improve", "运行改进", "根据诊断证据修改源码，并执行配置检查。"], ["evaluate", "运行父子复评", "在相同条件下评测父版本与候选；明确改善后自动升级已有草稿 PR。"], ["publish", candidate.pr_url ? "同步 PR" : "发布 PR", "同步验证证据；最新复评明确改善且提交一致时转为待审阅，否则保留草稿。"]]) {
     const required = kind === "improve" ? "created" : "validated";
     const reason = active ? "等待当前操作结束" : candidate.phase !== required ? (kind === "improve" ? "该候选已有改进记录" : "需要先通过代码检查") :
       kind === "evaluate" && !candidate.can_evaluate ? "执行配置中未指定复评模板" : kind === "publish" && !candidate.can_publish ? "执行配置中未指定 GitHub 仓库" : "";
@@ -367,7 +377,7 @@ async function renderRsiCandidate(token, identity, initial) {
   }
   panel.append(controls);
   if (overview.allow_live && candidate.can_evaluate) panel.append(rsiField("若模板使用真实模型：确认本次父版本与候选两次复评不设费用上限", confirm));
-  if (candidate.pr_url) panel.append(link("打开草稿 PR ↗", candidate.pr_url, "rsi-text-link"));
+  if (candidate.pr_url) panel.append(link("打开 PR ↗", candidate.pr_url, "rsi-text-link"));
   panel.append(error); shell.append(panel);
   const diagnosis = rsiPanel("诊断与修改", candidate.diagnosis?.topic || "Agent 分析证据后生成诊断主题。");
   if (candidate.diagnosis) {

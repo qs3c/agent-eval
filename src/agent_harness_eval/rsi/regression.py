@@ -160,7 +160,12 @@ def compare(plan, results):
             if not valid:
                 issues.append(f"{side}: {test['name']} 未获得完整有效的测试结果")
             if side == "parent" and outcome == "fail":
-                assertion = "".join(e.get("Output", "") for e in named)
+                assertion = "".join(
+                    e.get("Output", "")
+                    for e in events
+                    if e.get("Test") == test["name"]
+                    or e.get("Test", "").startswith(test["name"] + "/")
+                )
                 if (
                     test["role"] != "regression"
                     or test["failure_contains"] not in assertion
@@ -172,13 +177,16 @@ def compare(plan, results):
     reproduced = any(
         row["role"] == "regression" and row["parent"] == "fail" for row in rows
     )
+    regressed = any(
+        row["parent"] == "pass" and row["candidate"] == "fail" for row in rows
+    )
     return {
         "assessment": "inconclusive"
         if issues
         else "regressed"
-        if not child_pass
+        if regressed
         else "improved"
-        if reproduced
+        if reproduced and child_pass
         else "equal",
         "issues": sorted(set(issues)),
         "tests": rows,

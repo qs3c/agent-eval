@@ -100,6 +100,32 @@ def test_both_pass_means_bug_not_reproduced():
     assert regression.compare(plan(), data)["assessment"] == "equal"
 
 
+def test_same_failure_on_both_versions_is_not_a_new_regression():
+    data = results()
+    data["candidate"] = copy.deepcopy(data["parent"])
+    assert regression.compare(plan(), data)["assessment"] == "equal"
+
+
+def test_expected_assertion_can_be_in_named_tests_subtest():
+    data = results()
+    data["parent"][0]["stdout"] = "\n".join(
+        map(
+            json.dumps,
+            [
+                {
+                    "Test": "TestRecovery/nested",
+                    "Action": "output",
+                    "Output": "missing reasoning",
+                },
+                {"Test": "TestRecovery/nested", "Action": "fail"},
+                {"Test": "TestRecovery", "Action": "fail"},
+                {"Action": "fail"},
+            ],
+        )
+    )
+    assert regression.compare(plan(), data)["assessment"] == "improved"
+
+
 def test_plan_allows_only_test_overlay_and_requires_control(tmp_path):
     value = plan()
     write(tmp_path / "internal/agent/recovery_test.go", {})

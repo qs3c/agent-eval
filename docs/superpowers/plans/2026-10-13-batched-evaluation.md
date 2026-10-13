@@ -48,5 +48,7 @@ Files: console.py, static/app.js, docs/batched-evaluation.md, scripts/run-swe-li
 - [x] Expose batch-state.json in run details, use shared freezing in queue submission, and display batch/phase without changing scoring.
 - [x] Switch SWE80 launcher to platform batching/resume; freeze selected model config once, write preflight and preserve selection/hash evidence.
 - [x] Full Python suite, focused Docker lifecycle controls, JS syntax, diff checks. Commit only requested feature files after verification.
-- [ ] Deploy idle main console, validate API, then start first 20-task batch at concurrency 2/assist. Confirm actual native model requests and independent guardian workers.
-- [ ] Document observed results and limits; retain remaining batches as the same active experiment.
+- [x] Deploy idle main console, validate API, then start first 20-task batch at concurrency 2/assist. Confirm actual native model requests and independent guardian workers.
+- [x] Document observed results and limits; retain remaining batches as the same active experiment.
+
+**Deployment evidence:** 2026-10-13 local commit b51b273, main console restarted; SWE80 batch 1/4 has two active guardian workers and native request logs for pylint-6903 and django-16901. Formal results are still pending. Evidence: logs/swe-live-80-pipeline/start-verification.json.

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ..guardian.evidence import read, write
 from ..manifests import load_manifest
-from .language import DEFAULT_OBJECTIVE, chinese_objective
+from .language import DEFAULT_OBJECTIVE
 
 
 def create_case(
@@ -14,7 +14,6 @@ def create_case(
     trials=None,
     objective=DEFAULT_OBJECTIVE,
 ):
-    objective = chinese_objective(objective)
     run = Path(run).resolve()
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", agent):
         raise ValueError("Invalid Agent identity")

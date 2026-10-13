@@ -6,7 +6,7 @@ from pydantic import Field
 from ..guardian.evidence import read, write
 from .evidence import verify_case
 from .git import assert_clean, clone, git
-from .language import DIAGNOSIS_LANGUAGE_INSTRUCTIONS, chinese_objective
+from .language import DIAGNOSIS_LANGUAGE_INSTRUCTIONS
 from .models import Profile, Strict, load_profile
 from .process import checked
 
@@ -108,7 +108,7 @@ async def improve(store, record):
         "protocol": "eval-rsi/v1",
         "workspace": str(workspace),
         "evidence_directory": str(evidence),
-        "objective": chinese_objective(case["objective"]),
+        "objective": case["objective"],
         "parent_commit": record["parent_commit"],
         "result_path": str(root / "diagnosis.json"),
         "adapter_version": profile.adapter.version,

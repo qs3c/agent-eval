@@ -97,6 +97,11 @@ def execute(args, context):
         + json.dumps(instruction, ensure_ascii=False),
         encoding="utf-8",
     )
+    regression = context.get("purpose") == "targeted_regression_plan"
+    if regression:
+        from agent_harness_eval.rsi.regression import planning_prompt
+
+        prompt.write_text(planning_prompt(context), encoding="utf-8")
     key = (
         ModelPool(args.root).credential(args.key_ref)
         if getattr(args, "key_ref", None)
@@ -109,7 +114,7 @@ def execute(args, context):
         secret.touch(mode=0o600)
         secret.write_text(key)
         mounts = [
-            (workspace, "/workspace", False),
+            (workspace, "/workspace", regression),
             (evidence, "/evidence", True),
             (output, "/output", False),
             (logs, "/logs/agent", False),
@@ -184,7 +189,7 @@ def execute(args, context):
                 "GOPATH": "/tmp/go",
             },
         )
-    diagnosis = output / "diagnosis.json"
+    diagnosis = output / ("plan.json" if regression else "diagnosis.json")
     if (
         diagnosis.is_symlink()
         or not diagnosis.is_file()

@@ -55,17 +55,27 @@ def public_candidate(record, store=None):
     }
     result["can_evaluate"] = bool(record["profile"].get("evaluation"))
     if store is not None:
+        from . import regression
         from .native_evaluation import configuration
 
         try:
-            _, exp, hashes = configuration(store, record)
-            result.update(
-                can_evaluate=True,
-                evaluation_requires_live=exp.model.mode == "live",
-                evaluation_tasks=[p.name for p in exp.benchmark.tasks],
-                evaluation_attempts=exp.attempts,
-                evaluation_from_case=bool(hashes),
-            )
+            if regression.enabled(record):
+                regression.configuration(store, record)
+                result.update(
+                    can_evaluate=True,
+                    evaluation_requires_live=True,
+                    evaluation_kind="targeted_regression",
+                    evaluation_planner="dsh",
+                )
+            else:
+                _, exp, hashes = configuration(store, record)
+                result.update(
+                    can_evaluate=True,
+                    evaluation_requires_live=exp.model.mode == "live",
+                    evaluation_tasks=[p.name for p in exp.benchmark.tasks],
+                    evaluation_attempts=exp.attempts,
+                    evaluation_from_case=bool(hashes),
+                )
         except (ValueError, OSError, KeyError) as error:
             result.update(can_evaluate=False, evaluation_blocked_reason=str(error))
     result["can_publish"] = bool(record["profile"].get("github_repository"))
@@ -170,14 +180,19 @@ def router(console):
     @routes.post("/candidates/{identity}/actions", status_code=201)
     def action(identity: str, data: ActionRequest):
         if data.kind == "evaluate":
+            from . import regression
             from .native_evaluation import configuration
 
-            _, exp, _ = configuration(store, store.get("candidates", identity))
-            if exp.model.mode == "live" and (
-                not console.allow_live or not data.confirm_unbounded
-            ):
+            record = store.get("candidates", identity)
+            if regression.enabled(record):
+                regression.configuration(store, record)
+                live = True
+            else:
+                _, exp, _ = configuration(store, record)
+                live = exp.model.mode == "live"
+            if live and (not console.allow_live or not data.confirm_unbounded):
                 raise ValueError(
-                    "真实模型复评需要服务开启 --allow-live，并勾选父子两次复评费用确认"
+                    "复评调用模型需要服务开启 --allow-live，并勾选本次复评费用确认"
                 )
         return store.enqueue(identity, data.kind, data.confirm_unbounded)
 

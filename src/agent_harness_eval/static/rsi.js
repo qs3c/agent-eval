@@ -237,7 +237,7 @@ function rsiCandidateDialog(token, data, caseId) {
   if (data.profiles.some(p => p.id === preferred)) profile.value = preferred;
   const parent = rsiSelect([["", "配置中固定的源码版本"], ...data.candidates.filter(c => c.phase === "validated").map(c => [c.id, `${c.profile_id} · ${c.id.slice(0, 8)} · ${(c.commit || "").slice(0, 8)}`])], "父版本");
   const info = el("p", undefined, "rsi-inline-note");
-  const update = () => { const p = data.profiles.find(p => p.id === profile.value); const c = data.cases.find(c => c.id === source.value); info.textContent = `被改进的 Agent：${c?.agent || "未知"}。${p.executor ? "执行模型：" + (data.executor_settings.models?.find(m => m.id === data.executor_settings.bindings?.["executor_" + p.executor])?.name || data.executor_settings.model || "未指定") + "。" : ""}父子复评：${p.evaluation ? "已配置" : p.evaluation_from_case && c?.agent === "bkcrab" ? "自动继承原测试配置" : "未配置"}。点击运行后将调用模型并产生费用。${p.executor && c?.agent !== "bkcrab" ? "当前内置检查仅检查补丁格式，不代表功能验证通过。" : ""}`; };
+  const update = () => { const p = data.profiles.find(p => p.id === profile.value); const c = data.cases.find(c => c.id === source.value); info.textContent = `被改进的 Agent：${c?.agent || "未知"}。${p.executor ? "执行模型：" + (data.executor_settings.models?.find(m => m.id === data.executor_settings.bindings?.["executor_" + p.executor])?.name || data.executor_settings.model || "未指定") + "。" : ""}父子复评：${p.evaluation ? "已配置" : p.evaluation_from_case && c?.agent === "bkcrab" ? "由 DSH 制定针对性测试方案" : "未配置"}。点击运行后将调用模型并产生费用。${p.executor && c?.agent !== "bkcrab" ? "当前内置检查仅检查补丁格式，不代表功能验证通过。" : ""}`; };
   source.onchange = update;
   profile.onchange = update; update();
   const submit = rsiButton("创建并运行改进", null, true); submit.type = "submit";
@@ -378,8 +378,9 @@ async function renderRsiCandidate(token, identity, initial) {
     card.append(button, el("p", reason || desc)); controls.append(card);
   }
   panel.append(controls);
-  if (candidate.evaluation_from_case) panel.append(el("p", `已从原测试记录恢复复评配置：${candidate.evaluation_tasks.join("、")}；父子版本各运行 ${candidate.evaluation_attempts} 次，使用原评测模型与运行参数，守护仅观察。`, "rsi-inline-note"));
-  if (overview.allow_live && candidate.can_evaluate) panel.append(rsiField("若模板使用真实模型：确认本次父版本与候选两次复评不设费用上限", confirm));
+  if (candidate.evaluation_kind === "targeted_regression") panel.append(el("p", "由 DSH 根据故障证据与补丁制定针对性测试方案；平台冻结测试文件，在父版本和候选版本上执行同一组测试，并保存每项结果。", "rsi-inline-note"));
+  else if (candidate.evaluation_from_case) panel.append(el("p", `原任务重跑：${candidate.evaluation_tasks.join("、")}；父子版本各运行 ${candidate.evaluation_attempts} 次。`, "rsi-inline-note"));
+  if (overview.allow_live && candidate.can_evaluate) panel.append(rsiField("确认本次复评的模型调用不设费用上限（内置回归由 DSH 制定方案）", confirm));
   if (candidate.pr_url) panel.append(link("打开 PR ↗", candidate.pr_url, "rsi-text-link"));
   panel.append(error); shell.append(panel);
   const diagnosis = rsiPanel("诊断与修改", candidate.diagnosis?.topic || "Agent 分析证据后生成诊断主题。");
@@ -398,10 +399,21 @@ async function renderRsiCandidate(token, identity, initial) {
   if (rsiExecutorNames[candidate.profile_id]) validation.append(el("p", source.agent === "bkcrab" ? "内置代码检查：Go 测试（go test ./...）。" : "内置代码检查仅验证补丁格式，不代表功能测试或模型效果验证通过。", "rsi-inline-note"));
   if (candidate.checks?.length) validation.append(table(["代码检查", "结果", "完成时间"], candidate.checks.map(c => ["检查 " + (c.index + 1), c.returncode === 0 ? rsiBadge("通过", "success") : rsiBadge("退出码 " + c.returncode, "warning"), time(c.finished_at)])));
   else validation.append(el("p", "暂无代码检查记录。", "rsi-inline-note"));
-  if (candidate.evaluations.length) validation.append(table(["复评", "结论", "父分数", "候选分数", "异常（父 / 候选）", "可靠性 / 限制"], candidate.evaluations.map(e => [e.id.slice(0, 8), rsiAssessments[e.assessment] || e.assessment,
+  if (candidate.evaluations.length) validation.append(table(["复评类型 / 编号", "结论", "父分数", "候选分数", "异常（父 / 候选）", "可靠性 / 限制"], candidate.evaluations.map(e => [(e.kind === "targeted_regression" ? "DSH 针对性回归 · " : "原任务重跑 · ") + e.id.slice(0, 8), rsiAssessments[e.assessment] || e.assessment,
     number(e.scores?.parent), number(e.scores?.candidate), e.errors ? `${e.errors.parent} / ${e.errors.candidate}` : "未知",
     `${({ improved: "异常减少", regressed: "异常增加", equal: "异常数相同" })[e.reliability_change] || "未比较"}；${(e.issues || [e.error || ""]).join("；")}`])));
   else validation.append(el("p", "尚未运行父子复评，性能提升未验证。", "rsi-inline-note"));
+  for (const evaluation of candidate.evaluations.filter(e => e.kind === "targeted_regression")) {
+    const detail = el("details"); detail.open = true;
+    detail.append(el("summary", "DSH 回归方案 · " + evaluation.id.slice(0, 8)));
+    if (evaluation.plan) {
+      for (const key of ["objective", "rationale", "limitations"]) detail.append(el("p", evaluation.plan[key]));
+      detail.append(el("p", "证据：" + evaluation.plan.evidence_refs.join("、")));
+    }
+    if (evaluation.tests) detail.append(table(["测试函数", "用途", "父版本", "候选版本"], evaluation.tests.map(t => [t.package + "::" + t.name, t.role === "control" ? "正常对照" : "故障回归", t.parent, t.candidate])));
+    detail.append(el("p", evaluation.note || evaluation.error || "DSH 制定方案或平台验证进行中。"));
+    validation.append(detail);
+  }
   shell.append(validation);
   if (actions.length) {
     const history = rsiPanel("操作记录"); history.append(table(["操作", "状态", "更新时间", "异常说明"], actions.map(a => [rsiActionNames[a.kind] || a.kind, rsiPhases[a.status] || a.status, time(a.updated), a.error || "—"]))); shell.append(history);

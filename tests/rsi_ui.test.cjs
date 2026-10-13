@@ -162,7 +162,7 @@ test('recovered native evaluation shows original tasks and submits explicit spen
     return url === '/api/rsi' ? overview({allow_live: true}) : url.includes('/cases/') ? source : restored;
   });
   await run(`renderRsiCandidate(0, '${candidate.id}', true)`);
-  assert.match(doc.body.textContent, /已从原测试记录恢复复评配置：django-15022/);
+  assert.match(doc.body.textContent, /原任务重跑：django-15022/);
   assert.doesNotMatch(doc.body.textContent, /未指定复评模板/);
   const button = [...doc.querySelectorAll('button')].find(b => b.textContent === '运行父子复评');
   assert.equal(button.disabled, false);
@@ -177,6 +177,20 @@ test('live-disabled server gives an actionable reason for recovered native evalu
   await run(`renderRsiCandidate(0, '${candidate.id}', true)`);
   assert.match(doc.body.textContent, /服务需启用 --allow-live/);
   assert.equal([...doc.querySelectorAll('button')].find(b => b.textContent === '运行父子复评').disabled, true);
+});
+
+test('DSH targeted regression displays plan and individual outcomes separately from replay scores', async t => {
+  const targeted = {...candidate, phase: 'validated', evaluation_kind: 'targeted_regression', evaluations: [
+    {id: 'a'.repeat(32), kind: 'targeted_regression', assessment: 'improved',
+      plan: {objective: '复现恢复故障', rationale: '连续三轮失败', limitations: '仅限本故障', evidence_refs: ['e1']},
+      tests: [{package: './internal/agent', name: 'TestRecovery', role: 'regression', parent: 'fail', candidate: 'pass'}]}
+  ]};
+  const {run, doc} = setup(t, async url => url === '/api/rsi' ? overview() : url.includes('/cases/') ? source : targeted);
+  await run(`renderRsiCandidate(0, '${candidate.id}', true)`);
+  assert.match(doc.body.textContent, /由 DSH 根据故障证据与补丁制定针对性测试方案/);
+  assert.match(doc.body.textContent, /连续三轮失败/);
+  assert.match(doc.body.textContent, /TestRecovery故障回归failpass/);
+  assert.doesNotMatch(doc.body.textContent, /原任务重跑/);
 });
 
 for (const [state, label] of [['draft', '草稿 PR'], ['ready', '待审阅 PR'], ['closed', 'PR 已关闭'], ['merged', 'PR 已合并'], [null, 'PR 状态待同步']]) {

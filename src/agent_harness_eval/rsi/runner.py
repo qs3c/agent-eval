@@ -241,6 +241,30 @@ def write_pr_body(store, record):
         details = []
         if evaluation:
             latest = evaluation[-1]
+            if latest.get("kind") == "targeted_regression":
+                details.append(
+                    "- DSH 制定针对性回归方案；平台在固定父子提交上运行同一组测试。"
+                    if zh
+                    else "- DSH designed targeted regressions; the platform ran the same tests on the fixed parent and candidate commits."
+                )
+                for test in latest.get("tests", []):
+                    details.append(
+                        f"- `{test['package']}::{test['name']}`: parent={test['parent']}; candidate={test['candidate']}"
+                    )
+                details.append(
+                    "- 此结果仅验证所选故障回归，不代表 SWE 得分或整体能力提升。"
+                    if zh
+                    else "- These results validate only the selected bug regressions, not SWE scores or general capability improvements."
+                )
+                details.append(
+                    f"- {'冻结方案 SHA256' if zh else 'Frozen plan SHA256'}: `{latest.get('plan_sha256', '')}`"
+                )
+            else:
+                details.append(
+                    "- 类型：原任务重跑，不能单独证明故障链已覆盖。"
+                    if zh
+                    else "- Type: original-task replay; this alone does not establish coverage of the failure chain."
+                )
             scores = latest.get("scores")
             if scores:
                 details.append(

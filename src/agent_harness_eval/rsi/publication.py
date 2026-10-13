@@ -13,6 +13,10 @@ def readiness(store, record):
     if not evaluations:
         return False, "尚未完成父子复评，保留草稿。"
     latest = evaluations[-1]
+    from .regression import enabled
+
+    if enabled(record) and latest.get("kind") != "targeted_regression":
+        return False, "原任务重跑不能证明故障修复，需完成 DSH 针对性父子回归，保留草稿。"
     if latest.get("assessment") != "improved":
         return False, "最新父子复评未明确改善，保留草稿。"
     if (

@@ -20,7 +20,10 @@ from agent_harness_eval.web import create_app
 
 
 @pytest.fixture
-def native_case(tmp_path):
+def native_case(tmp_path, monkeypatch):
+    from agent_harness_eval.rsi import regression
+    from agent_harness_eval.rsi.models import Profile
+    monkeypatch.setattr(regression, "builtin_profile", lambda *args: Profile.model_validate(record["profile"]))
     source = Path(__file__).resolve().parents[1]
     tasks = []
     for name in ("file-create", "file-preserve"):
@@ -109,8 +112,8 @@ def test_existing_candidate_inherits_selected_tasks_and_original_contract(native
     )  # GET must never migrate or rewrite a record.
     assert hashes == {tasks[0].name: tree_manifest(tasks[0])["sha256"]}
     public = public_candidate(record, store)
-    assert public["can_evaluate"] and public["evaluation_from_case"]
-    assert public["evaluation_tasks"] == ["file-create"]
+    assert public["can_evaluate"] and public["evaluation_kind"] == "targeted_regression"
+    assert public["evaluation_planner"] == "dsh"
     verify_case(store, case)
 
 
@@ -229,7 +232,7 @@ def test_live_gate_precedes_template_writes_and_builds(native_case):
     )
     store, _, record, _ = native_case
     with pytest.raises(ValueError, match="spending acknowledgement"):
-        asyncio.run(evaluation.evaluate(store, record, False))
+        asyncio.run(evaluation.replay_tasks(store, record, False))
     assert not record["evaluations"]
     assert not (
         store.path("candidates", record["id"]) / "evaluation-template.json"
@@ -267,7 +270,7 @@ def test_frozen_model_key_is_loaded_and_environment_restored_on_failure(
     monkeypatch.setattr(ModelPool, "environment", environment)
     monkeypatch.setattr(evaluation, "checked", build)
     with pytest.raises(ValueError, match="fixture build failure"):
-        asyncio.run(evaluation.evaluate(store, record, True))
+        asyncio.run(evaluation.replay_tasks(store, record, True))
     assert key_env not in os.environ
     assert record["evaluations"][-1]["assessment"] == "failed"
 
@@ -281,7 +284,7 @@ def test_changed_task_is_rejected_before_any_build(native_case, monkeypatch):
 
     monkeypatch.setattr(evaluation, "checked", no_build)
     with pytest.raises(ValueError, match="冻结哈希不一致"):
-        asyncio.run(evaluation.evaluate(store, record, False))
+        asyncio.run(evaluation.replay_tasks(store, record, False))
     assert record["evaluations"][-1]["assessment"] == "failed"
 
 
@@ -323,7 +326,7 @@ def test_native_pair_builds_exact_commits_and_overrides_stale_artifacts(
 
     monkeypatch.setattr(evaluation, "checked", build)
     monkeypatch.setattr(evaluation, "run_experiment", run)
-    asyncio.run(evaluation.evaluate(store, record, False))
+    asyncio.run(evaluation.replay_tasks(store, record, False))
     assert builds == [record["parent_commit"], record["commit"]]
     assert record["evaluations"][-1]["assessment"] == "improved"
     assert runs[0].model == runs[1].model and runs[0].benchmark == runs[1].benchmark

@@ -121,6 +121,14 @@ def compare(parent, candidate):
 
 
 async def evaluate(store, record, allow_live):
+    from . import regression
+
+    if regression.enabled(record):
+        return await regression.evaluate(store, record, allow_live)
+    return await replay_tasks(store, record, allow_live)
+
+
+async def replay_tasks(store, record, allow_live):
     profile, exp, task_hashes = configuration(store, record)
     if exp.model.mode == "live" and not allow_live:
         raise ValueError(
@@ -154,6 +162,7 @@ async def evaluate(store, record, allow_live):
     await assert_clean(root / "workspace", record["commit"])
     evaluation = {
         "id": uuid4().hex,
+        "kind": "task_replay",
         "started_at": now(),
         "assessment": "running",
         "parent_commit": record["parent_commit"],

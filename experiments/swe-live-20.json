@@ -1,0 +1,70 @@
+{
+  "name": "swe-live-20",
+  "model": {
+    "mode": "live",
+    "name": "deepseek-flash",
+    "spending": "unbounded",
+    "max_tokens": 32768,
+    "context_window": 1000000
+  },
+  "agents": [
+    {
+      "id": "bkcrab",
+      "implementation": "agent_harness_eval.agents.bkcrab:Bkcrab",
+      "version": "source-snapshot",
+      "kwargs": {
+        "binary": "../.cache/bkcrab-eval",
+        "provenance": "../.cache/bkcrab-provenance.json"
+      }
+    },
+    {
+      "id": "dsh-standard",
+      "implementation": "agent_harness_eval.agents.dsh:DeepSeekStandard",
+      "version": "0.2.1-alpha.2",
+      "kwargs": {
+        "bundle": "../.cache/dsh-bundle03/runtime.tar.gz",
+        "provenance": "../.cache/dsh-bundle03/provenance.json"
+      }
+    }
+  ],
+  "benchmark": {
+    "id": "swe-verified-random-20",
+    "tasks": [
+      "../datasets/swe-live-20/django__django-9296",
+      "../datasets/swe-live-20/django__django-15104",
+      "../datasets/swe-live-20/matplotlib__matplotlib-14623",
+      "../datasets/swe-live-20/django__django-15022",
+      "../datasets/swe-live-20/django__django-14122",
+      "../datasets/swe-live-20/django__django-11066",
+      "../datasets/swe-live-20/astropy__astropy-8707",
+      "../datasets/swe-live-20/django__django-15277",
+      "../datasets/swe-live-20/django__django-16938",
+      "../datasets/swe-live-20/astropy__astropy-7671",
+      "../datasets/swe-live-20/scikit-learn__scikit-learn-11578",
+      "../datasets/swe-live-20/astropy__astropy-14096",
+      "../datasets/swe-live-20/scikit-learn__scikit-learn-13496",
+      "../datasets/swe-live-20/sympy__sympy-14531",
+      "../datasets/swe-live-20/sphinx-doc__sphinx-7462",
+      "../datasets/swe-live-20/pytest-dev__pytest-7490",
+      "../datasets/swe-live-20/django__django-15103",
+      "../datasets/swe-live-20/django__django-13401",
+      "../datasets/swe-live-20/sympy__sympy-22456",
+      "../datasets/swe-live-20/pytest-dev__pytest-6197"
+    ],
+    "score_kind": "resolved",
+    "dataset": {
+      "name": "princeton-nlp/SWE-bench_Verified",
+      "split": "test",
+      "revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a"
+    },
+    "evaluation": {
+      "name": "Harbor SWE parser",
+      "version": "4.0.3",
+      "environment": "per-task Docker digest recorded in runtime-provenance.json; official SWE harness 4.1.0 regrade stored separately"
+    }
+  },
+  "timeout_seconds": 1800,
+  "setup_timeout_seconds": 600,
+  "concurrency": 1,
+  "attempts": 1
+}

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ..guardian.evidence import read, write
 from ..manifests import load_manifest
+from .language import DEFAULT_OBJECTIVE, chinese_objective
 
 
 def create_case(
@@ -11,8 +12,9 @@ def create_case(
     run,
     agent,
     trials=None,
-    objective="Diagnose and improve the harness using the recorded evidence",
+    objective=DEFAULT_OBJECTIVE,
 ):
+    objective = chinese_objective(objective)
     run = Path(run).resolve()
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", agent):
         raise ValueError("Invalid Agent identity")

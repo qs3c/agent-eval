@@ -8,7 +8,7 @@ from .process import checked
 
 async def publish(store, record):
     from ..console import redact
-    from .runner import write_pr_body
+    from .runner import pr_title, write_pr_body
 
     profile = Profile.model_validate(record["profile"])
     if not profile.github_repository:
@@ -89,7 +89,7 @@ async def publish(store, record):
                     "--head",
                     branch,
                     "--title",
-                    "RSI: " + record["diagnosis"]["summary"][:120].replace("\n", " "),
+                    pr_title(record),
                     "--body-file",
                     str(body),
                 ],

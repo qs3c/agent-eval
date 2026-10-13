@@ -164,6 +164,7 @@ def test_native_transport_uses_readonly_evidence_and_returns_diagnosis(
         assert "transport-key" not in json.dumps([command, kwargs])
         prompt = (output / "output/native/instruction.txt").read_text()
         assert '"result_path": "/output/diagnosis.json"' in prompt
+        assert "in Chinese" in prompt and "summary_en" in prompt
         write(
             output / "output/native/diagnosis.json",
             {"summary": "fixture", "evidence_refs": ["e0001"]},

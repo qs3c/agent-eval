@@ -4,6 +4,7 @@ from pydantic import Field
 from ..console import redact
 from .evidence import create_case
 from .executors import ExecutorSettings, builtin_profiles, catalog, save_settings
+from .language import chinese_objective
 from .models import Strict, load_profile
 from .runner import create_candidate
 from .store import Store
@@ -78,7 +79,10 @@ def router(console):
                 continue
         return {
             "cases": [
-                {k: v for k, v in c.items() if k not in {"evidence", "run"}}
+                {
+                    **{k: v for k, v in c.items() if k not in {"evidence", "run"}},
+                    "objective": chinese_objective(c["objective"]),
+                }
                 for c in store.list("cases")
             ],
             "candidates": [public_candidate(c) for c in store.list("candidates")],
@@ -112,7 +116,8 @@ def router(console):
 
     @routes.get("/cases/{identity}")
     def case(identity: str):
-        return store.get("cases", identity)
+        record = store.get("cases", identity)
+        return {**record, "objective": chinese_objective(record["objective"])}
 
     @routes.post("/candidates", status_code=201)
     async def new_candidate(data: CandidateRequest):

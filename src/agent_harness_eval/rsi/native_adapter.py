@@ -15,6 +15,7 @@ if __package__ in {None, ""}:
 
 from agent_harness_eval.model_pool import ModelPool
 from agent_harness_eval.rsi.executors import credential
+from agent_harness_eval.rsi.language import DIAGNOSIS_LANGUAGE_INSTRUCTIONS
 
 
 def run_container(image, mounts, command, timeout, *, env=None):
@@ -91,6 +92,8 @@ def execute(args, context):
         "Read /evidence/index.json first. Modify /workspace and add regression coverage. "
         "Do not commit or push. Do not modify evidence. Write valid diagnosis JSON matching result_schema "
         "to /output/diagnosis.json before finishing. Cite only exported evidence IDs.\n"
+        + DIAGNOSIS_LANGUAGE_INSTRUCTIONS
+        + "\n"
         + json.dumps(instruction, ensure_ascii=False),
         encoding="utf-8",
     )

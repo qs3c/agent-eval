@@ -4,7 +4,7 @@ import pytest
 from test_rsi import create, git, operate
 from test_rsi import setup as rsi_setup
 
-from agent_harness_eval.guardian.evidence import write
+from agent_harness_eval.guardian.evidence import read, write
 from agent_harness_eval.rsi import publication
 
 setup = rsi_setup
@@ -36,15 +36,23 @@ def measured(candidate, assessment="improved", **extra):
     }
 
 
+def operation(argv):
+    return "edit" if argv[:2] == ["gh", "api"] else argv[2]
+
+
 def github(monkeypatch, candidate, *, state="OPEN", draft=True, fail=None, head=None):
     calls = []
 
     async def checked(command, *args, **kwargs):
         calls.append(command.argv)
-        operation = command.argv[2]
-        if operation == fail:
+        if command.argv[:3] == ["gh", "pr", "edit"]:
+            raise ValueError(
+                "GraphQL: Projects (classic) is being deprecated (repository.pullRequest.projectCards)"
+            )
+        action = operation(command.argv)
+        if action == fail:
             raise ValueError("GitHub unavailable")
-        if operation == "list":
+        if action == "list":
             output = json.dumps(
                 [
                     {
@@ -76,7 +84,7 @@ def test_sync_promotes_only_completed_improvement(
     calls = github(monkeypatch, candidate)
     candidate, action = operate(store, candidate, "publish")
     assert action["status"] == "completed"
-    operations = [call[2] for call in calls]
+    operations = [operation(call) for call in calls]
     assert operations == (
         ["list", "edit", "ready"] if assessment == "improved" else ["list", "edit"]
     )
@@ -107,7 +115,7 @@ def test_unverified_improvement_stays_draft(published_candidate, monkeypatch, ex
     candidate, action = operate(store, candidate, "publish")
     assert action["status"] == "completed"
     assert candidate["pr_state"] == "draft"
-    assert not any(call[2] == "ready" for call in calls)
+    assert not any(operation(call) == "ready" for call in calls)
 
 
 @pytest.mark.parametrize("state", ["CLOSED", "MERGED"])
@@ -129,22 +137,46 @@ def test_head_mismatch_blocks_all_mutation(published_candidate, monkeypatch):
     assert candidate["pr_sync_error"]
 
 
-def test_ready_failure_can_retry_without_push_or_duplicate(
-    published_candidate, monkeypatch
+@pytest.mark.parametrize("failure", ["edit", "ready"])
+def test_sync_failure_can_retry_without_push_or_duplicate(
+    published_candidate, monkeypatch, failure
 ):
     store, candidate = published_candidate
     candidate["evaluations"] = [measured(candidate)]
     store.save("candidates", candidate)
-    github(monkeypatch, candidate, fail="ready")
+    github(monkeypatch, candidate, fail=failure)
     candidate, action = operate(store, candidate, "publish")
     assert action["status"] == "failed"
     assert candidate["pr_state"] == "draft" and candidate["pr_sync_error"]
     calls = github(monkeypatch, candidate)
     candidate, action = operate(store, candidate, "publish")
     assert action["status"] == "completed"
-    assert [c[2] for c in calls] == ["list", "edit", "ready"]
+    assert [operation(c) for c in calls] == ["list", "edit", "ready"]
     assert candidate["pr_state"] == "ready" and candidate["pr_sync_error"] is None
     assert not candidate.get("last_error")
+
+
+def test_sync_uses_rest_json_file_preserving_bilingual_body(
+    published_candidate, monkeypatch
+):
+    from agent_harness_eval.rsi.runner import pr_title
+
+    store, candidate = published_candidate
+    candidate["diagnosis"]["summary"] = '修复 "引用" 与 `代码`'
+    candidate["diagnosis"]["summary_en"] = 'Fix "quotes" and `$HOME`'
+    store.save("candidates", candidate)
+    calls = github(monkeypatch, candidate)
+    candidate, action = operate(store, candidate, "publish")
+    assert action["status"] == "completed"
+    edit = next(call for call in calls if operation(call) == "edit")
+    assert edit[:3] == ["gh", "api", "repos/example/fixture/pulls/7"]
+    assert edit[edit.index("--method") + 1] == "PATCH"
+    from pathlib import Path
+
+    payload = read(Path(edit[edit.index("--input") + 1]))
+    body = (store.path("candidates", candidate["id"]) / "PR.md").read_text()
+    assert payload == {"title": pr_title(candidate), "body": body}
+    assert "## 中文\n" in payload["body"] and "## English\n" in payload["body"]
 
 
 def test_already_ready_pr_is_not_downgraded(published_candidate, monkeypatch):
@@ -152,7 +184,7 @@ def test_already_ready_pr_is_not_downgraded(published_candidate, monkeypatch):
     calls = github(monkeypatch, candidate, draft=False)
     candidate, action = operate(store, candidate, "publish")
     assert action["status"] == "completed" and candidate["pr_state"] == "ready"
-    assert [c[2] for c in calls] == ["list", "edit"]
+    assert [operation(c) for c in calls] == ["list", "edit"]
 
 
 def test_legacy_evaluation_uses_frozen_artifact_commits(
@@ -175,7 +207,7 @@ def test_legacy_evaluation_uses_frozen_artifact_commits(
     calls = github(monkeypatch, candidate)
     candidate, action = operate(store, candidate, "publish")
     assert action["status"] == "completed" and candidate["pr_state"] == "ready"
-    assert calls[-1][2] == "ready"
+    assert operation(calls[-1]) == "ready"
 
 
 def test_latest_evaluation_controls_promotion(published_candidate, monkeypatch):
@@ -184,7 +216,7 @@ def test_latest_evaluation_controls_promotion(published_candidate, monkeypatch):
     store.save("candidates", candidate)
     calls = github(monkeypatch, candidate)
     candidate, _ = operate(store, candidate, "publish")
-    assert candidate["pr_state"] == "draft" and calls[-1][2] == "edit"
+    assert candidate["pr_state"] == "draft" and operation(calls[-1]) == "edit"
 
 
 @pytest.mark.parametrize("assessment", ["improved", "equal"])
@@ -247,7 +279,7 @@ def test_failed_evaluation_updates_pr_without_promoting(
     assert action["status"] == "failed" and action["error"] == "Build failed"
     assert candidate["evaluations"][-1]["assessment"] == "failed"
     assert candidate["pr_state"] == "draft"
-    assert [call[2] for call in calls] == ["list", "edit"]
+    assert [operation(call) for call in calls] == ["list", "edit"]
 
 
 def test_evaluation_startup_failure_does_not_publish_old_result(

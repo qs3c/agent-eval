@@ -134,18 +134,30 @@ async def _publish(store, record):
         write_pr_body(store, record)
         body = root / "PR.md"
         body.write_text(redact(body.read_text(encoding="utf-8")), encoding="utf-8")
+        # Older gh pr edit versions query the retired Projects Classic fields.
+        # The REST update needs only title/body and does not change draft state.
+        payload = root / "pr-edit-request.json"
+        write(
+            payload,
+            {
+                "title": redact(pr_title(record)),
+                "body": body.read_text(encoding="utf-8"),
+            },
+        )
         await checked(
             Command(
                 argv=[
-                    *common,
-                    "edit",
-                    url,
-                    "--repo",
-                    repo,
-                    "--title",
-                    pr_title(record),
-                    "--body-file",
-                    str(body),
+                    "gh",
+                    "api",
+                    f"repos/{repo}/pulls/{url.rsplit('/', 1)[1]}",
+                    "--hostname",
+                    "github.com",
+                    "--method",
+                    "PATCH",
+                    "--input",
+                    str(payload),
+                    "--jq",
+                    ".html_url",
                 ],
                 pass_env=["GH_TOKEN", "GITHUB_TOKEN"],
             ),

@@ -54,6 +54,16 @@ class Benchmark(Strict):
     evaluation: EvaluationIdentity | None = None
 
 
+class BatchConfig(Strict):
+    size: int = Field(default=20, ge=1, le=500)
+    prepare_swe: bool = False
+    official_regrade: bool = False
+    retain_count: int = Field(default=3, ge=0, le=20)
+    retain_gib: float = Field(default=20, gt=0)
+    retain_hours: float = Field(default=24, gt=0)
+    min_free_gib: float = Field(default=20, ge=0)
+
+
 class Experiment(Strict):
     schema_version: Literal[1] = 1
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
@@ -67,9 +77,19 @@ class Experiment(Strict):
     cpus: int = Field(default=2, gt=0)
     memory_mb: int = Field(default=4096, gt=0)
     guardian: GuardianConfig | None = None
+    batch: BatchConfig | None = None
 
     @model_validator(mode="after")
     def validate_combinations(self):
+        if self.batch:
+            if self.guardian is None:
+                self.guardian = GuardianConfig()
+            if (
+                self.batch.prepare_swe or self.batch.official_regrade
+            ) and self.benchmark.score_kind != "resolved":
+                raise ValueError(
+                    "SWE batch preparation/regrading requires a resolved benchmark"
+                )
         ids = [a.id for a in self.agents]
         if len(ids) != len(set(ids)):
             raise ValueError("agent ids must be unique")

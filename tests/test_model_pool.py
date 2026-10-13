@@ -182,7 +182,15 @@ def test_configured_endpoints_and_provider_parameters():
     )
 
 
-def test_guardian_driver_uses_selected_model_and_key(monkeypatch):
+@pytest.mark.parametrize(
+    "base",
+    [
+        "https://example.test/v1",
+        "https://api.deepseek.com",
+        "https://api.deepseek.com/v1/",
+    ],
+)
+def test_guardian_driver_uses_selected_model_and_key(monkeypatch, base):
     import io
     from contextlib import closing
 
@@ -201,14 +209,21 @@ def test_guardian_driver_uses_selected_model_and_key(monkeypatch):
     model_driver.request_message(
         {
             "name": "guardian-model",
-            "api_base": "https://example.test/v1",
+            "api_base": base,
             "api_key_env": "TEST_MODEL_KEY",
             "max_tokens": 1000,
         },
         [{"role": "user", "content": "diagnose"}],
     )
-    assert captured[0].full_url == "https://example.test/v1/chat/completions"
-    assert json.loads(captured[0].data)["model"] == "guardian-model"
+    expected_base = base.rstrip("/")
+    assert captured[0].full_url == expected_base + "/chat/completions"
+    body = json.loads(captured[0].data)
+    assert body["model"] == "guardian-model"
+    assert body["tool_choice"] == "required"
+    if "api.deepseek.com" in base:
+        assert body["thinking"] == {"type": "disabled"}
+    else:
+        assert "thinking" not in body
     assert captured[0].get_header("Authorization") == "Bearer guardian-key"
 
 

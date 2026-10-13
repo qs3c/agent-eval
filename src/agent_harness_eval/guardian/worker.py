@@ -10,12 +10,15 @@ from harbor.trial.hooks import TrialEvent
 from harbor.trial.trial import Trial
 
 from .docker import DockerTarget
-from .evidence import now, write
+from .evidence import now, read, write
 
 
 async def run(path):
     config = TrialConfig.model_validate_json(path.read_text())
     root = config.trials_dir / config.trial_name
+    if read(root / "retention-policy.json") is not None:
+        # Harbor stops the container; parent exports a bounded sanitized workspace.
+        config.environment.kwargs["keep_containers"] = True
     state = root / "guardian-state.json"
     write(state, {"phase": "creating", "since": time.monotonic(), "time": now()})
     trial = await Trial.create(config)

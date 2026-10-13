@@ -131,6 +131,8 @@ Trace 的原生埋点、代理采集、v2 时间口径与历史兼容说明见 [
 
 实验运行守护支持定时监测、介入前取证、可插拔 Agent 直接处置和独立超时兜底。配置、JSONL 接口、证据来源及无人值守边界见 [实验守护文档](docs/experiment-guardian.md)。首个 Agent 尚未指定；`experiments/guardian-controls.json` 提供无需模型的观察模式验收入口。
 
+大规模实验支持按批准备镜像、同批完成全部 Agent 和官方复评后清理，并限量保留异常工作区。配置、证据与恢复方式见 [有界批次测评](docs/batched-evaluation.md)。
+
 RSI 改进工作台连接诊断证据、可插拔 Agent、独立源码候选、检查、父子版本复评和草稿 PR，保留候选谱系与失败记录。控制台入口为“RSI 改进”；配置与使用见 [RSI 文档](docs/rsi.md)。未配置执行 Agent 时可先冻结案例，默认不会调用模型或发布 PR。
 
 ## 实验内 Agent 对比与版本

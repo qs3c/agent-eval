@@ -464,6 +464,11 @@ async function renderDetail(id, token, initial = true) {
     el("span", modes[r.mode] + " · " + r.benchmark, "muted"),
   );
   if (r.error) $("#detail-state").append(el("span", r.error, "error"));
+  if (r.batch_state) {
+    const phases = {preparing:"准备环境",running:"执行 Agent",regrading:"官方复评",cleaning:"清理环境",completed:"已完成",failed:"批次失败",interrupted:"已中断"};
+    const b = r.batch_state;
+    $("#detail-state").append(el("span", `批次 ${b.current_batch || 1}/${b.total_batches || Math.ceil(b.total_tasks / b.batch_size)} · ${phases[b.phase] || b.phase} · 每批最多 ${b.batch_size} 题`, "muted"));
+  }
   stats(
     [
       [

@@ -1,6 +1,8 @@
 """Build BKCrab's evaluation executable from a fixed candidate checkout in Docker."""
 
 import argparse
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -13,15 +15,37 @@ from agent_harness_eval.rsi.native_adapter import run_container
 
 def build(image, workspace, output):
     before = source_manifest(workspace)
+    # Historical source commits may predate the untracked benchmark entrypoint.
+    # Apply platform-owned evaluation glue only in a disposable build copy.
+    source = output / "source"
+    shutil.copytree(
+        workspace, source, symlinks=True, ignore=shutil.ignore_patterns(".git")
+    )
+    patch_sha = None
+    if not (source / "cmd/bkcrab-eval/main.go").is_file():
+        patch = Path(__file__).resolve().parents[3] / "integrations/bkcrab-eval.patch"
+        frozen_patch = output / "evaluation-entrypoint.patch"
+        shutil.copyfile(patch, frozen_patch)
+        patch_sha = digest(frozen_patch)
+        subprocess.run(["git", "init", "--quiet", str(source)], check=True)
+        subprocess.run(["git", "apply", str(frozen_patch)], cwd=source, check=True)
     run_container(
         image,
-        [(workspace, "/workspace", False), (output, "/output", False)],
+        [(source, "/workspace", False), (output, "/output", False)],
         [
             "sh",
             "-ec",
             """
-if [ -f /installed-agent/check-bkcrab.sh ]; then
-    sh /installed-agent/check-bkcrab.sh
+if [ -d web ] && [ -d /opt/rsi-web/node_modules ]; then
+    (
+        cd web
+        sha256sum -c /opt/rsi-web/checksums
+        cp -a /opt/rsi-web/node_modules .
+        export NEXT_TELEMETRY_DISABLED=1 CI=1
+        node node_modules/next/dist/bin/next build
+    )
+    mkdir -p internal/setup/web
+    cp -a web/out/. internal/setup/web/
 fi
 go build -mod=readonly -trimpath -o /output/bkcrab-eval ./cmd/bkcrab-eval
 """,
@@ -44,6 +68,7 @@ go build -mod=readonly -trimpath -o /output/bkcrab-eval ./cmd/bkcrab-eval
             "binary_sha256": digest(output / "bkcrab-eval"),
             "profile": "isolated-coding",
             "build_image": image,
+            "evaluation_entrypoint_patch_sha256": patch_sha,
         },
     )
 

@@ -331,16 +331,34 @@ def test_native_pair_builds_exact_commits_and_overrides_stale_artifacts(
     verify_case(store, case)
 
 
-def test_native_build_records_source_and_binary_provenance(native_case, monkeypatch):
+@pytest.mark.parametrize("has_entrypoint", [False, True])
+def test_native_build_records_source_and_binary_provenance(
+    native_case, monkeypatch, has_entrypoint
+):
     store, _, record, _ = native_case
     workspace = store.path("candidates", record["id"]) / "workspace"
+    if has_entrypoint:
+        entrypoint = workspace / "cmd/bkcrab-eval/main.go"
+        entrypoint.parent.mkdir(parents=True)
+        entrypoint.write_text("// Candidate-owned entrypoint\n")
+        git(workspace, "add", ".")
+        git(workspace, "commit", "-m", "tracked entrypoint")
+        record["commit"] = git(workspace, "rev-parse", "HEAD")
     output = store.project / "build"
     output.mkdir()
 
     def container(image, mounts, command, timeout, **kwargs):
-        assert (workspace, "/workspace", False) in mounts
+        assert (output / "source", "/workspace", False) in mounts
+        assert (output / "source/cmd/bkcrab-eval/main.go").is_file()
+        assert (workspace / "cmd/bkcrab-eval").exists() == has_entrypoint
+        if has_entrypoint:
+            assert (
+                output / "source/cmd/bkcrab-eval/main.go"
+            ).read_text() == "// Candidate-owned entrypoint\n"
         assert (output, "/output", False) in mounts
         assert "./cmd/bkcrab-eval" in command[-1]
+        assert "sha256sum -c /opt/rsi-web/checksums" in command[-1]
+        assert "go test" not in command[-1] and "check-bkcrab.sh" not in command[-1]
         (output / "bkcrab-eval").write_bytes(b"new binary")
 
     monkeypatch.setattr(native_build, "run_container", container)
@@ -348,3 +366,4 @@ def test_native_build_records_source_and_binary_provenance(native_case, monkeypa
     provenance = read(output / "provenance.json")
     assert provenance["commit"] == record["commit"] and not provenance["dirty"]
     assert provenance["binary_sha256"]
+    assert bool(provenance["evaluation_entrypoint_patch_sha256"]) != has_entrypoint

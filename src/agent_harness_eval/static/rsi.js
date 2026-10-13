@@ -36,7 +36,7 @@ function rsiBytes(value) {
 }
 function rsiTitle(source) {
   const first = source.trials[0] || "未记录尝试";
-  const task = first.includes("__") ? first.split("__").slice(0, -1).join(" / ") : first;
+  const task = first.includes("__") ? first.split("__").slice(0, -1).at(-1) : first;
   return task + (source.trials.length > 1 ? ` 等 ${source.trials.length} 次尝试` : "");
 }
 function rsiEmpty(title, description, action) {
@@ -117,7 +117,7 @@ async function renderRsi(token, identity, initial = true) {
   }
   shell.append(counts);
   const flow = el("ol", undefined, "rsi-workflow");
-  for (const [index, title, desc] of [["01", "冻结证据", "保留问题现场"], ["02", "生成候选", "诊断与代码修改"], ["03", "检查与复评", "验证改进效果"], ["04", "草稿 PR", "交付可审阅变更"]]) {
+  for (const [index, title, desc] of [["01", "保存材料", "保留问题现场"], ["02", "生成候选", "诊断与代码修改"], ["03", "检查与复评", "验证改进效果"], ["04", "草稿 PR", "交付可审阅变更"]]) {
     const step = el("li"), text = el("div"); text.append(el("strong", title), el("small", desc));
     step.append(el("span", index, "rsi-step-number"), text); flow.append(step);
   }
@@ -125,7 +125,7 @@ async function renderRsi(token, identity, initial = true) {
   const config = rsiConfigNote(data); if (config) shell.append(config);
   const archive = rsiPanel("改进档案", "案例保存证据，候选记录从修改到验证的每一步。"), toolbar = el("div", undefined, "rsi-toolbar");
   const tabs = el("div", undefined, "rsi-tabs"); tabs.setAttribute("role", "group"); tabs.setAttribute("aria-label", "档案类型");
-  const search = el("input"); search.type = "search"; search.placeholder = "搜索任务、Agent、目标或编号";
+  const search = el("input"); search.type = "search"; search.placeholder = "搜索题目或诊断主题";
   search.setAttribute("aria-label", "搜索改进档案"); search.value = rsiUi.search;
   const body = el("div", undefined, "rsi-archive-body");
   const tabButtons = [];
@@ -134,17 +134,15 @@ async function renderRsi(token, identity, initial = true) {
     body.replaceChildren();
     const query = rsiUi.search.trim().toLowerCase();
     if (rsiUi.tab === "cases") {
-      const matches = data.cases.filter(c => `${c.id} ${c.agent} ${c.trials.join(" ")} ${c.objective}`.toLowerCase().includes(query));
-      if (!matches.length) body.append(rsiEmpty(query ? "没有匹配的案例" : "从一个问题开始", query ? "试试任务名称、Agent 或案例编号。" : "选择已结束实验，把异常尝试和改进目标保存为诊断案例。",
+      const matches = data.cases.filter(c => `${c.trials.join(" ")} ${c.diagnosis_topic || ""}`.toLowerCase().includes(query));
+      if (!matches.length) body.append(rsiEmpty(query ? "没有匹配的案例" : "从一个问题开始", query ? "试试任务名称、Agent 或案例编号。" : "选择已结束实验，保存异常尝试的诊断材料。",
         query ? null : rsiButton("新建诊断案例", () => rsiCaseDialog(token, experiments))));
       for (const c of matches) {
-        const card = el("article", undefined, "rsi-case-card"), main = el("div", undefined, "rsi-case-main"), meta = el("div", undefined, "rsi-meta");
-        meta.append(rsiBadge(c.agent), rsiBadge(c.status === "ready" ? "证据已冻结" : "采集中", c.status === "ready" ? "success" : "warning"), el("span", `案例 ${c.id.slice(0, 8)}`, "mono"));
+        const card = el("article", undefined, "rsi-case-card"), main = el("div", undefined, "rsi-case-main");
         const title = el("h3"); title.append(link(rsiTitle(c), "#rsi-case/" + c.id));
-        main.append(meta, title, el("p", c.objective, "rsi-objective"));
-        const foot = el("div", undefined, "rsi-case-foot");
-        foot.append(el("span", `${c.trials.length} 次尝试 · ${rsiBytes(c.exported_bytes)} · ${time(c.created_at)}`), link("查看证据 →", "#rsi-case/" + c.id, "rsi-text-link"));
-        card.append(main, foot); body.append(card);
+        main.append(title);
+        if (c.diagnosis_topic) main.append(el("p", c.diagnosis_topic, "rsi-diagnosis-topic"));
+        card.append(main); body.append(card);
       }
     } else {
       const matches = data.candidates.filter(c => `${c.id} ${c.profile_id} ${c.parent_commit} ${rsiPhases[c.phase] || c.phase}`.toLowerCase().includes(query));
@@ -192,7 +190,7 @@ function rsiDialog(title, description) {
 }
 
 function rsiCaseDialog(token, experiments) {
-  const { dialog, form, error, close } = rsiDialog("新建诊断案例", "冻结实验中的诊断材料，保留来源与改进目标。此步骤不调用模型。");
+  const { dialog, form, error, close } = rsiDialog("新建诊断案例", "保存所选测试记录的证据快照，供 Agent 后续诊断。此步骤不调用模型。");
   const completed = experiments.runs.filter(r => !["queued", "running"].includes(r.status) && r.agents.length);
   if (!completed.length) {
     form.append(rsiEmpty("暂无可用的已结束实验", "当前工作空间没有已结束且包含 Agent 的实验。已有诊断案例仍可正常查阅。", link("前往实验记录 →", "#runs", "button primary")));
@@ -204,16 +202,13 @@ function rsiCaseDialog(token, experiments) {
   }));
   run.onchange = updateAgents; updateAgents();
   const scope = rsiSelect([["failed", "运行异常的尝试"], ["all", "该 Agent 的全部已记录尝试"]], "诊断范围");
-  const objective = el("textarea"); objective.rows = 5; objective.maxLength = 16000; objective.required = true;
-  objective.placeholder = "例如：根据工具调用与进程记录，定位 shell 超时后未清理子进程的原因，并补充回归测试。";
   const grid = el("div", undefined, "rsi-form-grid"); grid.append(rsiField("被改进 Agent", agent), rsiField("诊断范围", scope));
-  const submit = rsiButton("冻结诊断材料", null, true); submit.type = "submit";
-  form.append(rsiField("来源实验", run), grid, rsiField("改进目标", objective, "写清楚希望修复的问题，以及如何验证。"), error, submit);
+  const submit = rsiButton("保存诊断材料", null, true); submit.type = "submit";
+  form.append(rsiField("来源实验", run), grid, error, submit);
   form.onsubmit = async event => {
     event.preventDefault(); if (submit.disabled) return;
-    if (!objective.value.trim()) { error.textContent = "请填写具体的改进目标。"; objective.focus(); return; }
-    const selected = { run_id: run.value, agent: agent.value, objective: objective.value.trim() }, all = scope.value === "all";
-    submit.disabled = true; submit.textContent = "正在冻结证据…"; error.textContent = "";
+    const selected = { run_id: run.value, agent: agent.value }, all = scope.value === "all";
+    submit.disabled = true; submit.textContent = "正在保存材料…"; error.textContent = "";
     try {
       const detail = await api("/api/runs/" + selected.run_id);
       const trials = all ? detail.trials.filter(t => t.agent === selected.agent).map(t => t.trial) : null;
@@ -221,7 +216,7 @@ function rsiCaseDialog(token, experiments) {
       const result = await api("/api/rsi/cases", { method: "POST", body: JSON.stringify({ ...selected, trials }) });
       if (epoch === token && dialog.isConnected) { dialog.close(); location.hash = "#rsi-case/" + result.id; }
     } catch (err) { error.textContent = err.message; }
-    finally { submit.disabled = false; submit.textContent = "冻结诊断材料"; }
+    finally { submit.disabled = false; submit.textContent = "保存诊断材料"; }
   };
   close.focus();
 }
@@ -308,10 +303,14 @@ async function renderRsiCase(token, identity) {
   const shell = rsiShell(); shell.append(link("← 返回改进档案", "#rsi", "rsi-back"));
   const create = rsiButton("从此案例创建候选", () => rsiCandidateDialog(token, overview, identity), true);
   create.disabled = !overview.profiles.length || source.status !== "ready";
-  create.title = !overview.profiles.length ? "请先配置执行 Agent" : source.status !== "ready" ? "证据尚未冻结完成" : "";
+  create.title = !overview.profiles.length ? "请先配置执行 Agent" : source.status !== "ready" ? "材料尚未保存完成" : "";
   shell.append(rsiHeader(rsiTitle(source), `${source.agent} · 案例 ${identity.slice(0, 8)} · ${time(source.created_at)}`, [create]));
-  const panel = rsiPanel("改进目标"); panel.append(el("p", source.objective, "rsi-goal"));
-  const meta = el("div", undefined, "rsi-meta"); meta.append(rsiBadge(source.status === "ready" ? "证据已冻结" : "采集中", source.status === "ready" ? "success" : "warning"), el("span", `${source.trials.length} 次尝试 · ${rsiBytes(source.exported_bytes)} 已导出`));
+  const panel = rsiPanel("诊断材料", "测试现场的固定快照，供后续诊断引用。");
+  if (source.diagnosis_topic) {
+    panel.append(el("h3", "诊断主题"), el("p", source.diagnosis_topic));
+    panel.append(link("查看对应诊断 →", "#rsi/" + source.diagnosis_candidate_id, "rsi-text-link"));
+  }
+  const meta = el("div", undefined, "rsi-meta"); meta.append(rsiBadge(source.status === "ready" ? "材料已保存" : "采集中", source.status === "ready" ? "success" : "warning"), el("span", `${source.trials.length} 次尝试 · ${rsiBytes(source.exported_bytes)} 已导出`));
   panel.append(meta);
   const origin = el("details"); origin.append(el("summary", "查看原始实验与尝试编号"), el("p", source.run || "未记录原始实验目录", "mono"));
   source.trials.forEach(t => origin.append(el("p", t, "mono")));
@@ -370,7 +369,7 @@ async function renderRsiCandidate(token, identity, initial) {
   if (overview.allow_live && candidate.can_evaluate) panel.append(rsiField("若模板使用真实模型：确认本次父版本与候选两次复评不设费用上限", confirm));
   if (candidate.pr_url) panel.append(link("打开草稿 PR ↗", candidate.pr_url, "rsi-text-link"));
   panel.append(error); shell.append(panel);
-  const diagnosis = rsiPanel("诊断与修改", source.objective);
+  const diagnosis = rsiPanel("诊断与修改", candidate.diagnosis?.topic || "Agent 分析证据后生成诊断主题。");
   if (candidate.diagnosis) {
     for (const [title, value] of [["诊断结论", candidate.diagnosis.summary], ["代码修改", candidate.diagnosis.changes], ["待验证假设", (candidate.diagnosis.hypotheses || []).join("\n")], ["适用范围与限制", candidate.diagnosis.limitations || "未声明额外限制"]]) {
       if (value) diagnosis.append(el("h3", title), el("p", value, "rsi-prose"));

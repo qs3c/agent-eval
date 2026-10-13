@@ -60,7 +60,7 @@ def setup(tmp_path):
     adapter.write_text("""import sys,json,pathlib
 context=json.loads(sys.stdin.readline())
 (pathlib.Path(context['workspace'])/'harness.py').write_text('VALUE = 1\\n')
-pathlib.Path(context['result_path']).write_text(json.dumps({'summary':'修复测试用例','changes':'设置正确的值','summary_en':'Repair a fixture','changes_en':'Set the correct value','evidence_refs':['e0001'],'limitations':'仅用于测试','limitations_en':'Fixture only'}), encoding='utf-8')
+pathlib.Path(context['result_path']).write_text(json.dumps({'topic':'测试值错误导致执行失败','summary':'修复测试用例','changes':'设置正确的值','summary_en':'Repair a fixture','changes_en':'Set the correct value','evidence_refs':['e0001'],'limitations':'仅用于测试','limitations_en':'Fixture only'}), encoding='utf-8')
 """)
     profile = {
         "repository": str(source),

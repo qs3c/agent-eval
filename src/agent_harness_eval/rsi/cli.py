@@ -14,7 +14,6 @@ def register(sub):
     q.add_argument("run", type=Path)
     q.add_argument("--agent", required=True)
     q.add_argument("--trials", nargs="+")
-    q.add_argument("--objective", required=True)
     q.add_argument("--root", type=Path, default=Path.cwd())
     q = sub.add_parser(
         "rsi-candidate", help="Create an isolated improvement candidate from a case"
@@ -41,7 +40,7 @@ def register(sub):
 def execute(args):
     store = Store(args.root)
     if args.command == "rsi-case":
-        result = create_case(store, args.run, args.agent, args.trials, args.objective)
+        result = create_case(store, args.run, args.agent, args.trials)
     elif args.command == "rsi-candidate":
         result = asyncio.run(
             create_candidate(store, args.case, args.profile, args.parent)

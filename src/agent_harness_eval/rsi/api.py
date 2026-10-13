@@ -1,5 +1,4 @@
 from fastapi import APIRouter
-from pydantic import Field
 
 from ..console import redact
 from .evidence import create_case
@@ -13,7 +12,6 @@ class CaseRequest(Strict):
     run_id: str
     agent: str
     trials: list[str] | None = None
-    objective: str = Field(min_length=1, max_length=16000)
 
 
 class CandidateRequest(Strict):
@@ -56,12 +54,26 @@ def public_candidate(record):
     return result
 
 
+def diagnosis_topics(candidates):
+    topics = {}
+    for candidate in candidates:  # Store.list is newest first.
+        topic = (candidate.get("diagnosis") or {}).get("topic", "")
+        if topic and any("\u4e00" <= char <= "\u9fff" for char in topic):
+            topics.setdefault(
+                candidate["case"],
+                {"diagnosis_topic": topic, "diagnosis_candidate_id": candidate["id"]},
+            )
+    return topics
+
+
 def router(console):
     store = Store(console.root)
     routes = APIRouter(prefix="/api/rsi")
 
     @routes.get("")
     def overview():
+        candidates = store.list("candidates")
+        topics = diagnosis_topics(candidates)
         profiles = []
         for path in sorted((console.root / "rsi-profiles").glob("*.json")):
             try:
@@ -78,10 +90,13 @@ def router(console):
                 continue
         return {
             "cases": [
-                {k: v for k, v in c.items() if k not in {"evidence", "run"}}
+                {
+                    **{k: v for k, v in c.items() if k not in {"evidence", "run"}},
+                    **topics.get(c["id"], {}),
+                }
                 for c in store.list("cases")
             ],
-            "candidates": [public_candidate(c) for c in store.list("candidates")],
+            "candidates": [public_candidate(c) for c in candidates],
             "actions": store.actions(),
             "profiles": builtin_profiles(console.root) + profiles,
             "executor_settings": catalog(console.root),
@@ -104,7 +119,6 @@ def router(console):
             console.row(data.run_id)["path"],
             data.agent,
             data.trials,
-            data.objective,
         )
         record["source_run_id"] = data.run_id
         store.save("cases", record)
@@ -112,7 +126,10 @@ def router(console):
 
     @routes.get("/cases/{identity}")
     def case(identity: str):
-        return store.get("cases", identity)
+        return {
+            **store.get("cases", identity),
+            **diagnosis_topics(store.list("candidates")).get(identity, {}),
+        }
 
     @routes.post("/candidates", status_code=201)
     async def new_candidate(data: CandidateRequest):

@@ -6,11 +6,11 @@ DGM 的参考点是利用执行反馈修改 Agent 自身实现、经验验证及
 
 ## 使用界面
 
-首页以诊断案例 / 候选版本档案为主，支持搜索任务、Agent、目标与编号。点击“新建诊断案例”打开表单；没有已结束实验时显示说明及实验记录入口。在“执行 Agent”卡片下拉选择 BKCrab 或 DSH，点击保存即可启用，无需编辑 JSON。模型名称、服务地址和 API Key 统一在左侧一级导航“模型设置”管理；RSI 卡片只选择模型池条目与执行时限。已有服务端 DeepSeek 配置自动迁入全局模型池，页面只返回凭据是否已配置。保存设置不会调用模型。案例详情可以直接创建关联候选。
+首页以诊断案例 / 候选版本档案为主，案例支持搜索题目与诊断主题。点击“新建诊断案例”打开表单；没有已结束实验时显示说明及实验记录入口。在“执行 Agent”卡片下拉选择 BKCrab 或 DSH，点击保存即可启用，无需编辑 JSON。模型名称、服务地址和 API Key 统一在左侧一级导航“模型设置”管理；RSI 卡片只选择模型池条目与执行时限。已有服务端 DeepSeek 配置自动迁入全局模型池，页面只返回凭据是否已配置。保存设置不会调用模型。案例详情可以直接创建关联候选。
 
 证据索引按来源和完整性筛选，每页 20 项。人工快照、原始 Agent 轨迹和评分器输出分别标注；截断与缺失单独计数，长错误按需展开。候选详情分别展示代码检查、效果验证与交付状态，操作不可用时显示原因，补丁与 PR 正文折叠查看。
 
-在升级后的控制台打开 **RSI 改进**。选择已结束实验、Agent、异常尝试或全部已记录尝试，填写改进目标并冻结诊断材料。这一步不执行模型，也不需要已选择执行 Agent。
+在升级后的控制台打开 **RSI 改进**。选择已结束实验、Agent、异常尝试或全部已记录尝试，点击“保存诊断材料”，生成固定的证据快照，无需填写改进目标。这一步不执行模型，也不需要已选择执行 Agent。
 
 案例档案可独立打开，查看每份材料的来源、读取范围、截断和缺失；不必先创建候选。
 
@@ -70,11 +70,15 @@ Profile 字段：
 
 ```json
 {
+  "topic": "shell 超时后子进程未清理",
   "summary": "观察到的故障和诊断结论",
+  "summary_en": "Observed failure and diagnosis",
   "evidence_refs": ["e0001", "e0007"],
   "hypotheses": ["尚待验证的机制解释"],
   "changes": "修改了什么以及加入了哪些回归覆盖",
-  "limitations": "缺失证据、未验证推断和适用范围"
+  "changes_en": "Changes and regression coverage",
+  "limitations": "缺失证据、未验证推断和适用范围",
+  "limitations_en": "Missing evidence, unverified inferences and scope"
 }
 ```
 
@@ -82,7 +86,7 @@ Profile 字段：
 
 ## 复评与 PR
 
-改进档案的目标、诊断摘要、修改说明、假设及局限说明使用中文，技术标识和证据编号保留原文。案例创建者直接以中文填写目标；平台按原文保存、展示并传给执行 Agent，不做固定映射翻译。适配器结果必须同时提供 `summary_en`、`changes_en`；非空的 `limitations` 还需提供 `limitations_en`。PR 标题和正文按中文在前、英文在后的顺序生成，缺少英文翻译的历史诊断需补充后才能生成新的 PR 文案。
+改进档案的目标、诊断摘要、修改说明、假设及局限说明使用中文，技术标识和证据编号保留原文。新建案例不接收用户改进目标。执行 Agent 使用平台统一的诊断指令，在分析证据后生成必填的中文 `topic`（单行、不超过 120 字）；原因不明时明确标注“原因未确定”。诊断前卡片仅显示题目，诊断后显示最新一次有效诊断的主题；修复或检查失败不会丢弃已经验证的诊断结果。旧案例的冻结目标保留用于证据校验，不再展示或作为诊断指令。适配器结果必须同时提供 `summary_en`、`changes_en`；非空的 `limitations` 还需提供 `limitations_en`。PR 标题和正文按中文在前、英文在后的顺序生成，缺少英文翻译的历史诊断需补充后才能生成新的 PR 文案。
 
 复评使用 build 配置分别从父/子 SHA 创建新副本，重新生成全部源码相关产物，覆盖实验模板里的旧 binary/bundle/provenance 路径；旧产物不存在也可以构建新产物。原有产物键没有全部覆盖时拒绝运行。产物哈希和所属提交写入记录，构建不能修改固定源码。
 
@@ -96,8 +100,7 @@ Profile 字段：
 
 ```sh
 uv run agent-harness-eval rsi-case artifacts/swe-live-20 --agent bkcrab \
-  --trials django__django-15022__RkmihL7 \
-  --objective '根据原始工具记录及人工介入快照修复进程清理问题'
+  --trials django__django-15022__RkmihL7
 uv run agent-harness-eval rsi-candidate CASE_ID --profile bkcrab
 uv run agent-harness-eval rsi-action CANDIDATE_ID improve --execute
 uv run agent-harness-eval rsi-action CANDIDATE_ID evaluate --execute

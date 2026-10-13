@@ -1,17 +1,22 @@
 import asyncio
 import signal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from ..guardian.evidence import read, write
 from .evidence import verify_case
 from .git import assert_clean, clone, git
-from .language import DIAGNOSIS_LANGUAGE_INSTRUCTIONS
+from .language import DEFAULT_OBJECTIVE, DIAGNOSIS_LANGUAGE_INSTRUCTIONS
 from .models import Profile, Strict, load_profile
 from .process import checked
 
 
 class Diagnosis(Strict):
+    topic: str = Field(
+        min_length=1,
+        max_length=120,
+        description="基于证据分析后生成的简短中文诊断主题；证据不足时明确写出原因未确定",
+    )
     summary: str = Field(min_length=1, max_length=16000)
     evidence_refs: list[str] = Field(min_length=1, max_length=512)
     hypotheses: list[str] = Field(default_factory=list, max_length=50)
@@ -20,6 +25,16 @@ class Diagnosis(Strict):
     summary_en: str = Field(min_length=1, max_length=16000)
     changes_en: str = Field(min_length=1, max_length=16000)
     limitations_en: str = Field(default="", max_length=16000)
+
+    @field_validator("topic")
+    @classmethod
+    def chinese_topic(cls, value):
+        value = value.strip()
+        if not any("\u4e00" <= char <= "\u9fff" for char in value):
+            raise ValueError("诊断主题必须使用中文")
+        if "\n" in value or "\r" in value:
+            raise ValueError("诊断主题必须是单行短句")
+        return value
 
 
 async def create_candidate(store, case_id, profile_id, parent=None):
@@ -108,7 +123,7 @@ async def improve(store, record):
         "protocol": "eval-rsi/v1",
         "workspace": str(workspace),
         "evidence_directory": str(evidence),
-        "objective": case["objective"],
+        "objective": DEFAULT_OBJECTIVE,
         "parent_commit": record["parent_commit"],
         "result_path": str(root / "diagnosis.json"),
         "adapter_version": profile.adapter.version,
@@ -132,6 +147,7 @@ async def improve(store, record):
     if not set(diagnosis.evidence_refs) <= known:
         raise ValueError("Diagnosis cites unknown or unavailable evidence")
     record["diagnosis"] = diagnosis.model_dump()
+    store.save("candidates", record)  # Keep the diagnosis even if repair/checks fail.
     if await git(workspace, "rev-parse", "HEAD") != record["parent_commit"]:
         raise ValueError(
             "Adapter changed Git HEAD; platform must own the candidate commit"

@@ -46,6 +46,6 @@ def test_rsi_api_is_local_and_does_not_accept_commands(tmp_path):
     response = client.post(
         "/api/rsi/cases",
         headers=headers,
-        json={"run_id": run["id"], "agent": "positive", "objective": "fix"},
+        json={"run_id": run["id"], "agent": "positive"},
     )
     assert response.status_code == 422 and "finish" in response.json()["detail"]

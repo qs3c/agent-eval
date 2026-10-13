@@ -66,15 +66,17 @@ test('candidate form uses the saved executor while preserving the target Agent',
   assert.match(doc.querySelector('.rsi-inline-note').textContent, /被改进的 Agent：bkcrab/);
 });
 
-test('archive exposes useful titles, searchable objectives and honest empty states', async t => {
+test('archive shows only task titles before diagnosis and ignores historical objectives', async t => {
   const { run, doc, window } = setup(t, async url => url === '/api/rsi' ? overview() : { runs: [] });
   await run('renderRsi(0)');
-  assert.match(doc.querySelector('article').textContent, /django \/ django-15022/);
+  assert.equal(doc.querySelector('article').textContent, 'django-15022');
   assert.equal(doc.querySelectorAll('select').length, 0);
   const search = doc.querySelector('input[type=search]');
   search.value = 'not found'; search.dispatchEvent(new window.Event('input'));
   assert.match(doc.body.textContent, /没有匹配的案例/);
   search.value = 'cleanup'; search.dispatchEvent(new window.Event('input'));
+  assert.equal(doc.querySelectorAll('article').length, 0);
+  search.value = 'django-15022'; search.dispatchEvent(new window.Event('input'));
   assert.equal(doc.querySelectorAll('article').length, 1);
   clickNamed(doc, '＋ 新建诊断案例');
   assert.match(doc.querySelector('dialog').textContent, /暂无可用的已结束实验/);
@@ -103,7 +105,7 @@ test('all-trials form refuses an empty selection instead of silently falling bac
   const requests = [];
   const { run, doc } = setup(t, async (url, options) => { requests.push([url, options]); return { trials: [] }; });
   run(`rsiCaseDialog(0, {runs: [{id: 'run', name: 'Finished run', status: 'completed', agents: ['bkcrab']}]})`);
-  doc.querySelector('textarea').value = 'Fix the failure';
+  assert.equal(doc.querySelector('textarea'), null);
   doc.querySelector('[aria-label="诊断范围"]').value = 'all';
   await doc.querySelector('form').onsubmit({ preventDefault() {} });
   assert.equal(requests.length, 1);
@@ -111,17 +113,19 @@ test('all-trials form refuses an empty selection instead of silently falling bac
   assert.equal(doc.querySelector('[type=submit]').disabled, false);
 });
 
-test('case form keeps the selected source and objective in the request', async t => {
+test('case form submits selected evidence without asking for an objective', async t => {
   let payload;
   const { run, doc, window } = setup(t, async (url, options) => {
     if (options.method === 'POST') { payload = JSON.parse(options.body); return source; }
     return { trials: [{ agent: 'bkcrab', trial: 'one' }, { agent: 'other', trial: 'two' }] };
   });
   run(`rsiCaseDialog(0, {runs: [{id: 'run', status: 'completed', agents: ['bkcrab']}]})`);
-  doc.querySelector('textarea').value = '  Specific objective  ';
+  assert.equal(doc.querySelector('textarea'), null);
+  assert.doesNotMatch(doc.querySelector('dialog').textContent, /改进目标/);
+  assert.equal(doc.querySelector('[type=submit]').textContent, '保存诊断材料');
   doc.querySelector('[aria-label="诊断范围"]').value = 'all';
   await doc.querySelector('form').onsubmit({ preventDefault() {} });
-  assert.deepEqual(payload, { run_id: 'run', agent: 'bkcrab', objective: 'Specific objective', trials: ['one'] });
+  assert.deepEqual(payload, { run_id: 'run', agent: 'bkcrab', trials: ['one'] });
   assert.equal(window.location.hash, '#rsi-case/' + source.id);
 });
 
@@ -209,4 +213,25 @@ test('experiment form submits pool selections and leaves offline contracts uncha
   assert.equal(doc.querySelector('[aria-label="守护模型"]').disabled,true);
   await doc.querySelector('#create-form').onsubmit({preventDefault(){}});
   assert.equal('model_id' in saved,false);assert.equal('guardian_model_id' in saved,false);
+});
+
+
+test('archive displays and searches an Agent diagnosis topic after analysis', async t => {
+  const diagnosed = {...source, diagnosis_topic:'shell 超时后子进程残留', diagnosis_candidate_id:candidate.id};
+  const {run, doc, window} = setup(t, async url => url === '/api/rsi' ? overview({cases:[diagnosed]}) : {runs:[]});
+  await run('renderRsi(0)');
+  assert.equal(doc.querySelector('article').textContent, 'django-15022shell 超时后子进程残留');
+  const search = doc.querySelector('input[type=search]');
+  search.value = '子进程'; search.dispatchEvent(new window.Event('input'));
+  assert.equal(doc.querySelectorAll('article').length, 1);
+});
+
+test('case details retain evidence metadata and link to the diagnosis producing the topic', async t => {
+  const diagnosed = {...source, diagnosis_topic:'shell 超时后子进程残留', diagnosis_candidate_id:candidate.id};
+  const {run,doc} = setup(t, async url => url === '/api/rsi' ? overview() : diagnosed);
+  await run(`renderRsiCase(0, '${source.id}')`);
+  assert.match(doc.body.textContent, /诊断主题.*shell 超时后子进程残留/);
+  assert.match(doc.body.textContent, /4.0 KiB/);
+  assert.doesNotMatch(doc.body.textContent, /Fix process cleanup/);
+  assert.ok([...doc.querySelectorAll('a')].some(a => a.getAttribute('href') === '#rsi/' + candidate.id));
 });

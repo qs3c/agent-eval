@@ -25,7 +25,7 @@ class ActionRequest(Strict):
     confirm_unbounded: bool = False
 
 
-def public_candidate(record):
+def public_candidate(record, store=None):
     # Do not expose administrator commands/env or raw adapter output.
     result = {
         k: record.get(k)
@@ -54,6 +54,20 @@ def public_candidate(record):
         )
     }
     result["can_evaluate"] = bool(record["profile"].get("evaluation"))
+    if store is not None:
+        from .native_evaluation import configuration
+
+        try:
+            _, exp, hashes = configuration(store, record)
+            result.update(
+                can_evaluate=True,
+                evaluation_requires_live=exp.model.mode == "live",
+                evaluation_tasks=[p.name for p in exp.benchmark.tasks],
+                evaluation_attempts=exp.attempts,
+                evaluation_from_case=bool(hashes),
+            )
+        except (ValueError, OSError, KeyError) as error:
+            result.update(can_evaluate=False, evaluation_blocked_reason=str(error))
     result["can_publish"] = bool(record["profile"].get("github_repository"))
     return result
 
@@ -100,7 +114,7 @@ def router(console):
                 }
                 for c in store.list("cases")
             ],
-            "candidates": [public_candidate(c) for c in candidates],
+            "candidates": [public_candidate(c, store) for c in candidates],
             "actions": store.actions(),
             "profiles": builtin_profiles(console.root) + profiles,
             "executor_settings": catalog(console.root),
@@ -138,12 +152,13 @@ def router(console):
     @routes.post("/candidates", status_code=201)
     async def new_candidate(data: CandidateRequest):
         return public_candidate(
-            await create_candidate(store, data.case_id, data.profile, data.parent)
+            await create_candidate(store, data.case_id, data.profile, data.parent),
+            store,
         )
 
     @routes.get("/candidates/{identity}")
     def candidate(identity: str):
-        record = public_candidate(store.get("candidates", identity))
+        record = public_candidate(store.get("candidates", identity), store)
         root = store.path("candidates", identity)
         for key, name in (("patch", "changes.patch"), ("pr_body", "PR.md")):
             path = root / name
@@ -155,20 +170,14 @@ def router(console):
     @routes.post("/candidates/{identity}/actions", status_code=201)
     def action(identity: str, data: ActionRequest):
         if data.kind == "evaluate":
-            from ..config import load
-            from .models import Profile
+            from .native_evaluation import configuration
 
-            profile = Profile.model_validate(
-                store.get("candidates", identity)["profile"]
-            )
-            if (
-                profile.evaluation
-                and load(profile.evaluation, validate_agent_artifacts=False).model.mode
-                == "live"
-                and (not console.allow_live or not data.confirm_unbounded)
+            _, exp, _ = configuration(store, store.get("candidates", identity))
+            if exp.model.mode == "live" and (
+                not console.allow_live or not data.confirm_unbounded
             ):
                 raise ValueError(
-                    "Live reevaluation needs enabled live execution and spending acknowledgement"
+                    "真实模型复评需要服务开启 --allow-live，并勾选父子两次复评费用确认"
                 )
         return store.enqueue(identity, data.kind, data.confirm_unbounded)
 

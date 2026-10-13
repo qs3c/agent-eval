@@ -1,4 +1,5 @@
 import math
+import os
 import shutil
 from uuid import uuid4
 
@@ -6,10 +7,10 @@ from ..config import load
 from ..guardian.config import GuardianConfig
 from ..guardian.evidence import now, read, write
 from ..manifests import load_manifest
-from ..provenance import digest, validate_tree
+from ..provenance import digest, tree_manifest, validate_tree
 from ..run import run_experiment
 from .git import assert_clean, clone
-from .models import Profile
+from .native_evaluation import configuration
 from .process import checked
 
 
@@ -120,14 +121,17 @@ def compare(parent, candidate):
 
 
 async def evaluate(store, record, allow_live):
-    profile = Profile.model_validate(record["profile"])
-    if not profile.evaluation:
-        raise ValueError("Profile has no paired evaluation template")
-    exp = load(profile.evaluation, validate_agent_artifacts=False)
+    profile, exp, task_hashes = configuration(store, record)
     if exp.model.mode == "live" and not allow_live:
         raise ValueError(
             "Live reevaluation requires server permission and explicit unbounded spending acknowledgement"
         )
+    if task_hashes:
+        from .evidence import verify_case
+
+        verify_case(store, store.get("cases", record["case"]))
+        write(profile.evaluation, exp.model_dump(mode="json"))
+        exp = load(profile.evaluation, validate_agent_artifacts=False)
     agent_id = store.get("cases", record["case"])["agent"]
     agents = [a for a in exp.agents if a.id == agent_id]
     if len(agents) != 1:
@@ -155,19 +159,49 @@ async def evaluate(store, record, allow_live):
         "parent_commit": record["parent_commit"],
         "candidate_commit": record["commit"],
     }
+    if task_hashes:
+        record.setdefault(
+            "paired_build",
+            {
+                "build": profile.build.model_dump(mode="json"),
+                "artifacts": profile.artifacts,
+            },
+        )
     record["evaluations"].append(evaluation)
     store.save("candidates", record)
     destination = root / "evaluations" / evaluation["id"]
     destination.mkdir(parents=True)
+    previous_env = {}
     try:
+        if exp.model.mode == "live":
+            from ..model_pool import ModelPool
+            from .executors import credential
+
+            env = ModelPool(store.project).environment(exp.model.model_dump())
+            if exp.model.api_key_env == "DEEPSEEK_API_KEY" and not os.environ.get(
+                "DEEPSEEK_API_KEY"
+            ):
+                env["DEEPSEEK_API_KEY"] = credential(store.project)
+            previous_env = {name: os.environ.get(name) for name in env}
+            os.environ.update(env)
+            if not os.environ.get(exp.model.api_key_env):
+                raise ValueError("原测试使用的模型凭据不可用，请恢复对应凭据后重试")
         frozen_tasks = []
         for task in exp.benchmark.tasks:
             validate_tree(task)
             frozen = destination / "inputs" / "tasks" / task.name
             shutil.copytree(task, frozen)
+            if (
+                task_hashes
+                and tree_manifest(frozen)["sha256"] != task_hashes[task.name]
+            ):
+                raise ValueError(
+                    f"题目 {task.name} 与原测试的冻结哈希不一致，拒绝使用已变化的输入"
+                )
             frozen_tasks.append(frozen)
         exp.benchmark.tasks = frozen_tasks
         write(destination / "experiment.json", exp.model_dump(mode="json"))
+        write(destination / "profile.json", profile.model_dump(mode="json"))
         for side, commit in (
             ("parent", record["parent_commit"]),
             ("candidate", record["commit"]),
@@ -210,6 +244,11 @@ async def evaluate(store, record, allow_live):
         evaluation.update(assessment="failed", error=str(error) or type(error).__name__)
         raise
     finally:
+        for name, value in previous_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
         evaluation["finished_at"] = now()
         write(destination / "comparison.json", evaluation)
         store.save("candidates", record)

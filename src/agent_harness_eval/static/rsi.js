@@ -237,7 +237,7 @@ function rsiCandidateDialog(token, data, caseId) {
   if (data.profiles.some(p => p.id === preferred)) profile.value = preferred;
   const parent = rsiSelect([["", "配置中固定的源码版本"], ...data.candidates.filter(c => c.phase === "validated").map(c => [c.id, `${c.profile_id} · ${c.id.slice(0, 8)} · ${(c.commit || "").slice(0, 8)}`])], "父版本");
   const info = el("p", undefined, "rsi-inline-note");
-  const update = () => { const p = data.profiles.find(p => p.id === profile.value); const c = data.cases.find(c => c.id === source.value); info.textContent = `被改进的 Agent：${c?.agent || "未知"}。${p.executor ? "执行模型：" + (data.executor_settings.models?.find(m => m.id === data.executor_settings.bindings?.["executor_" + p.executor])?.name || data.executor_settings.model || "未指定") + "。" : ""}父子复评：${p.evaluation ? "已配置" : "未配置"}。点击运行后将调用模型并产生费用。${p.executor && c?.agent !== "bkcrab" ? "当前内置检查仅检查补丁格式，不代表功能验证通过。" : ""}`; };
+  const update = () => { const p = data.profiles.find(p => p.id === profile.value); const c = data.cases.find(c => c.id === source.value); info.textContent = `被改进的 Agent：${c?.agent || "未知"}。${p.executor ? "执行模型：" + (data.executor_settings.models?.find(m => m.id === data.executor_settings.bindings?.["executor_" + p.executor])?.name || data.executor_settings.model || "未指定") + "。" : ""}父子复评：${p.evaluation ? "已配置" : p.evaluation_from_case && c?.agent === "bkcrab" ? "自动继承原测试配置" : "未配置"}。点击运行后将调用模型并产生费用。${p.executor && c?.agent !== "bkcrab" ? "当前内置检查仅检查补丁格式，不代表功能验证通过。" : ""}`; };
   source.onchange = update;
   profile.onchange = update; update();
   const submit = rsiButton("创建并运行改进", null, true); submit.type = "submit";
@@ -357,7 +357,9 @@ async function renderRsiCandidate(token, identity, initial) {
   for (const [kind, label, desc] of [["improve", "运行改进", "根据诊断证据修改源码，并执行配置检查。"], ["evaluate", "运行父子复评", "在相同条件下评测父版本与候选；明确改善后自动升级已有草稿 PR。"], ["publish", candidate.pr_url ? "同步 PR" : "发布 PR", "同步验证证据；最新复评明确改善且提交一致时转为待审阅，否则保留草稿。"]]) {
     const required = kind === "improve" ? "created" : "validated";
     const reason = active ? "等待当前操作结束" : candidate.phase !== required ? (kind === "improve" ? "该候选已有改进记录" : "需要先通过代码检查") :
-      kind === "evaluate" && !candidate.can_evaluate ? "执行配置中未指定复评模板" : kind === "publish" && !candidate.can_publish ? "执行配置中未指定 GitHub 仓库" : "";
+      kind === "evaluate" && !candidate.can_evaluate ? (candidate.evaluation_blocked_reason || "执行配置中未指定复评模板") :
+      kind === "evaluate" && candidate.evaluation_requires_live && !overview.allow_live ? "真实模型复评未开启：服务需启用 --allow-live" :
+      kind === "publish" && !candidate.can_publish ? "执行配置中未指定 GitHub 仓库" : "";
     const card = el("div"), button = rsiButton(label, async () => {
       if (rsiUi.pending) return;
       rsiUi.pending = true; buttons.forEach(b => b.disabled = true); error.textContent = "";
@@ -376,6 +378,7 @@ async function renderRsiCandidate(token, identity, initial) {
     card.append(button, el("p", reason || desc)); controls.append(card);
   }
   panel.append(controls);
+  if (candidate.evaluation_from_case) panel.append(el("p", `已从原测试记录恢复复评配置：${candidate.evaluation_tasks.join("、")}；父子版本各运行 ${candidate.evaluation_attempts} 次，使用原评测模型与运行参数，守护仅观察。`, "rsi-inline-note"));
   if (overview.allow_live && candidate.can_evaluate) panel.append(rsiField("若模板使用真实模型：确认本次父版本与候选两次复评不设费用上限", confirm));
   if (candidate.pr_url) panel.append(link("打开 PR ↗", candidate.pr_url, "rsi-text-link"));
   panel.append(error); shell.append(panel);

@@ -172,6 +172,7 @@ def builtin_profiles(root):
             "executor": key,
             "version": native["executors"][key],
             "evaluation": False,
+            "evaluation_from_case": True,
             "publication": True,
         }
         for key, name in EXECUTORS.items()

@@ -82,6 +82,7 @@ async def supervise(
     incident, driver = None, None
     count, failure = 0, None
     next_investigation = 0
+    diagnostic_until = 0
     heartbeat = root / "guardian-status.json"
 
     def active():
@@ -101,6 +102,11 @@ async def supervise(
     if isinstance(backend, DockerTarget):
         backend.active = active
 
+    def investigating():
+        # A diagnostic session owns its own bounded window, even after the worker
+        # finishes. This grants evidence/final access, never additional solve time.
+        return driver is not None and time.monotonic() < diagnostic_until
+
     async def finish_incident(status, extra=None):
         nonlocal incident
         if incident:
@@ -116,18 +122,15 @@ async def supervise(
         incident = None
 
     try:
-        while process.returncode is None:
+        while process.returncode is None or driver is not None:
             clock = time.monotonic()
             state = read(root / "guardian-state.json", {}) or {}
             new_phase = state.get("phase", phase)
             if new_phase != phase:
                 phase, phase_since = new_phase, state.get("since", clock)
                 monitor = Monitor(guardian)
-                if driver:
-                    driver.cancel()
-                    await asyncio.gather(driver, return_exceptions=True)
-                    driver = None
-                await finish_incident("phase_advanced", {"phase": phase})
+                if not driver:
+                    await finish_incident("phase_advanced", {"phase": phase})
             budget = (
                 (
                     state.get("agent_seconds")
@@ -152,10 +155,12 @@ async def supervise(
                     "elapsed_seconds": clock - phase_since,
                     "incident": incident.name if incident else None,
                     "worker_pid": process.pid,
+                    "diagnostic_until_monotonic": diagnostic_until if driver else None,
+                    "diagnostic_read_only": bool(driver and not active()),
                 },
             )
             reason, snapshot = None, {}
-            if phase == "agent-start":
+            if phase == "agent-start" and process.returncode is None:
                 try:
                     snapshot = await getattr(backend, "observe", backend.snapshot)()
                     reason, _ = monitor.observe(snapshot, time.monotonic(), agent_id)
@@ -174,9 +179,27 @@ async def supervise(
                     )
                 except Exception as error:  # noqa: BLE001 - preserve evidence and continue cleanup on adapter failure
                     append(root / "guardian-observer.jsonl", {"error": str(error)})
-            if time.monotonic() - phase_since > budget + guardian.cleanup_seconds:
+            if (
+                process.returncode is None
+                and time.monotonic() - phase_since > budget + guardian.cleanup_seconds
+            ):
                 failure = "phase_deadline_exceeded: " + phase
-                break
+                # End the overdue worker on schedule, but let the already-started
+                # guardian finish documenting the evidence in its own window.
+                await terminate(process)
+                try:
+                    stopped = await asyncio.wait_for(
+                        stop_project(backend)
+                        if retention is not None
+                        else backend.stop(),
+                        guardian.cleanup_seconds,
+                    )
+                except Exception as error:  # noqa: BLE001
+                    stopped = {"error": str(error)}
+                write(root / "guardian-deadline-stop.json", stopped)
+                fallback_result(root, config, failure, started)
+                if not driver:
+                    break
             if driver and driver.done():
                 try:
                     result = driver.result()
@@ -201,6 +224,11 @@ async def supervise(
                         },
                     )
                     next_investigation = time.monotonic() + guardian.idle_seconds
+                elif not active():
+                    await finish_incident(
+                        "diagnosis_completed_after_agent",
+                        {"decision": decision.model_dump(), "phase": phase},
+                    )
                 elif decision.decision == "terminate":
                     failure = "guardian_requested_termination"
                     break
@@ -210,14 +238,20 @@ async def supervise(
                     await finish_incident(
                         "continued", {"decision": decision.model_dump()}
                     )
-            if driver and not active():
+            if driver and not investigating():
                 driver.cancel()
                 await asyncio.gather(driver, return_exceptions=True)
                 driver = None
-                write(incident / "driver-result.json", {"status": "authority_expired"})
-                await finish_incident("authority_expired")
+                write(
+                    incident / "driver-result.json",
+                    {"status": "diagnostic_deadline_exceeded"},
+                )
+                await finish_incident(
+                    "investigation_failed", {"error": "diagnostic_deadline_exceeded"}
+                )
             if (
                 reason
+                and process.returncode is None
                 and not incident
                 and count < guardian.max_incidents
                 and time.monotonic() >= next_investigation
@@ -240,8 +274,20 @@ async def supervise(
                     },
                 )
                 if guardian.mode == "assist" and active():
+                    diagnostic_until = time.monotonic() + guardian.diagnostic_seconds
+                    write(
+                        incident / "diagnostic-window.json",
+                        {
+                            "started_at": now(),
+                            "seconds": guardian.diagnostic_seconds,
+                            "until_monotonic": diagnostic_until,
+                            "extends_agent_budget": False,
+                        },
+                    )
                     driver = asyncio.create_task(
-                        run_driver(guardian, incident, backend, active)
+                        run_driver(
+                            guardian, incident, backend, investigating, can_act=active
+                        )
                     )
                 else:
                     # Observation alone never kills a legitimately long silent command.

@@ -6,12 +6,13 @@ import os
 import sys
 from pathlib import Path
 
-from .decisions import SYSTEM_PROMPT, parse_decision
+from .decisions import EVIDENCE_NAMES, SYSTEM_PROMPT, parse_decision
 from .evidence import append, now, write
 from .process import read_bounded, terminate
 
 
-async def run_driver(config, incident, backend, active):
+async def run_driver(config, incident, backend, active, *, can_act=None):
+    can_act = can_act or active
     env = {
         k: v
         for k, v in os.environ.items()
@@ -56,6 +57,7 @@ async def run_driver(config, incident, backend, active):
                 "agent_version": config.version,
                 "tools": ["snapshot", "exec", "evidence", "final", "finish"],
                 "max_actions": config.max_actions,
+                "diagnostic_seconds": config.diagnostic_seconds,
                 "model": config.model,
                 "instructions": SYSTEM_PROMPT,
                 "adapter_protocol": "The driver, not the LLM, emits JSONL {id,tool,arguments} on stdout.",
@@ -96,6 +98,10 @@ async def run_driver(config, incident, backend, active):
                     elif tool == "evidence":
                         result = read_evidence(incident, args)
                     elif tool == "exec":
+                        if not can_act():
+                            raise RuntimeError(
+                                "作答已结束或到期；仅可读取 evidence/snapshot 并提交 final，不能执行恢复命令"
+                            )
                         text = args.get("command")
                         if not isinstance(text, str) or not text or len(text) > 16384:
                             raise ValueError(
@@ -143,12 +149,16 @@ async def run_driver(config, incident, backend, active):
 
 def read_evidence(incident, arguments):
     name = arguments.get("name")
-    if name not in ("incident.json", "initial.json", "host.json"):
+    if name not in EVIDENCE_NAMES:
         raise ValueError("Unknown evidence file")
     offset = arguments.get("offset", 0)
     if type(offset) is not int or offset < 0:
         raise ValueError("offset must be a nonnegative byte offset")
-    path = incident / name
+    path = (
+        incident.parent.parent / name
+        if name in ("guardian-agent-end.json", "guardian-state.json", "result.json")
+        else incident / name
+    )
     if path.is_symlink():
         raise ValueError("Evidence symlinks are not followed")
     with path.open("rb") as stream:

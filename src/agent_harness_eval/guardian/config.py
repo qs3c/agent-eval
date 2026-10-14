@@ -26,7 +26,7 @@ class GuardianConfig(BaseModel):
     idle_seconds: float = Field(default=600, ge=1)
     confirmations: int = Field(default=2, ge=1, le=10)
     tool_grace_seconds: float = Field(default=45, ge=0)
-    diagnostic_seconds: float = Field(default=120, ge=1)
+    diagnostic_seconds: float = Field(default=300, ge=1, le=900)
     # Accepted only so frozen older configurations remain readable; no countdown.
     verification_seconds: float = Field(default=45, ge=1)
     command_seconds: float = Field(default=20, ge=1, le=120)

@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from ..resources.live_model import upstream_url
-from .decisions import parse_decision
+from .decisions import EVIDENCE_NAMES, parse_decision
 from .evidence import append, read
 
 TOOLS = [
@@ -86,7 +86,7 @@ TOOLS.extend(
                     "properties": {
                         "name": {
                             "type": "string",
-                            "enum": ["incident.json", "initial.json", "host.json"],
+                            "enum": list(EVIDENCE_NAMES),
                         },
                         "offset": {"type": "integer", "minimum": 0},
                     },
@@ -187,7 +187,7 @@ def compact_evidence(root):
                 for name, value in initial.get("logs", {}).items()
             },
         },
-        "evidence_files": ["incident.json", "initial.json", "host.json"],
+        "evidence_files": list(EVIDENCE_NAMES),
     }
 
 
@@ -216,7 +216,7 @@ def validate_calls(message, remaining):
         ):
             raise ValueError("invalid_exec_command")
         if name == "evidence" and (
-            args.get("name") not in ("incident.json", "initial.json", "host.json")
+            args.get("name") not in EVIDENCE_NAMES
             or type(args.get("offset", 0)) is not int
             or args.get("offset", 0) < 0
         ):

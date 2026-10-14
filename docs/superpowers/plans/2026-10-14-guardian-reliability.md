@@ -68,3 +68,14 @@ Files: `tests/test_guardian_docker.py`, `docs/experiment-guardian.md`。
 - [x] Linux/Docker 验证继续运行、显式终止、调查失败隔离及硬期限清理：42 passed，102.25 秒（四个 guardian 测试文件）。
 
 2026-10-14：服务器隔离目录 `/tmp/guardian-reliability-4jyYsE` 全量回归（包含 Docker）217 passed、3 skipped，114.39 秒。Ruff 与 `git diff --check` 通过。真实上游搜索和真实守护模型诊断尚未在线验收；未部署、未运行付费复跑。39 个候选组合已从原始 incident 记录提取至 `.cache/eval-80-review/rerun-candidates.json`，未改变原实验记录。
+
+## 用户授权发布与复跑（2026-10-14）
+
+用户已明确要求提交所有改动、部署最新版平台、创建独立异常题复跑实验。此前“不执行付费复跑”约束由本次显式授权取代。原题作答时限不增加，守护独立诊断窗口不提供额外作答时间。
+
+- [x] 提交现有全部改动 0416115，合入服务器较新提交 b089c3a，保留有界批次及异常归档入口。
+- [x] 简化决策、增量监测、DSH 搜索中转与独立 300 秒诊断窗口完成整合；题目结束后仅证据读取和 final，不允许 exec。
+- [x] Linux/Docker 全量 241 passed、3 skipped；真实搜索与真实守护容器检查通过。
+- [ ] 推送发布版本；重启空闲的测评服务并验证 API。
+- [ ] 从原实验 39 个 incident 组合提取 30 题并集；原模型、Agent 产物、时限、批次/保留配额不变，两种 Agent 各做一次，共 60 次。
+- [ ] 新实验独立保存，验证实际原生调用与控制台可见性，记录启动状态。

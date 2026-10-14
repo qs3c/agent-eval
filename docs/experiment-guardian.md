@@ -51,7 +51,7 @@ uv run agent-harness-eval run experiments/guardian-controls.json --output artifa
 - 日志尾部仅用于展示和诊断。Docker 监测单独按文件身份、字节偏移和边界校验增量消费完整事件行；普通诊断 snapshot 不推进监测游标。每轮有界读取，积压在后续轮询追赶；半行等待补齐。轮转、截断、损坏或超过单行上限会记录 gap 并清除不可信 pending，证据不完整时不能判工具逾期。
 - BKCrab 的 exec 使用显式 timeout，否则使用 120 秒默认值。DSH 的 `tool/call`/`tool/result` 同样配对，`job_output(wait=true)` 按 timeout_ms（默认 30 秒，上限 600 秒）识别等待；明确有效工具等待期限与宽限期内不产生静默报警。自定义 DSH preset 改变此上限时需同步适配，当前针对冻结 Standard 约定。stderr 输出和单次 CPU 值不直接算有效进展。
 - 进程快照只读 PID/PPID、状态、启动计数、累计 CPU 时间、进程名和 FD 链接；不读内存或环境变量。守护可对比多次快照以及原命令输出文件变化判断是否仍在工作。
-- Agent 期限使用 Harbor 实际解析后的 timeout。守护操作在原期限到达或阶段结束后失效；允许 Harbor 在 `cleanup_seconds` 内结束取消和清理，随后独立强制兜底。守护不会增加题目的作答预算。
+- Agent 期限使用 Harbor 实际解析后的 timeout。守护 exec 操作在原期限到达或阶段结束后失效；已经启动的调查可在独立诊断窗口内继续读取证据和提交 final。允许 Harbor 在 `cleanup_seconds` 内结束取消和清理，随后独立强制兜底。守护不会增加题目的作答预算。
 - `setup_seconds` 默认 1200，为创建/环境等阶段的外层兜底；`verifier_seconds` 默认 1200，为验证阶段外层上限。它们不改写 task.toml 的评分器超时。诊断和单次命令各有独立期限。旧配置的 verification_seconds 仅兼容读取，不再启动恢复验证倒计时。
 - 守护以 `final`（兼容 `finish`）提交两个决策之一：`continue` 保存介入记录并继续运行原题，`terminate` 附具体原因与证据后由监督进程终止、清理本题并让队列继续。正常等待、误报、解除阻塞和不确定性都写入 summary，不再划分决策分支。旧 wait/false_positive/recovered/inconclusive 仅兼容转换为 continue。
 - “恢复”只指解除实验当前运行阻塞，让原 Agent 循环继续；不允许修复、热补丁、替换或升级被测 harness 的源码、依赖、提示词、配置和工具实现，也不能伪造工具返回、重启整个 Agent 掩盖故障。可以在确认影响后终止失控的工具子进程，让原 Agent 收到真实错误并继续处理。需要修改 harness 或会话已不可恢复时，记录证据后终止本题，根因修复留到独立工作。
@@ -62,11 +62,11 @@ uv run agent-harness-eval run experiments/guardian-controls.json --output artifa
 
 ### 版本核对与待完善的诊断续期
 
-2026-10-14 更正：先前根据本地旧基线 f78d324 判断“没有异常保留实现”不适用于昨天的实际运行版本。服务器包含 2026-10-13 提交 b51b273（bounded batches with forensic retention），其 guardian/retention.py 与 batching.py 已实现并启用保留策略；supervisor/worker 通过 keep_containers 暂留已停止容器，归档后再精确删除。本地此次守护补丁尚未整合这批后续提交，不能直接覆盖服务器文件；先前 217 项全量及 42 项针对性验证仅证明旧基线补丁通过，不能作为与批次/保留模块整合后的验收。
+2026-10-14 更正：先前根据本地旧基线 f78d324 判断“没有异常保留实现”不适用于昨天的实际运行版本。服务器包含 2026-10-13 提交 b51b273（bounded batches with forensic retention），其 guardian/retention.py 与 batching.py 已实现并启用保留策略；supervisor/worker 通过 keep_containers 暂留已停止容器，归档后再精确删除。该基线差异已在 b089c3a 合并解决，保留了现有 supervisor/worker 归档入口；先前 217 项与 42 项结果仅作为历史记录，部署使用下述合并后的验收。
 
 实际 SWE80 冻结配置为每批 20 题，每实验最多 3 份归档、总计 20 GiB、24 小时；期限在下一次归档时检查，不是定时立即删除。只保留过滤后的 /testbed 为 retained-workspace.tar，排除凭据相关文件与符号链接，不保留完整容器、进程内存、/tmp 或整个根文件系统。异常、外部辅助或关键证据缺失会触发；正常 reward=0 且证据完整不会触发。2026-10-14 只读核查 160 条 retention.json：123 条正常不归档、34 条已淘汰、3 条归档仍在，没有 retention_failed。现存三份为 DSH 的 django-14631、pylint-4661、pytest-7521，总计 187453440 字节。四批均有 cleanup.json，记录了当前批镜像删除、受保护标签保留及空间变化。核查源码副本位于 .cache/eval-80-review/deployed-retention/。
 
-当前守护诊断默认 120 秒且受到原题 active 检查约束，题目到期或阶段变化会取消守护。建议增加独立且有界的诊断租约：在做题期限前启动的调查获得完整诊断窗口，期间延后现场删除；做题到期后允许继续只读诊断及提交 final，但不得自动重新启动或延长被测 Agent 作答。若需要恢复后补足作答时间，则属于另一项需明确计时契约的续期，必须协调 Harbor、监督进程和 harness 自身超时，不能只改外层期限。此段是待实施设计，不代表续期已生效。
+诊断续期已实现：默认窗口为 300 秒、配置上限 900 秒，在每次调查启动时固定，不无限续租。原题到期、阶段变化或工作进程退出后，已启动的守护仍可读取 evidence/snapshot 并提交 final，exec 恢复命令被拒绝。监督进程仍按原题期限终止失控工作进程，归档删除等待调查结束；诊断继续不等于继续作答。晚到的决策记为 diagnosis_completed_after_agent，不复活已结束的题目，也不覆盖已有结果。模型可读取 guardian-state.json、guardian-agent-end.json、result.json 及 diagnostic-window.json；不存在的现场明确返回错误。用户取消仍立即取消调查。
 
 监督进程首先向驱动 stdin 写入一行 JSON：`protocol: eval-guardian/v1`、incident 绝对路径、工具名、动作上限和任务约束。JSONL 是驱动与监督进程之间的协议，不是模型输出格式。内置模型驱动使用 API 原生函数工具，提供有效的结构化证据摘要；宿主机证据通过白名单 `evidence(name, offset)` 分块读取，exec 只在题目容器里运行。
 
@@ -109,6 +109,8 @@ uv run agent-harness-eval run experiments/guardian-controls.json --output artifa
 运行详情新增“实验运行守护”，支持事件列表、诊断摘要与命令记录。只读接口：`GET /api/runs/{id}/incidents` 和 `GET /api/runs/{id}/incidents/{incident_id}`；公开视图不返回日志正文、原始快照或模型推理。原始奖励不改写，报表/逐题比较显示外部辅助；跨批次检查守护策略与介入标记，不能把受辅助结果解释为纯自主成绩。
 
 ## 验证
+
+2026-10-14 发布前整合验收：服务器隔离目录 `/tmp/guardian-integrated-6N4BSz` 全量执行并启用 Docker，**241 passed、3 skipped，126.60 秒**，包括批次、保留配额、原容器删除、独立诊断窗口跨越工作进程退出及外层超时、作答结束后禁止 exec。真实在线预检另行通过：搜索中转返回原生 web_search_tool_result；守护模型实际检查隔离 Docker 容器中的合法等待并提交 continue。预检脚本为 scripts/check-guardian-live.py，只有显式 --allow-live 才调用真实模型。
 
 2026-10-14 后续简化验收：在同一服务器隔离目录运行 `tests/test_guardian.py`、`tests/test_guardian_decisions.py`、`tests/test_guardian_telemetry.py`、`tests/test_guardian_docker.py`，启用 Docker，**42 passed，102.25 秒**。验证两种决策、旧协议兼容、继续运行后原期限仍生效、调查失败隔离和资源清理。本地相关测试 14 passed、5 skipped；Ruff 与 diff 检查通过。仍未部署或调用真实模型 API。以下 217 项全量结果属于此前五类决策版本的历史验收。
 

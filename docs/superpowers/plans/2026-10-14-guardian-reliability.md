@@ -76,6 +76,10 @@ Files: `tests/test_guardian_docker.py`, `docs/experiment-guardian.md`。
 - [x] 提交现有全部改动 0416115，合入服务器较新提交 b089c3a，保留有界批次及异常归档入口。
 - [x] 简化决策、增量监测、DSH 搜索中转与独立 300 秒诊断窗口完成整合；题目结束后仅证据读取和 final，不允许 exec。
 - [x] Linux/Docker 全量 241 passed、3 skipped；真实搜索与真实守护容器检查通过。
-- [ ] 推送发布版本；重启空闲的测评服务并验证 API。
-- [ ] 从原实验 39 个 incident 组合提取 30 题并集；原模型、Agent 产物、时限、批次/保留配额不变，两种 Agent 各做一次，共 60 次。
-- [ ] 新实验独立保存，验证实际原生调用与控制台可见性，记录启动状态。
+- [x] 推送 96efa85，服务器 fast-forward；重启空闲的 8765/18766 测评服务，两个 /api/runs 均返回 200。
+- [x] 从原实验 39 个 incident 组合提取 30 题并集；原模型、Agent 产物、时限、批次/保留配额不变，两种 Agent 各做一次，共 60 次。
+- [x] 新实验独立保存；控制台 running，首批 django-11239 与 django-11734 均进入 agent-start，原生请求多次返回 HTTP 200/completed。
+
+新实验：`swe-live-80-incident-rerun-20261014`，独立目录 `artifacts/swe-live-80-incident-rerun-20261014`，控制台 ID `history-93c4157f6fedf0e007a7`。第 1/2 批已完成 20 题准备，开始 BKCrab 两并发；按现有批次调度，本批 BKCrab 后执行 DSH，再进入下一批。旧实验仍有 160 份结果。部署验收证据保存于服务器 `logs/guardian-release-20261014/`，复跑来源清单与启动记录保存于新实验的 `selection.json` 和 `launch.json`。
+
+启动验收：控制台详情 `/api/runs/history-93c4157f6fedf0e007a7` 返回 running，首批两个 BKCrab 的 wire_responses.jsonl 分别已记录至少 7/19 次响应，最近响应均 200/completed。此为启动确认，不是 60 次尝试已完成；DSH 依照现有批次顺序排队执行。原生平台运行版本为 96efa85，后续仅补充发布记录，不变更在运行实验的代码。

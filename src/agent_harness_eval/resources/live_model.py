@@ -4,18 +4,89 @@ Native agent loops and tool schemas are unchanged. Sampling parameters are
 explicitly normalized across the OpenAI and Messages transports.
 """
 
+import errno
 import json
+import random
+import socket
+import ssl
 import threading
 import time
 import uuid
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 LOCK = threading.Lock()
 LOGS = Path("/logs/agent")
+RETRY_POLICY = "pre-response-transient/v1"
+
+
+def retryable(error):
+    """Classify transport failures without logging potentially secret URLs."""
+    if isinstance(error, HTTPError):
+        return error.code in {429, 502, 503, 504}
+    reason = error.reason if isinstance(error, URLError) else error
+    if isinstance(reason, ssl.SSLError):
+        return False
+    if isinstance(reason, socket.gaierror):
+        return reason.errno == socket.EAI_AGAIN
+    return isinstance(reason, (TimeoutError, ConnectionError)) or (
+        isinstance(reason, OSError)
+        and reason.errno in {errno.ETIMEDOUT, errno.ENETUNREACH, errno.EHOSTUNREACH}
+    )
+
+
+def open_upstream(request, timeout, request_id, purpose):
+    """Retry only opening the response, never replay an exposed response body.
+
+    All attempts share the original opening budget. The trial supervisor's
+    independent hard deadline still applies to the agent and its relay.
+    """
+    deadline = time.monotonic() + timeout
+    for attempt in range(1, 4):
+        started = time.monotonic()
+        record = {
+            "request_id": request_id,
+            "purpose": purpose,
+            "retry_policy": RETRY_POLICY,
+            "attempt": attempt,
+            "time": datetime.now(UTC).isoformat(),
+        }
+        try:
+            remaining = deadline - started
+            if remaining <= 0:
+                raise TimeoutError("Upstream opening budget exhausted")
+            response = urlopen(request, timeout=remaining)
+        except Exception as error:
+            reason = error.reason if isinstance(error, URLError) else error
+            delay = 2 ** (attempt - 1) + random.uniform(0, 0.25)
+            again = (
+                attempt < 3 and retryable(error)
+                and time.monotonic() + delay < deadline
+            )
+            record.update(
+                outcome="retry" if again else "failed",
+                error=type(error).__name__,
+                reason_type=type(reason).__name__,
+                status=error.code if isinstance(error, HTTPError) else None,
+                delay_seconds=delay if again else 0,
+                elapsed_ms=(time.monotonic() - started) * 1000,
+            )
+            append("wire_attempts.jsonl", record)
+            if not again:
+                raise
+            if isinstance(error, HTTPError):
+                error.close()
+            time.sleep(delay)
+        else:
+            record.update(
+                outcome="headers_received", status=response.status,
+                elapsed_ms=(time.monotonic() - started) * 1000,
+            )
+            append("wire_attempts.jsonl", record)
+            return response
 
 
 def upstream_url(config, messages=False):
@@ -220,7 +291,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             stamp("upstream_start")
-            with urlopen(request, timeout=60 if search else 300) as response:
+            with open_upstream(request, 60 if search else 300, request_id, purpose) as response:
                 status = response.status
                 stamp("headers")
                 self.send_response(status)
@@ -260,7 +331,10 @@ class Handler(BaseHTTPRequestHandler):
         except HTTPError as error:
             status = error.code
             outcome = "http_error"
-            data = error.read().replace(self.server.api_key.encode(), b"[REDACTED]")
+            try:
+                data = error.read().replace(self.server.api_key.encode(), b"[REDACTED]")
+            finally:
+                error.close()
             append(
                 "wire_errors.jsonl",
                 {
@@ -298,6 +372,7 @@ class Handler(BaseHTTPRequestHandler):
                     "protocol": protocol,
                     "purpose": purpose,
                     "timing_ms": marks,
+                    "retry_policy": RETRY_POLICY,
                 },
             )
 

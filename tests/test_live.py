@@ -1,10 +1,192 @@
 import io
 import json
+import socket
+import ssl
 import threading
+from contextlib import contextmanager
 from typing import ClassVar
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import pytest
+
 from agent_harness_eval.resources import live_model as relay
+
+
+@contextmanager
+def retry_fixture(tmp_path, monkeypatch, upstream):
+    monkeypatch.setattr(relay, "LOGS", tmp_path)
+    monkeypatch.setattr(relay, "urlopen", upstream)
+    monkeypatch.setattr(relay.random, "uniform", lambda *_: 0)
+    sleeps = []
+    clock = [0.0]
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(relay.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(relay.time, "sleep", sleep)
+    server = relay.ThreadingHTTPServer(("127.0.0.1", 0), relay.Handler)
+    server.api_key = "retry-secret"
+    server.model_config = {"name": "test", "max_tokens": 100}
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", sleeps
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+class RetryResponse(io.BytesIO):
+    status = 200
+    headers: ClassVar = {"Content-Type": "text/event-stream"}
+
+
+@pytest.mark.parametrize(
+    "path", ["/v1/chat/completions", "/v1/messages", "/search/v1/messages"]
+)
+def test_relay_retries_transport_then_http_failure(tmp_path, monkeypatch, path):
+    seen = []
+    stream = b'data: {"usage":{"input_tokens":3,"output_tokens":1}}\n\ndata: [DONE]\n\n'
+    failed_response = io.BytesIO(b"retry-secret")
+
+    def upstream(request, timeout):
+        seen.append((request.data, timeout))
+        if len(seen) == 1:
+            raise URLError(ConnectionResetError("retry-secret"))
+        if len(seen) == 2:
+            raise HTTPError(request.full_url, 503, "retry-secret", {}, failed_response)
+        return RetryResponse(stream)
+
+    with (
+        retry_fixture(tmp_path, monkeypatch, upstream) as (base, sleeps),
+        urlopen(Request(base + path, b'{"stream":true,"messages":[]}')) as response,
+    ):
+        assert response.read() == stream
+    assert sleeps == [1, 2]
+    assert failed_response.closed
+    assert len({body for body, _ in seen}) == 1
+    assert seen[0][1] > seen[-1][1]
+    attempts = [
+        json.loads(s)
+        for s in (tmp_path / "wire_attempts.jsonl").read_text().splitlines()
+    ]
+    assert [a["outcome"] for a in attempts] == ["retry", "retry", "headers_received"]
+    result = json.loads((tmp_path / "wire_responses.jsonl").read_text())
+    assert result["outcome"] == "completed"
+    assert result["usage"]["input_tokens"] == 3
+    assert {a["request_id"] for a in attempts} == {result["request_id"]}
+    assert result["retry_policy"] == relay.RETRY_POLICY
+    assert all("retry-secret" not in p.read_text() for p in tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("status", [429, 502, 503, 504, 400, 401, 403])
+def test_relay_retry_exhaustion_and_permanent_http_errors(
+    tmp_path, monkeypatch, status
+):
+    calls = []
+
+    def upstream(request, timeout):
+        calls.append(timeout)
+        raise HTTPError(request.full_url, status, "fixture", {}, io.BytesIO(b"failure"))
+
+    with retry_fixture(tmp_path, monkeypatch, upstream) as (base, sleeps):
+        with pytest.raises(HTTPError) as exc:
+            urlopen(Request(base + "/v1/chat/completions", b'{"messages":[]}'))
+        assert exc.value.code == status
+        assert exc.value.read() == b"failure"
+        exc.value.close()
+    assert len(calls) == (3 if status in {429, 502, 503, 504} else 1)
+    assert len(sleeps) == len(calls) - 1
+
+
+@pytest.mark.parametrize(
+    "reason,expected",
+    [
+        (socket.gaierror(socket.EAI_AGAIN, "temporary"), True),
+        (socket.gaierror(socket.EAI_NONAME, "invalid host"), False),
+        (ssl.SSLCertVerificationError("certificate"), False),
+        (TimeoutError(), True),
+        (ConnectionRefusedError(), True),
+        ("unknown transport error", False),
+    ],
+)
+def test_transport_retry_classification(reason, expected):
+    assert relay.retryable(URLError(reason)) is expected
+
+
+@pytest.mark.parametrize("permanent", [False, True])
+def test_relay_transport_failure_returns_bounded_error(
+    tmp_path, monkeypatch, permanent
+):
+    calls = []
+
+    def upstream(request, timeout):
+        calls.append(timeout)
+        reason = (
+            ssl.SSLCertVerificationError("retry-secret")
+            if permanent
+            else ConnectionResetError("retry-secret")
+        )
+        raise URLError(reason)
+
+    with retry_fixture(tmp_path, monkeypatch, upstream) as (base, sleeps):
+        with pytest.raises(HTTPError) as exc:
+            urlopen(Request(base + "/v1/messages", b'{"messages":[]}'))
+        assert exc.value.code == 502
+        assert b"retry-secret" not in exc.value.read()
+        exc.value.close()
+    assert len(calls) == (1 if permanent else 3)
+    assert len(sleeps) == len(calls) - 1
+    assert all("retry-secret" not in p.read_text() for p in tmp_path.iterdir())
+
+
+def test_relay_does_not_replay_broken_stream(tmp_path, monkeypatch):
+    calls = []
+    chunk = b'data: {"choices":[{"delta":{"content":"partial"}}]}\n'
+
+    class BrokenResponse(RetryResponse):
+        def __next__(self):
+            if self.tell():
+                raise ConnectionResetError("retry-secret")
+            return super().__next__()
+
+    def upstream(request, timeout):
+        calls.append(request)
+        return BrokenResponse(chunk)
+
+    with (
+        retry_fixture(tmp_path, monkeypatch, upstream) as (base, sleeps),
+        urlopen(
+            Request(base + "/v1/chat/completions", b'{"stream":true,"messages":[]}')
+        ) as response,
+    ):
+        assert response.read() == chunk
+    assert len(calls) == 1 and sleeps == []
+    result = json.loads((tmp_path / "wire_responses.jsonl").read_text())
+    assert not result["stream_complete"]
+    assert result["outcome"] == "transport_or_client_error"
+
+
+def test_retry_opening_budget_is_not_reset(tmp_path, monkeypatch):
+    clock = [0.0]
+    calls = []
+    monkeypatch.setattr(relay, "LOGS", tmp_path)
+    monkeypatch.setattr(relay.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(relay.random, "uniform", lambda *_: 0)
+
+    def upstream(request, timeout):
+        calls.append(timeout)
+        clock[0] += timeout
+        raise URLError(TimeoutError())
+
+    monkeypatch.setattr(relay, "urlopen", upstream)
+    with pytest.raises(URLError):
+        relay.open_upstream(Request("https://upstream.test"), 60, "budget", "agent")
+    assert calls == [60]
 
 
 def test_protocol_sampling_and_cached_usage():

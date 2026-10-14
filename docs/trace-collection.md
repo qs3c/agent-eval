@@ -36,7 +36,7 @@ bkcrab 的埋点源码位于相邻 bkcrab 仓库 `cmd/bkcrab-eval/main.go`、`tr
 
 ## v2 新增采集
 
-- 每个 HTTP 尝试有唯一 `request_id`；原始、有效请求、流事件、阶段时间、结束记录都可以据此关联。旧 `wire_requests.jsonl` 格式保留以兼容 ATIF 转换，新 `effective_wire_requests.jsonl` 增加 ID 包装。
+- 每个 Agent 发给中转的 HTTP 请求有唯一 `request_id`；原始、有效请求、流事件、阶段时间、结束记录都可以据此关联。中转重试用 `(request_id, attempt)` 区分上游尝试。旧 `wire_requests.jsonl` 格式保留以兼容 ATIF 转换，新 `effective_wire_requests.jsonl` 增加 ID 包装。
 - `wire_timing.jsonl` 每条含 schema 版本、UTC 时间、协议和从请求处理开始计算的 `elapsed_ms`；时间差使用本进程 `monotonic_ns`，不跨进程相减。
 - 阶段为 `received`、`upstream_start`、`headers`、`first_event`、`first_output_delta`、`upstream_end`、`finished`。首事件可能只是协议元数据；首输出增量包括文本、推理或工具参数，不标成用户可见 TTFT。
 - 窗口包含网络、上游排队/生成、代理日志和客户端背压；`upstream_end` 在读完并转发后记录。不能拆成纯模型计算/纯网络时间，也不能把各请求窗口相加当作任务总时长。
@@ -54,6 +54,16 @@ bkcrab 的埋点源码位于相邻 bkcrab 仓库 `cmd/bkcrab-eval/main.go`、`tr
 `trajectory.json` 的 ATIF 仍是末次请求上下文加终态输出；可能看不到之前压缩掉的消息。完整执行分析应联合原生事件与 wire 文件。历史人工分析在 `console_reviews.json`，不自动作为新运行的结论。
 
 ## 验证与尚存边界
+
+### 中转有界重试（2026-10-14）
+
+策略版本为 `pre-response-transient/v1`，写入 `wire_responses.jsonl` 和新增的 `wire_attempts.jsonl`。BKCrab、DSH 的 Chat、Messages 以及辅助搜索共用相同策略：最多三次上游尝试，等待 1、2 秒并分别增加 0–0.25 秒抖动。仅重试连接中断/拒绝、超时、临时 DNS 错误、网络/主机不可达及 HTTP 429/502/503/504；认证、参数、证书错误和未识别错误不重试。
+
+重试只包围取得上游响应头的操作；收到响应后直接转发，读取或发送响应体失败均不重放。三次尝试及退避共享原有响应头等待预算（主请求 300 秒，搜索 60 秒），不会改动监督进程的原题硬期限。它不是整个响应流的总时限，也不保证上游未处理或未计费；不能用客户端未收到响应推断上游从未执行。
+
+`wire_attempts.jsonl` 保存每次打开连接/等待响应头的 UTC 起始时间、耗时、状态码、异常类型、底层原因类型、退避秒数和 `retry`/`failed`/`headers_received` 结果。原始异常文本和认证信息不落盘；`headers_received` 不能解释为完整生成成功，最终流结果仍看 `wire_responses.jsonl`。重试失败尝试的供应商用量未知，最终成功响应的 usage 不能代表所有尝试的实际账单。
+
+本次改动只影响使用新版中转创建的运行环境，已启动容器内的脚本和冻结历史证据不会被替换。
 
 本次使用本机 HTTP 测试服务器和模拟上游验证两种协议的流转发、阶段顺序、ID、流截断和用量完整性；没有新增付费模型调用。新计时需要下一次真实运行才能得到实际数值。
 

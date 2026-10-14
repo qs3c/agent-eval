@@ -445,10 +445,25 @@ class Console:
             try:
                 process = Path("/proc") / str(int(runner["pid"]))
                 start = (process / "stat").read_text().rsplit(")", 1)[1].split()[19]
-                command = (process / "cmdline").read_bytes().decode(errors="replace")
+                command = (process / "cmdline").read_bytes().decode(
+                    errors="replace"
+                ).split("\0")
+                output = None
+                for index, argument in enumerate(command):
+                    if argument == "--output":
+                        output = command[index + 1]
+                    elif argument.startswith("--output="):
+                        output = argument.removeprefix("--output=")
+                # Shared artifacts can be reached through a console's symlink.
+                # Compare the actual output directory, not a cmdline substring.
+                output_path = Path(output) if output else None
+                if output_path is not None and not output_path.is_absolute():
+                    output_path = (process / "cwd").resolve() / output_path
                 row["status"] = (
                     "running"
-                    if start == runner["start_ticks"] and row["path"] in command
+                    if start == runner["start_ticks"]
+                    and output_path is not None
+                    and output_path.resolve() == Path(row["path"]).resolve()
                     else "interrupted"
                 )
             except (OSError, ValueError, KeyError, IndexError):

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -50,6 +51,71 @@ def test_history_unknowns_and_symlinks(console):
     assert console.detail(item["id"])["report"] is None
     with pytest.raises(KeyError):
         console.detail("../.env")
+
+
+@pytest.mark.parametrize(
+    "case,expected",
+    [
+        ("real", "running"),
+        ("alias", "running"),
+        ("equals", "running"),
+        ("relative", "running"),
+        ("prefix", "interrupted"),
+        ("other_argument", "interrupted"),
+        ("reused_pid", "interrupted"),
+        ("missing_process", "interrupted"),
+    ],
+)
+def test_history_runner_matches_resolved_output(console, monkeypatch, case, expected):
+    run = console.artifacts / "active"
+    run.mkdir()
+    exp = json.loads((console.root / "experiments/controls.json").read_text())
+    (run / "manifest.json").write_text(json.dumps({"experiment": exp, "tasks": {}}))
+    (run / "batch-state.json").write_text(json.dumps({
+        "phase": "running", "runner": {"pid": 12345, "start_ticks": "99"},
+    }))
+    console.import_history()
+    item = console.row("history-" + hashlib.sha256(b"active").hexdigest()[:20])
+    alias = console.root / "shared artifacts"
+    alias.symlink_to(console.artifacts, target_is_directory=True)
+    with console.connect() as db:
+        db.execute("UPDATE runs SET path=? WHERE id=?", (str(alias / "active"), item["id"]))
+
+    output = str(alias / "active") if case == "alias" else str(run)
+    args = ["python", "-m", "agent_harness_eval.cli", "run", "config.json", "--output", output]
+    if case == "equals":
+        args[-2:] = ["--output=" + output]
+    elif case == "relative":
+        args[-1] = "artifacts/active"
+    elif case == "prefix":
+        args[-1] = str(alias / "active-other")
+    elif case == "other_argument":
+        args[-2:] = ["--config", str(alias / "active")]
+    process = Path("/proc/12345")
+    read_text, read_bytes, resolve = Path.read_text, Path.read_bytes, Path.resolve
+
+    def fake_text(path, *args, **kwargs):
+        if path == process / "stat":
+            if case == "missing_process":
+                raise FileNotFoundError(path)
+            return "12345 (python) " + " ".join(["0"] * 19 + ["98" if case == "reused_pid" else "99"])
+        return read_text(path, *args, **kwargs)
+
+    def fake_bytes(path, *unused, **kwargs):
+        if path == process / "cmdline":
+            return ("\0".join(args) + "\0").encode()
+        return read_bytes(path, *unused, **kwargs)
+
+    def fake_resolve(path, *args, **kwargs):
+        if path == process / "cwd":
+            return console.root
+        return resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fake_text)
+    monkeypatch.setattr(Path, "read_bytes", fake_bytes)
+    monkeypatch.setattr(Path, "resolve", fake_resolve)
+    assert console.detail(item["id"])["status"] == expected
+    assert console.runs()[0]["status"] == expected
 
 
 @pytest.mark.parametrize(

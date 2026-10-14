@@ -455,6 +455,20 @@ class Console:
                 row["status"] = "interrupted"
         from .trace_view import decorate
 
+        summaries = (report or {}).get("agents", {}).values()
+        execution_summary = {
+            "finished": (
+                row["status"] in {"completed", "failed"}
+                and completed == expected
+                and self.report_state(report, expected) in {"completed", "failed"}
+            ),
+            "errors": sum(a["errors"] for a in summaries) if report else None,
+            "unscored": (
+                max(0, expected - sum(a["scored"] for a in summaries))
+                if report else None
+            ),
+        }
+
         return decorate(
             self.root,
             {
@@ -471,6 +485,7 @@ class Console:
                 "agents": [a["id"] for a in exp["agents"]],
                 "expected": expected,
                 "completed": completed,
+                "execution_summary": execution_summary,
                 "error": row["error"],
                 "experiment": exp,
                 "batch_state": batch_state,

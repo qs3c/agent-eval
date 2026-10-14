@@ -47,6 +47,8 @@ DGM 的参考点是利用执行反馈修改 Agent 自身实现、经验验证及
 
 服务器运行包由部署流程准备：`python scripts/prepare-rsi-runtime.py --root <控制台目录> --artifacts-root <已有评测产物目录>`。它使用已有 `.cache/bkcrab-eval`、`.cache/dsh-bundle03/runtime.tar.gz` 构建共享镜像，并登记 `.cache/rsi-native.json`，无需终端用户操作。源码目标从服务器相邻的 `bkcrab` / `deepseek-harness` 仓库识别，仅使用固定 Git 提交。
 
+若验证容器无法访问 Go 下载站，在依赖齐全的宿主机针对目标提交先运行 `go mod verify`，再运行 `python scripts/prepare-rsi-go-cache.py --root <控制台目录> --module-cache "$(go env GOMODCACHE)" --web-directory <已按锁文件安装依赖的BKCrab源码>/web`。BKCrab 完整检查需要此准备步骤：镜像还会包含前端依赖和 package/lockfile 哈希，验证时先核对哈希，再从候选源码构建实际前端产物供 `go:embed` 使用，然后执行 `go test ./...`。哈希不匹配时拒绝使用缓存，需按新锁文件安装依赖并重新准备。该步骤基于已登记的镜像加入模块缓存，设置 `GOPROXY=off` 和 `GOTOOLCHAIN=local`，构建成功后登记新的镜像 SHA。新候选会使用此镜像；旧候选的冻结配置不变。缺失模块或工具链会直接失败，而不是等待网络下载。依赖版本改变后需重新准备缓存及镜像。构建上下文保留在 `.cache/rsi-go-build-*`，其中不包含模型凭据。
+
 内置 BKCrab 目标运行代码检查后，点击“运行父子复评”由 DSH 根据冻结故障证据及父子补丁制定针对性测试方案。平台不预先写死某个案例的测试函数，也不以原任务重跑代替故障验证。DSH 输出中文目标、方案理由、局限、证据引用、测试函数选择及 Go 测试覆盖文件；候选生产代码与原始证据只读。当前内置回归执行器支持 BKCrab 的 Go 测试，其他目标需自定义配置。
 
 平台冻结方案和测试文件哈希，在固定父、子提交的新副本上覆盖完全相同的测试文件，并使用同一个固定 Docker 镜像运行所选测试。每项测试保留命令、退出码、Go JSON 测试事件、原始输出和哈希。至少包含一个故障回归和一个正常对照；旧版失败必须匹配 DSH 事先声明的故障断言，正常对照必须两边通过，新版所选测试必须全部通过。编译失败、缺失/跳过测试、输出截断、panic 或超时都不能证明修复成功。
@@ -151,3 +153,12 @@ Linux 对应命令：`NODE_PATH="$PWD/.cache/rsi-ui/node_modules" node --test te
 
 同日验收：启用 `GUARDIAN_DOCKER_TESTS=1 RSI_DOCKER_TESTS=1` 的全量回归 113 项通过（144.42 秒）；随后补充活跃 CLI 锁与真实控制台队列执行覆盖，相关 RSI/Console/Web 共 44 项通过（3.92 秒）。真实配对复评确认父子各两道任务、源码提交及构建产物归属，控制题均分 0 → 1。新模块 Ruff、前端 JS 语法及 Git 空白检查通过。浏览器核验了两个案例的独立入口和人工快照来源；截图工具超时，因此没有完成截图层面的视觉验收。GitHub 发布使用模拟命令验证草稿、正文文件、固定提交和重复提交恢复，未创建真实 PR。
 2026-10-12 执行 Agent 入口验收：10 项前端交互回归与 53 项 Linux RSI/Console/Web 检查通过，包含两种原生执行器的 Docker 离线启动检查。390px 窄屏配置表单无横向溢出。测试覆盖默认选择保存、凭据不回传、未知字段拒绝和执行器/目标仓库分离；未调用真实模型，模型任务的端到端效果尚未验证。
+
+
+### 2026-10-12 验证环境恢复
+
+候选 `ce73cbac23b2420b84e2dd5a884a0dbe` 的原检查因容器无法访问 Go 下载站且没有模块缓存，等待 1800 秒后失败。人工准备离线依赖镜像，并补齐从候选源码构建前端的步骤，解决干净 clone 缺失 `internal/setup/web` 导致的 `go:embed` 错误。宿主机模块缓存已通过 `go mod verify`，pnpm 已安装依赖锁文件与源码锁文件相同。
+
+原候选提交 `70714f5` 未修改；新镜像 `sha256:46a9c8336a92633aff0bd63f8e292e57af76a8f2ce8e7604e66816c1dbbdd146` 下，真实前端构建和完整 `go test ./...` 成功（54 个包返回 ok，另有无测试文件的包；约 382 秒）。三项新增 exec 回归在断网容器中通过。真实容器负例确认锁文件不匹配立即拒绝。平台执行器/API 回归 8 passed、2 个 opt-in Docker 测试跳过。
+
+原失败 action、冻结 profile 和 `check-0.json` 保留；补充记录在候选 `revalidation/`，含原 record 备份、原失败日志哈希、实际检查镜像与人工恢复说明。候选阶段更新为 validated，诊断限制和 PR 草稿正文明确标记 operator-assisted recovery。没有重新调用模型、发布 PR、部署 BKCrab 或运行配对效果复评；不能把本次恢复视为原自主运行成功。两个控制台的新候选均使用新镜像。

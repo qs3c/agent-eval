@@ -12,7 +12,7 @@ const labels = {
 const modes = { offline: "离线对照", mock: "模拟模型", live: "真实模型" };
 let runs = [],
   templates = [],
-  filter = "effective",
+  filter = "real",
   search = "",
   epoch = 0,
   polling = false;
@@ -63,6 +63,24 @@ async function api(path, options = {}) {
 }
 function badge(status) {
   return el("span", labels[status] || status, "badge " + status);
+}
+function runState(run) {
+  const summary = run.execution_summary;
+  let label = labels[run.status] || run.status;
+  if (summary?.finished && summary.errors > 0) {
+    label = summary.errors === run.expected
+      ? "已结束 · 全部异常" : "已结束 · 部分异常";
+  } else if (summary?.finished && summary.unscored > 0) {
+    label = "已结束 · 评分不完整";
+  }
+  const state = el("span", undefined, "run-state");
+  state.append(el("span", label, "badge " + run.status));
+  if (summary?.finished && (summary.errors > 0 || summary.unscored > 0)) {
+    state.append(el("span",
+      `${number(summary.errors)} 次运行异常 · ${number(summary.unscored)} 次未评分`,
+      "run-sub"));
+  }
+  return state;
 }
 function link(text, href, cls) {
   const a = el("a", text, cls);
@@ -158,7 +176,7 @@ function renderRunRows() {
     const mode = el("td");
     mode.append(el("span", modes[r.mode] || r.mode, "mode"));
     const state = el("td");
-    state.append(badge(r.status));
+    state.append(runState(r));
     const progress = el("td", `${r.completed} / ${r.expected}`, "mono"),
       date = el("td", time(r.created), "mono"),
       action = el("td");
@@ -183,9 +201,9 @@ function renderRunRows() {
         "后台队列 · 刷新页面不中断",
       ],
       [
-        "执行完成",
-        runs.filter((r) => r.status === "completed").length,
-        "不等同于所有任务通过",
+        "执行已结束",
+        runs.filter((r) => r.execution_summary?.finished || r.status === "completed").length,
+        "包含部分异常；不等同于所有任务通过",
       ],
       [
         "需要关注",
@@ -460,14 +478,19 @@ async function renderDetail(id, token, initial = true) {
     );
   }
   $("#detail-state").replaceChildren(
-    badge(r.status),
+    runState(r),
     el("span", modes[r.mode] + " · " + r.benchmark, "muted"),
   );
   if (r.error) $("#detail-state").append(el("span", r.error, "error"));
+  if (r.batch_state) {
+    const phases = {preparing:"准备环境",running:"执行 Agent",regrading:"官方复评",cleaning:"清理环境",completed:"已完成",failed:"批次失败",interrupted:"已中断"};
+    const b = r.batch_state;
+    $("#detail-state").append(el("span", `批次 ${b.current_batch || 1}/${b.total_batches || Math.ceil(b.total_tasks / b.batch_size)} · ${phases[b.phase] || b.phase} · 每批最多 ${b.batch_size} 题`, "muted"));
+  }
   stats(
     [
       [
-        "已完成任务",
+        "已结束尝试",
         `${r.completed} / ${r.expected}`,
         "根据已落盘的终态结果统计",
       ],

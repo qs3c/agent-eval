@@ -107,6 +107,15 @@ def request_message(model, messages, audit=None):
         "tool_choice": "required",
         "parallel_tool_calls": False,
     }
+    # DeepSeek defaults to thinking, which rejects required tool choice.
+    # This driver requires one protocol action per turn.
+    if (
+        model.get("api_base", "https://api.deepseek.com")
+        .rstrip("/")
+        .removesuffix("/v1")
+        == "https://api.deepseek.com"
+    ):
+        body["thinking"] = {"type": "disabled"}
     request = Request(
         upstream_url(model),
         json.dumps(body).encode(),

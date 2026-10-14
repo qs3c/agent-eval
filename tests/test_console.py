@@ -52,6 +52,45 @@ def test_history_unknowns_and_symlinks(console):
         console.detail("../.env")
 
 
+@pytest.mark.parametrize(
+    "errors,scored,missing_result,status,finished",
+    [(1, 1, False, "failed", True), (0, 1, False, "failed", True),
+     (0, 2, False, "completed", True), (1, 1, True, "incomplete", False)],
+)
+def test_execution_summary_separates_ended_errors_and_missing_results(
+    console, errors, scored, missing_result, status, finished
+):
+    run = console.artifacts / "summary"
+    run.mkdir()
+    exp = json.loads((console.root / "experiments/controls.json").read_text())
+    summary = {
+        "expected": 2, "recorded": 2, "missing": 0, "errors": errors,
+        "scored": scored, "mean_on_scored": 0, "cost_usd": None,
+    }
+    report = {
+        "agents": {a["id"]: dict(summary) for a in exp["agents"]},
+        "trials": [], "report_errors": [],
+    }
+    for agent in exp["agents"]:
+        for attempt in range(2 - int(missing_result)):
+            trial = run / "jobs" / agent["id"] / str(attempt)
+            trial.mkdir(parents=True)
+            (trial / "result.json").write_text(json.dumps({
+                "task_name": str(attempt), "finished_at": "2026-10-14T00:45:00Z",
+                "verifier_result": {"rewards": {"reward": 0}},
+            }))
+        if missing_result:
+            report["agents"][agent["id"]].update(recorded=1, missing=1)
+    (run / "manifest.json").write_text(json.dumps({"experiment": exp, "tasks": {}}))
+    (run / "report.json").write_text(json.dumps(report))
+    item = console.runs()[0]
+    assert item["status"] == status
+    assert item["execution_summary"] == {
+        "finished": finished, "errors": errors * 2, "unscored": 4 - scored * 2,
+    }
+    assert console.detail(item["id"])["execution_summary"] == item["execution_summary"]
+
+
 def test_redaction(console, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-long-sensitive-value")
     row = console.submit({"template": "controls"})

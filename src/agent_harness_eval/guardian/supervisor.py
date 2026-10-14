@@ -4,6 +4,8 @@ import asyncio
 import signal
 import sys
 import time
+from collections import Counter
+from pathlib import Path
 from uuid import uuid4
 
 from harbor.models.trial.config import TrialConfig
@@ -14,6 +16,7 @@ from .driver import run_driver
 from .evidence import append, capture, now, read, write
 from .monitor import Monitor
 from .process import terminate
+from .retention import finalize, stop_project
 
 
 def fallback_result(root, config, reason, started):
@@ -36,9 +39,14 @@ def fallback_result(root, config, reason, started):
     write(root / "result.json", result)
 
 
-async def supervise(config, guardian, agent_id, *, backend=None, worker_argv=None):
+async def supervise(
+    config, guardian, agent_id, *, backend=None, worker_argv=None, retention=None
+):
     root = config.trials_dir / config.trial_name
     root.mkdir(parents=True, exist_ok=True)
+    if retention is not None:
+        config.environment.kwargs["keep_containers"] = True
+        write(root / "retention-policy.json", retention)
     inputs = root.parent / ".guardian-inputs"
     write(inputs / (config.trial_name + ".json"), config.model_dump(mode="json"))
     backend = backend or DockerTarget(config.trial_name, guardian.command_seconds)
@@ -65,6 +73,8 @@ async def supervise(config, guardian, agent_id, *, backend=None, worker_argv=Non
             root / "guardian-status.json",
             {"time": now(), "phase": "finished", "failure": str(error)},
         )
+        if retention is not None:
+            await finalize(root, backend, retention)
         return
     started, start_clock = now(), time.monotonic()
     phase, phase_since = "creating", start_clock
@@ -270,7 +280,8 @@ async def supervise(config, guardian, agent_id, *, backend=None, worker_argv=Non
             await terminate(process)
             try:
                 cleanup = await asyncio.wait_for(
-                    backend.stop(), guardian.cleanup_seconds
+                    stop_project(backend) if retention is not None else backend.stop(),
+                    guardian.cleanup_seconds,
                 )
             except Exception as error:  # noqa: BLE001 - preserve evidence and continue cleanup on adapter failure
                 cleanup = {"error": str(error), "resources_released": False}
@@ -317,15 +328,31 @@ async def supervise(config, guardian, agent_id, *, backend=None, worker_argv=Non
                     "exception": result["exception_info"],
                 },
             )
+        if retention is not None:
+            write(heartbeat, {"time": now(), "phase": "retention-start"})
+            await finalize(root, backend, retention)
         write(heartbeat, {"time": now(), "phase": "finished", "failure": failure})
 
 
 async def run_guarded(
-    exp, output, agent_config, tasks, agent_id, *, manage_signals=True
+    exp,
+    output,
+    agent_config,
+    tasks,
+    agent_id,
+    *,
+    manage_signals=True,
+    retention: dict | None = None,
+    resume: bool = False,
 ):
     if sys.platform != "linux":
         raise ValueError("Experiment guardian execution requires Linux and Docker")
     semaphore = asyncio.Semaphore(exp.concurrency)
+    completed = (
+        resume_counts(output / "jobs" / agent_id, tasks, exp.attempts)
+        if resume
+        else Counter()
+    )
 
     async def one(task):
         async with semaphore:
@@ -338,16 +365,21 @@ async def run_guarded(
                     "delete": True,
                     "override_cpus": exp.cpus,
                     "override_memory_mb": exp.memory_mb,
+                    "kwargs": {"keep_containers": True}
+                    if retention is not None
+                    else {},
                 },
             )
-            await supervise(config, exp.guardian, agent_id)
+            await supervise(config, exp.guardian, agent_id, retention=retention)
 
     loop, owner = asyncio.get_running_loop(), asyncio.current_task()
     previous = signal.getsignal(signal.SIGTERM)
     if manage_signals:
         loop.add_signal_handler(signal.SIGTERM, owner.cancel)
     workers = [
-        asyncio.create_task(one(task)) for task in tasks for _ in range(exp.attempts)
+        asyncio.create_task(one(task))
+        for task in tasks
+        for _ in range(exp.attempts - completed[task.path.name])
     ]
     try:
         await asyncio.gather(*workers)
@@ -359,3 +391,45 @@ async def run_guarded(
         if manage_signals:
             loop.remove_signal_handler(signal.SIGTERM)
             signal.signal(signal.SIGTERM, previous)
+
+
+def resume_counts(directory, tasks, attempts):
+    """Completed failures count as attempts; incomplete attempts require inspection."""
+    wanted = {task.path.name for task in tasks}
+    completed = Counter()
+    valid = set()
+    for path in directory.glob("*/result.json"):
+        result = read(path, {})
+        if not isinstance(result, dict):
+            continue
+        task = Path((result.get("task_id") or {}).get("path", "")).name
+        if task not in wanted:
+            continue
+        if (
+            not result.get("finished_at")
+            or result.get("trial_name") != path.parent.name
+        ):
+            raise ValueError(
+                "Resume requires inspection of invalid trial result: " + str(path)
+            )
+        completed[task] += 1
+        valid.add(path.parent.name)
+    inputs = list(directory.glob(".guardian-inputs/*.json")) + list(
+        directory.glob("*/config.json")
+    )
+    for path in inputs:
+        config = read(path, {})
+        if not isinstance(config, dict):
+            raise TypeError(
+                "Resume requires inspection of unreadable trial input: " + str(path)
+            )
+        task = Path((config.get("task") or {}).get("path", "")).name
+        trial = config.get("trial_name") or path.stem
+        if task in wanted and trial not in valid:
+            raise ValueError(
+                "Resume requires inspection: partial trial has no valid result: "
+                + str(path)
+            )
+    if any(value > attempts for value in completed.values()):
+        raise ValueError("Resume found more attempts than the experiment permits")
+    return completed

@@ -63,7 +63,7 @@
           <div>
             <h2>实验记录 <span class="count" id="run-count"></span></h2>
             <p>
-              默认展示已复核的真实结果。记录数不是题目数；一题可由多个 Agent
+              默认展示全部真实评测，包含未复核的实验。记录数不是题目数；一题可由多个 Agent
               多次执行。
             </p>
           </div>
@@ -77,8 +77,8 @@
           /></label>
         </div>
         <div class="filters" id="filters">
-          <button data-filter="effective" class="active">有效真实结果</button>
-          <button data-filter="real">全部真实评测</button>
+          <button data-filter="real" class="active">全部真实评测</button>
+          <button data-filter="effective">有效真实结果</button>
           <button data-filter="selftest">平台自测</button>
           <button data-filter="debug">调试记录</button>
           <button data-filter="all">全部记录</button>
@@ -91,7 +91,7 @@
                 <th>Agent</th>
                 <th>模式</th>
                 <th>状态</th>
-                <th>批次完成 / 计划</th>
+                <th>尝试结束 / 计划</th>
                 <th>创建时间</th>
                 <th></th>
               </tr>

@@ -20,8 +20,8 @@ from pathlib import Path
 from pydantic import Field
 
 from .config import Experiment, Strict, load
-from .provenance import validate_tree, write_json
 from .manifests import load_manifest
+from .provenance import validate_tree, write_json
 from .report import duration, task_key
 
 
@@ -171,7 +171,9 @@ class Console:
                 try:
                     self.models.resolve("experiment")
                 except ValueError:
-                    if not any(m["has_api_key"] for m in self.models.public()["models"]):
+                    if not any(
+                        m["has_api_key"] for m in self.models.public()["models"]
+                    ):
                         error = "请在模型设置中添加实验 Agent 模型"
             rows.append(
                 {
@@ -213,22 +215,47 @@ class Console:
         exp = load(path)
         if exp.model.mode != "live" and request.model_id:
             raise ValueError("离线和模拟实验不能切换为真实模型")
-        if exp.model.mode == "live" and (request.model_id or self.models.public()["bindings"].get("experiment")):
-            exp.model = type(exp.model).model_validate(self.models.resolve("experiment", request.model_id))
-        if request.guardian_model_id and (not exp.guardian or exp.guardian.mode != "assist"):
+        if exp.model.mode == "live" and (
+            request.model_id or self.models.public()["bindings"].get("experiment")
+        ):
+            exp.model = type(exp.model).model_validate(
+                self.models.resolve("experiment", request.model_id)
+            )
+        if request.guardian_model_id and (
+            not exp.guardian or exp.guardian.mode != "assist"
+        ):
             raise ValueError("仅自主介入模式使用守护模型；模型选择不会自动启用介入")
-        if exp.guardian and exp.guardian.mode == "assist" and (request.guardian_model_id or self.models.public()["bindings"].get("guardian")):
-            exp.guardian.model = self.models.resolve("guardian", request.guardian_model_id)
+        if (
+            exp.guardian
+            and exp.guardian.mode == "assist"
+            and (
+                request.guardian_model_id
+                or self.models.public()["bindings"].get("guardian")
+            )
+        ):
+            exp.guardian.model = self.models.resolve(
+                "guardian", request.guardian_model_id
+            )
             exp.guardian.command = []
             exp.guardian.version = "model-pool-driver/v2"
-        if exp.guardian and exp.guardian.model and exp.guardian.mode == "assist" and (not self.allow_live or not request.confirm_unbounded):
+        if (
+            exp.guardian
+            and exp.guardian.model
+            and exp.guardian.mode == "assist"
+            and (not self.allow_live or not request.confirm_unbounded)
+        ):
             raise ValueError("守护模型运行需要开启 --allow-live 并确认费用")
         if exp.model.mode == "live":
             if not self.allow_live or not request.confirm_unbounded:
                 raise ValueError(
                     "真实运行需要服务开启 --allow-live，并明确确认不设费用上限"
                 )
-            if not (self.models.environment(exp.model.model_dump()).get(exp.model.api_key_env) or os.environ.get(exp.model.api_key_env)):
+            if not (
+                self.models.environment(exp.model.model_dump()).get(
+                    exp.model.api_key_env
+                )
+                or os.environ.get(exp.model.api_key_env)
+            ):
                 raise ValueError("服务环境中缺少模型凭据")
         config = exp.model_dump(mode="json")
         for field in (
@@ -267,7 +294,9 @@ class Console:
                     source
                 )  # Reject symlinks before copying executable inputs.
                 target = frozen / "tasks" / source.name
-                shutil.copytree(source, target)
+                from .freezing import freeze_tree
+
+                freeze_tree(source, target, frozen / "shared-runtime")
                 config["benchmark"]["tasks"][i] = str(target)
             for agent in config["agents"]:
                 for key in ("binary", "bundle", "provenance"):
@@ -403,7 +432,42 @@ class Console:
         manifest, report, completed, trials = self.evidence(row)
         if row["historical"]:
             row["status"] = self.report_state(report, expected)
+        batch_state = read_json(
+            Path(row["path"]), Path(row["path"]) / "batch-state.json"
+        )
+        if (
+            row["historical"]
+            and batch_state
+            and batch_state.get("phase")
+            in {"preparing", "running", "regrading", "cleaning"}
+        ):
+            runner = batch_state.get("runner", {})
+            try:
+                process = Path("/proc") / str(int(runner["pid"]))
+                start = (process / "stat").read_text().rsplit(")", 1)[1].split()[19]
+                command = (process / "cmdline").read_bytes().decode(errors="replace")
+                row["status"] = (
+                    "running"
+                    if start == runner["start_ticks"] and row["path"] in command
+                    else "interrupted"
+                )
+            except (OSError, ValueError, KeyError, IndexError):
+                row["status"] = "interrupted"
         from .trace_view import decorate
+
+        summaries = (report or {}).get("agents", {}).values()
+        execution_summary = {
+            "finished": (
+                row["status"] in {"completed", "failed"}
+                and completed == expected
+                and self.report_state(report, expected) in {"completed", "failed"}
+            ),
+            "errors": sum(a["errors"] for a in summaries) if report else None,
+            "unscored": (
+                max(0, expected - sum(a["scored"] for a in summaries))
+                if report else None
+            ),
+        }
 
         return decorate(
             self.root,
@@ -421,8 +485,10 @@ class Console:
                 "agents": [a["id"] for a in exp["agents"]],
                 "expected": expected,
                 "completed": completed,
+                "execution_summary": execution_summary,
                 "error": row["error"],
                 "experiment": exp,
+                "batch_state": batch_state,
                 "report": report,
                 "trials": trials,
                 "task_hashes": {
@@ -468,7 +534,9 @@ class Console:
             with path.open("rb") as stream:
                 stream.seek(max(0, path.stat().st_size - 32768))
                 return (
-                    self.models.redact(redact(stream.read(32768).decode(errors="replace")))
+                    self.models.redact(
+                        redact(stream.read(32768).decode(errors="replace"))
+                    )
                     or "评测进程正在运行，尚无标准输出。任务进度以已落盘结果为准。"
                 )
         except FileNotFoundError:
@@ -562,7 +630,9 @@ class Console:
                 reasons.append(label + " 不一致")
         if a["experiment"].get("guardian") != b["experiment"].get("guardian"):
             reasons.append("实验守护策略不一致")
-        if any(t.get("guardian", {}).get("assisted") for r in (a, b) for t in r["trials"]):
+        if any(
+            t.get("guardian", {}).get("assisted") for r in (a, b) for t in r["trials"]
+        ):
             reasons.append("存在外部辅助尝试，不能作为纯自主成绩直接配对")
         if (
             a["experiment"]["benchmark"]["primary_metric"]
@@ -674,17 +744,28 @@ class Console:
         config = self.state / "inputs" / run_id / "config.json"
         model = json.loads(row["config"])["model"]
         guardian = json.loads(row["config"]).get("guardian")
-        child_env = {**os.environ, **self.models.environment(model, (guardian or {}).get("model"))}
+        child_env = {
+            **os.environ,
+            **self.models.environment(model, (guardian or {}).get("model")),
+        }
         # Allow the independent supervisor to persist evidence and clean Docker.
-        self.shutdown_seconds = (4 * guardian["command_seconds"] + guardian["cleanup_seconds"] + 30
-                                 if guardian else 8)
+        self.shutdown_seconds = (
+            4 * guardian["command_seconds"] + guardian["cleanup_seconds"] + 30
+            if guardian
+            else 8
+        )
         if model["mode"] == "live" and (
             not self.allow_live or not child_env.get(model["api_key_env"])
         ):
             raise ValueError(
                 "当前服务未开启真实模型执行或缺少凭据；旧队列不绕过本次启动策略"
             )
-        if guardian and guardian.get("model") and guardian["mode"] == "assist" and not self.allow_live:
+        if (
+            guardian
+            and guardian.get("model")
+            and guardian["mode"] == "assist"
+            and not self.allow_live
+        ):
             raise ValueError("当前服务未开启守护模型执行")
         with (self.state / "logs" / (run_id + ".log")).open("wb") as log:
             # Inherited flock prevents a restarted server launching alongside an orphan CLI.
@@ -733,20 +814,38 @@ class Console:
 
         store = Store(self.root)
         self.shutdown_seconds = 150
-        argv = [sys.executable, "-m", "agent_harness_eval.cli", "rsi-work", action["id"], "--root", str(self.root)]
+        argv = [
+            sys.executable,
+            "-m",
+            "agent_harness_eval.cli",
+            "rsi-work",
+            action["id"],
+            "--root",
+            str(self.root),
+        ]
         if self.allow_live:
             argv.append("--allow-live")
         try:
             with (store.root / "actions" / (action["id"] + ".log")).open("wb") as log:
-                self.process = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, cwd=self.root,
-                                                start_new_session=True, pass_fds=(self.lock.fileno(),))
+                self.process = subprocess.Popen(
+                    argv,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    cwd=self.root,
+                    start_new_session=True,
+                    pass_fds=(self.lock.fileno(),),
+                )
                 while self.process.poll() is None:
-                    if self.stop.wait(.3):
+                    if self.stop.wait(0.3):
                         self.terminate()
                         break
                 code = self.process.wait()
             if store.action(action["id"])["status"] == "queued":
-                store.finish(action["id"], "failed", f"Worker exited before claiming action ({code})")
+                store.finish(
+                    action["id"],
+                    "failed",
+                    f"Worker exited before claiming action ({code})",
+                )
             # A simultaneous standalone CLI may have claimed this action. Its
             # candidate lock must be checked before marking anything interrupted.
             store.recover()

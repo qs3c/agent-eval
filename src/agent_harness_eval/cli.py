@@ -32,6 +32,11 @@ def main():
         q.add_argument("config", type=Path)
         if name == "run":
             q.add_argument("--output", type=Path, required=True)
+            q.add_argument(
+                "--resume",
+                action="store_true",
+                help="恢复同一批次实验；不重跑已落盘尝试",
+            )
     q = sub.add_parser("report")
     q.add_argument("run", type=Path)
     for name in ("manifest-index", "manifest-verify"):
@@ -75,7 +80,7 @@ def main():
             f"Valid: {len(e.agents)} agents x {len(e.benchmark.tasks)} tasks x {e.attempts} attempts; mode={e.model.mode}"
         )
     elif args.command == "run":
-        execute(load(args.config), args.output)
+        execute(load(args.config), args.output, resume=args.resume)
     elif args.command == "report":
         report(args.run)
     elif args.command == "manifest-index":

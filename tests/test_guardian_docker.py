@@ -15,6 +15,7 @@ from agent_harness_eval.config import load
 from agent_harness_eval.guardian.config import GuardianConfig
 from agent_harness_eval.guardian.docker import DockerTarget
 from agent_harness_eval.guardian.evidence import incident_summary, read
+from agent_harness_eval.guardian.monitor import Monitor
 from agent_harness_eval.guardian.supervisor import supervise
 from agent_harness_eval.run import run_experiment
 
@@ -81,6 +82,45 @@ def test_real_probe_and_bounded_shell(target):
     asyncio.run(check())
 
 
+def test_real_incremental_observer_is_independent_of_diagnostic_snapshots(target):
+    _, backend, logs, _ = target
+    path = logs / "events.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "type": "tool_call",
+                "time": "2026-01-01T00:00:00Z",
+                "data": {
+                    "id": "old-call",
+                    "name": "exec",
+                    "arguments": '{"timeout":120}',
+                },
+            }
+        )
+        + "\n"
+    )
+
+    async def check():
+        monitor = Monitor(GuardianConfig(confirmations=1))
+        monitor.observe(await backend.observe(), 0, "bkcrab")
+        assert "old-call" in monitor.pending
+        with path.open("a") as stream:
+            stream.write(
+                json.dumps({"type": "tool_result", "data": {"id": "old-call"}}) + "\n"
+            )
+            stream.write(
+                json.dumps({"type": "model_request", "data": {"prompt": "x" * 200000}})
+                + "\n"
+            )
+        await backend.snapshot()  # A guardian inspection cannot steal return events.
+        snapshot = await backend.observe()
+        assert snapshot["telemetry"]["complete"]
+        assert monitor.observe(snapshot, 1, "bkcrab")[0] is None
+        assert not monitor.pending
+
+    asyncio.run(check())
+
+
 def test_real_container_direct_recovery_and_recording(target, tmp_path):
     name, backend, logs, _ = target
     adapter = tmp_path / "adapter.py"
@@ -128,7 +168,7 @@ time.sleep(2)
     summary = incident_summary(root)
     assert summary["assisted"]
     assert summary["incidents"][0]["outcome"]["status"] in {
-        "progress_observed",
+        "continued",
         "trial_ended",
     }
     incident = next((root / "incidents").iterdir())
@@ -143,7 +183,7 @@ def test_real_container_stalled_driver_then_full_harbor_controls(target, tmp_pat
         task={"path": tmp_path / "task"},
         trial_name=name,
         trials_dir=tmp_path / "jobs",
-        agent={"name": "nop", "override_timeout_sec": 30},
+        agent={"name": "nop", "override_timeout_sec": 3},
     )
     state = cfg.trials_dir / name / "guardian-state.json"
     worker = (
@@ -175,6 +215,16 @@ def test_real_container_stalled_driver_then_full_harbor_controls(target, tmp_pat
     assert (
         read(cfg.trials_dir / name / "result.json")["exception_info"]["exception_type"]
         == "GuardianTrialTerminated"
+    )
+    assert (
+        read(cfg.trials_dir / name / "result.json")["exception_info"][
+            "exception_message"
+        ]
+        == "phase_deadline_exceeded: agent-start"
+    )
+    assert any(
+        i["outcome"]["status"] == "investigation_failed"
+        for i in incident_summary(cfg.trials_dir / name)["incidents"]
     )
     assert (
         subprocess.run(

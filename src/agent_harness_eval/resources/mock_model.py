@@ -159,6 +159,9 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
+        if self.path == "/search/v1/messages":
+            self.send_error(501, "Offline model fixture does not provide web search")
+            return
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         with Path("/logs/agent/wire_requests.jsonl").open("a") as f:
             f.write(json.dumps(body) + "\n")

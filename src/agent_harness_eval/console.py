@@ -220,7 +220,7 @@ class Console:
         if exp.guardian and exp.guardian.mode == "assist" and (request.guardian_model_id or self.models.public()["bindings"].get("guardian")):
             exp.guardian.model = self.models.resolve("guardian", request.guardian_model_id)
             exp.guardian.command = []
-            exp.guardian.version = "model-pool-driver/v1"
+            exp.guardian.version = "model-pool-driver/v2"
         if exp.guardian and exp.guardian.model and exp.guardian.mode == "assist" and (not self.allow_live or not request.confirm_unbounded):
             raise ValueError("守护模型运行需要开启 --allow-live 并确认费用")
         if exp.model.mode == "live":

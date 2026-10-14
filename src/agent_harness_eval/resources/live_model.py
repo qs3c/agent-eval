@@ -140,6 +140,7 @@ class Handler(BaseHTTPRequestHandler):
             "/v1/chat/completions": "/chat/completions",
             "/chat/completions": "/chat/completions",
             "/v1/messages": "/anthropic/v1/messages",
+            "/search/v1/messages": "/anthropic/v1/messages",
         }
         if self.path not in paths:
             self.send_error(404)
@@ -147,7 +148,10 @@ class Handler(BaseHTTPRequestHandler):
         request_id = str(uuid.uuid4())
         started = time.monotonic_ns()
         marks = {}
-        protocol = "messages" if self.path == "/v1/messages" else "chat_completions"
+        search = self.path == "/search/v1/messages"
+        messages = self.path in ("/v1/messages", "/search/v1/messages")
+        protocol = "messages" if messages else "chat_completions"
+        purpose = "web_search" if search else "agent"
 
         def stamp(phase):
             elapsed = (time.monotonic_ns() - started) / 1e6
@@ -160,6 +164,7 @@ class Handler(BaseHTTPRequestHandler):
                 "elapsed_ms": elapsed,
                 "clock": "relay_monotonic",
                 "protocol": protocol,
+                "purpose": purpose,
             }
             append("wire_timing.jsonl", value)
             return value
@@ -167,11 +172,13 @@ class Handler(BaseHTTPRequestHandler):
         stamp("received")
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         append("native_wire_requests.jsonl", {"request_id": request_id, "body": body})
-        messages = self.path == "/v1/messages"
-        body = normalize(body, messages, self.server.model_config)
+        # Auxiliary search is a separate provider operation: retain its model,
+        # token budget and server tools. Main-agent sampling does not apply.
+        if not search:
+            body = normalize(body, messages, self.server.model_config)
         append("wire_requests.jsonl", body)
         append(
-            "effective_wire_requests.jsonl", {"request_id": request_id, "body": body}
+            "effective_wire_requests.jsonl", {"request_id": request_id, "purpose": purpose, "body": body}
         )
         headers = {
             "Content-Type": "application/json",
@@ -213,7 +220,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             stamp("upstream_start")
-            with urlopen(request, timeout=300) as response:
+            with urlopen(request, timeout=60 if search else 300) as response:
                 status = response.status
                 stamp("headers")
                 self.send_response(status)
@@ -271,6 +278,11 @@ class Handler(BaseHTTPRequestHandler):
                 "wire_errors.jsonl",
                 {"request_id": request_id, "error": type(error).__name__},
             )
+            if status is None:
+                # Fail the tool promptly instead of leaving the client without an
+                # HTTP response; preserve a bounded upstream wait for search.
+                self.send_error(504 if isinstance(error, TimeoutError) else 502,
+                                "Upstream request failed")
         finally:
             stamp("finished")
             append(
@@ -284,6 +296,7 @@ class Handler(BaseHTTPRequestHandler):
                     "stream_complete": stream_complete,
                     "tool_call_ids": sorted(call_ids),
                     "protocol": protocol,
+                    "purpose": purpose,
                     "timing_ms": marks,
                 },
             )

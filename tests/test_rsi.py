@@ -60,7 +60,7 @@ def setup(tmp_path):
     adapter.write_text("""import sys,json,pathlib
 context=json.loads(sys.stdin.readline())
 (pathlib.Path(context['workspace'])/'harness.py').write_text('VALUE = 1\\n')
-pathlib.Path(context['result_path']).write_text(json.dumps({'topic':'测试值错误导致执行失败','summary':'修复测试用例','changes':'设置正确的值','summary_en':'Repair a fixture','changes_en':'Set the correct value','evidence_refs':['e0001'],'limitations':'仅用于测试','limitations_en':'Fixture only'}), encoding='utf-8')
+pathlib.Path(context['result_path']).write_text(json.dumps({'title':'修复测试值','title_en':'Fix fixture value','topic':'测试值错误导致执行失败','summary':'修复测试用例','changes':'设置正确的值','summary_en':'Repair a fixture','changes_en':'Set the correct value','evidence_refs':['e0001'],'limitations':'仅用于测试','limitations_en':'Fixture only'}), encoding='utf-8')
 """)
     profile = {
         "repository": str(source),
@@ -139,6 +139,7 @@ def test_complete_improvement_preserves_source_and_links_parent(setup):
     context = read(store.path("candidates", candidate["id"]) / "adapter-context.json")
     assert "in Chinese" in context["instructions"]
     assert "summary_en" in context["result_schema"]["required"]
+    assert {"title", "title_en"} <= set(context["result_schema"]["required"])
 
 
 @pytest.mark.parametrize(
@@ -362,7 +363,7 @@ def test_publication_creates_draft_at_exact_commit_with_body_file(setup, monkeyp
         if command.argv[:3] == ["gh", "pr", "create"]:
             assert "--draft" in command.argv
             title = command.argv[command.argv.index("--title") + 1]
-            assert "修复测试用例 / Repair a fixture" in title
+            assert title == "【RSI-generated pr】修复测试值 / Fix fixture value"
             body = Path(command.argv[command.argv.index("--body-file") + 1]).read_text()
             assert candidate["commit"] in body and "unverified" in body
             output = "https://github.com/example/fixture/pull/8\n"

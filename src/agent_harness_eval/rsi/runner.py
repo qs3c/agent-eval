@@ -1,4 +1,5 @@
 import asyncio
+import shlex
 import signal
 
 from pydantic import Field, field_validator
@@ -12,6 +13,8 @@ from .process import checked
 
 
 class Diagnosis(Strict):
+    title: str = Field(min_length=1, max_length=80, description="简短中文修改标题，不含平台前缀")
+    title_en: str = Field(min_length=1, max_length=120, description="中文修改标题的简短英文翻译")
     topic: str = Field(
         min_length=1,
         max_length=120,
@@ -25,6 +28,23 @@ class Diagnosis(Strict):
     summary_en: str = Field(min_length=1, max_length=16000)
     changes_en: str = Field(min_length=1, max_length=16000)
     limitations_en: str = Field(default="", max_length=16000)
+
+    @field_validator("title", "title_en")
+    @classmethod
+    def single_line_title(cls, value):
+        value = value.strip()
+        if not value or "\n" in value or "\r" in value:
+            raise ValueError("PR 标题必须是非空单行短句")
+        if value.startswith("【RSI-generated pr】"):
+            raise ValueError("PR 标题前缀由平台统一添加")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def chinese_title(cls, value):
+        if not any("\u4e00" <= char <= "\u9fff" for char in value):
+            raise ValueError("PR 中文标题必须使用中文")
+        return value
 
     @field_validator("topic")
     @classmethod
@@ -239,13 +259,27 @@ def write_pr_body(store, record):
     ):
         zh = language == "中文"
         details = []
+        for check in record.get("checks", []):
+            index = check["index"]
+            log = read(store.path("candidates", record["id"]) / f"check-{index}.json", {})
+            argv = log.get("argv") or record["profile"]["checks"][index]["argv"]
+            command = shlex.join(argv)
+            details.append(
+                f"- {'检查命令' if zh else 'Check command'}; "
+                f"{'退出码' if zh else 'exit code'}: {check['returncode']}\n\n"
+                f"```sh\n{command}\n```\n"
+            )
+        details.append(
+            f"- {'父子复评' if zh else 'Paired reevaluation'}: "
+            f"{assessment_zh if zh else assessment_en}"
+        )
         if evaluation:
             latest = evaluation[-1]
             if latest.get("kind") == "targeted_regression":
                 details.append(
-                    "- DSH 制定针对性回归方案；平台在固定父子提交上运行同一组测试。"
+                    "- 针对性回归：平台在固定父子提交上运行同一组测试。"
                     if zh
-                    else "- DSH designed targeted regressions; the platform ran the same tests on the fixed parent and candidate commits."
+                    else "- Targeted regressions: the platform ran the same tests on the fixed parent and candidate commits."
                 )
                 for test in latest.get("tests", []):
                     details.append(
@@ -292,51 +326,51 @@ def write_pr_body(store, record):
             )
         labels = (
             (
-                "问题与修改",
-                "证据与验证",
-                "局限说明",
+                "修改",
+                "验证",
+                "范围与局限",
                 "RSI 案例",
                 "候选",
                 "来源 Agent",
                 "所选尝试",
                 "父提交",
                 "证据引用",
-                "通过的配置检查",
-                "父子复评",
             )
             if zh
             else (
-                "Problem and change",
-                "Evidence and validation",
-                "Limitations",
+                "Changes",
+                "Validation",
+                "Scope and limitations",
                 "RSI case",
                 "candidate",
                 "Source Agent",
                 "selected attempts",
                 "Parent commit",
                 "Evidence references",
-                "Configured checks passed",
-                "Paired reevaluation",
             )
         )
         sections.append(f"""## {language}
 
-### {labels[0]}
 {summary}
+
+### {labels[0]}
 
 {changes}
 
 ### {labels[1]}
+
+{chr(10).join(details)}
+
+### {labels[2]}
+
+{limitations}
+
+### {'追溯信息' if zh else 'Traceability'}
+
 - {labels[3]}: `{case["id"]}`; {labels[4]}: `{record["id"]}`
 - {labels[5]}: `{case["agent"]}`; {labels[6]}: {", ".join(case["trials"])}
 - {labels[7]}: `{record["parent_commit"]}`; {labels[4]}: `{record.get("commit", "")}`
 - {labels[8]}: {", ".join(diagnosis.get("evidence_refs", []))}
-- {labels[9]}: {len(record.get("checks", []))}
-- {labels[10]}: {assessment_zh if zh else assessment_en}
-{chr(10).join(details)}
-
-### {labels[2]}
-{limitations}
 """)
     text = "\n".join(sections)
     (store.path("candidates", record["id"]) / "PR.md").write_text(
@@ -346,9 +380,11 @@ def write_pr_body(store, record):
 
 def pr_title(record):
     diagnosis = record["diagnosis"]
-    zh = " ".join(diagnosis["summary"].split())[:80]
-    en = " ".join(diagnosis["summary_en"].split())[:120]
-    return f"RSI: {zh} / {en}"
+    # Historical diagnoses lack dedicated titles; keep them publishable without
+    # rewriting their frozen analysis. New diagnoses require both title fields.
+    zh = " ".join((diagnosis.get("title") or diagnosis["summary"]).split())[:80]
+    en = " ".join((diagnosis.get("title_en") or diagnosis["summary_en"]).split())[:120]
+    return f"【RSI-generated pr】{zh} / {en}"
 
 
 async def perform(store, action_id, allow_live=False):

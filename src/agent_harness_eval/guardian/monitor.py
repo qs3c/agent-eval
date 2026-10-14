@@ -12,6 +12,8 @@ class Monitor:
         self.pending = {}
         self.seen = set()
         self.suspicions = 0
+        self.telemetry_complete = True
+        self.tool_details = {}
 
     def observe(self, snapshot, clock, agent_id):
         logs = snapshot.get("logs", {})
@@ -25,7 +27,33 @@ class Monitor:
         if self.last_progress is None or changed:
             self.last_progress = clock
         self.signature = signature
-        for line in logs.get("events.jsonl", {}).get("text", "").splitlines():
+        telemetry = snapshot.get("telemetry")
+        if telemetry is not None:
+            self.telemetry_complete = bool(
+                telemetry.get("complete")
+            ) and not telemetry.get("gap")
+            if telemetry.get("gap"):
+                self.pending.clear()
+                self.tool_details.clear()
+            else:
+                for event in telemetry.get("events", []):
+                    key = event.get("id")
+                    if event.get("kind") == "return":
+                        self.pending.pop(key, None)
+                        self.tool_details.pop(key, None)
+                    elif key and event.get("kind") == "call":
+                        timeout = event.get("timeout")
+                        if type(timeout) in (int, float) and timeout > 0:
+                            self.pending[key] = (event["start"], timeout)
+                            self.tool_details[key] = event
+        # Compatibility for custom observation backends. Docker always supplies
+        # the incremental telemetry stream and never reconstructs from log tails.
+        lines = (
+            []
+            if telemetry is not None
+            else logs.get("events.jsonl", {}).get("text", "").splitlines()
+        )
+        for line in lines:
             try:
                 e = json.loads(line)
                 if not isinstance(e, dict) or not isinstance(e.get("data"), dict):
@@ -58,15 +86,37 @@ class Monitor:
             if snapshot.get("time_unix", 0) - start
             > timeout + self.config.tool_grace_seconds
         ]
+        waiting = any(
+            snapshot.get("time_unix", 0)
+            <= start + timeout + self.config.tool_grace_seconds
+            for start, timeout in self.pending.values()
+        )
         reason = (
             "tool_overdue"
             if overdue
             else (
                 "no_observed_progress"
-                if clock - self.last_progress >= self.config.idle_seconds
+                if not waiting
+                and clock - self.last_progress >= self.config.idle_seconds
                 else None
             )
         )
+        if not self.telemetry_complete or snapshot.get("error"):
+            reason = None
         self.suspicions = self.suspicions + 1 if reason else 0
         confirmed = reason if self.suspicions >= self.config.confirmations else None
         return confirmed, changed
+
+    def describe(self):
+        return {
+            "telemetry_complete": self.telemetry_complete,
+            "pending": [
+                {
+                    "id": key,
+                    "start": start,
+                    "timeout": timeout,
+                    **self.tool_details.get(key, {}),
+                }
+                for key, (start, timeout) in self.pending.items()
+            ],
+        }

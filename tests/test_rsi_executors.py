@@ -165,6 +165,10 @@ def test_native_transport_uses_readonly_evidence_and_returns_diagnosis(
         prompt = (output / "output/native/instruction.txt").read_text()
         assert '"result_path": "/output/diagnosis.json"' in prompt
         assert "in Chinese" in prompt and "summary_en" in prompt
+        assert "title and title_en" in prompt
+        assert "【RSI-generated pr】" in prompt
+        assert "BKCrab PRs #3 and #4" in prompt
+        assert "Do not invent commands" in prompt
         write(
             output / "output/native/diagnosis.json",
             {"summary": "fixture", "evidence_refs": ["e0001"]},

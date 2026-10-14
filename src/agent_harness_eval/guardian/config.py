@@ -23,10 +23,11 @@ class GuardianConfig(BaseModel):
     pass_env: list[str] = Field(default_factory=list)
     model: dict | None = None
     poll_seconds: float = Field(default=15, ge=0.1, le=300)
-    idle_seconds: float = Field(default=300, ge=1)
+    idle_seconds: float = Field(default=600, ge=1)
     confirmations: int = Field(default=2, ge=1, le=10)
     tool_grace_seconds: float = Field(default=45, ge=0)
     diagnostic_seconds: float = Field(default=120, ge=1)
+    # Accepted only so frozen older configurations remain readable; no countdown.
     verification_seconds: float = Field(default=45, ge=1)
     command_seconds: float = Field(default=20, ge=1, le=120)
     cleanup_seconds: float = Field(default=30, ge=1, le=120)
@@ -37,7 +38,11 @@ class GuardianConfig(BaseModel):
 
     @model_validator(mode="after")
     def driver_contract(self):
-        if self.mode == "assist" and not self.model and (not self.command or not self.version):
+        if (
+            self.mode == "assist"
+            and not self.model
+            and (not self.command or not self.version)
+        ):
             raise ValueError("assist requires a guardian command and explicit version")
         if self.mode == "observe" and self.command:
             raise ValueError("observe does not execute a guardian command")

@@ -46,6 +46,7 @@ class DeepSeekStandard(Native):
             "DSH_PERMISSION_MODE": "danger-full-access",
             "DEEPSEEK_API_KEY": "relay-only",
             "DEEPSEEK_BASE_URL": "http://127.0.0.1:18765",
+            "DEEPSEEK_SEARCH_BASE_URL": "http://127.0.0.1:18765/search/v1",
             "EVAL_MODEL": self.model_config["name"],
             "EVAL_MAX_TOKENS": str(self.model_config["max_tokens"]),
             "DSH_PRIMARY_RUNTIME": "",

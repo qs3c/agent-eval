@@ -1,5 +1,9 @@
 # RSI 改进工作台
 
+所有诊断 Agent（BKCrab、DSH 及自定义适配器）共用 PR 文案约定。标题格式为 `【RSI-generated pr】简短中文修改标题 / Concise English change title`；新诊断必须返回独立的 `title`、`title_en` 字段。历史候选缺少这两个字段时，使用原有双语摘要生成兼容标题，不改写冻结诊断。
+
+正文参考 [BKCrab #3](https://github.com/qs3c/bkcrab/pull/3) 与 [#4](https://github.com/qs3c/bkcrab/pull/4)：中文在前、英文在后，每种语言先用短段落说明故障触发条件、原行为及修改效果，再列“修改”“验证”“范围与局限”“追溯信息”。验证记录实际检查命令及退出码、父子复评结果和局限；案例编号、提交和证据引用置于追溯信息。不得编造测试环境、测试数量或能力提升。新建及同步 PR 使用同一生成流程；历史 PR 在执行同步时应用该格式。
+
 首版完成可重复执行的一轮闭环：测评证据 → 独立源码候选 → 配置检查 → 父版本/候选复评 → PR 发布与状态同步。候选档案保留父子关系、失败、持平和退化记录，后续可以选取已有候选继续改进。执行 Agent 内置 BKCrab 和 DSH 下拉选项，同时保留自定义适配器接口。
 
 DGM 的参考点是利用执行反馈修改 Agent 自身实现、经验验证及保留多版本档案。原始实现见 [DGM](https://github.com/jennyzzt/dgm)、[父版本选择与档案循环](https://github.com/jennyzzt/dgm/blob/main/DGM_outer.py)、[改进步骤](https://github.com/jennyzzt/dgm/blob/main/self_improve_step.py)。本版是平台可操作的一轮流程与候选谱系，不宣称实现了 DGM 的自动种群采样和无限多代搜索。PR 发布是本平台增加的工程交付步骤。

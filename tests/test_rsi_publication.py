@@ -36,6 +36,47 @@ def measured(candidate, assessment="improved", **extra):
     }
 
 
+def test_pr_style_keeps_validation_and_traceability(published_candidate):
+    from agent_harness_eval.rsi.runner import write_pr_body
+
+    store, candidate = published_candidate
+    candidate["evaluations"] = [measured(candidate, "regressed")]
+    write_pr_body(store, candidate)
+    body = (store.path("candidates", candidate["id"]) / "PR.md").read_text()
+    headings = ["## 中文", "### 修改", "### 验证", "### 范围与局限", "### 追溯信息",
+                "## English", "### Changes", "### Validation", "### Scope and limitations", "### Traceability"]
+    positions = [body.index(heading) for heading in headings]
+    assert positions == sorted(positions)
+    assert body.startswith("## 中文\n\n修复测试用例\n\n### 修改")
+    assert "检查命令" in body and "Check command" in body
+    assert "assert VALUE == 1" in body and "退出码: 0" in body
+    assert "出现退化" in body and "regressed" in body
+    assert "父分数: 0" in body and "Candidate score: 1" in body
+    assert candidate["parent_commit"] in body and "e0001" in body
+    assert "仅用于测试" in body and "Fixture only" in body
+
+
+def test_legacy_pr_title_has_platform_prefix(published_candidate):
+    from agent_harness_eval.rsi.runner import pr_title
+
+    _, candidate = published_candidate
+    del candidate["diagnosis"]["title"], candidate["diagnosis"]["title_en"]
+    assert pr_title(candidate) == "【RSI-generated pr】修复测试用例 / Repair a fixture"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("title", "English only"), ("title", "修复\n问题"),
+    ("title_en", "Fix\nproblem"), ("title", " "),
+    ("title", "【RSI-generated pr】修复问题"),
+])
+def test_diagnosis_rejects_invalid_pr_titles(published_candidate, field, value):
+    from agent_harness_eval.rsi.runner import Diagnosis
+
+    _, candidate = published_candidate
+    with pytest.raises(ValueError):
+        Diagnosis.model_validate({**candidate["diagnosis"], field: value})
+
+
 def operation(argv):
     return "edit" if argv[:2] == ["gh", "api"] else argv[2]
 
@@ -176,6 +217,7 @@ def test_sync_uses_rest_json_file_preserving_bilingual_body(
     payload = read(Path(edit[edit.index("--input") + 1]))
     body = (store.path("candidates", candidate["id"]) / "PR.md").read_text()
     assert payload == {"title": pr_title(candidate), "body": body}
+    assert payload["title"] == "【RSI-generated pr】修复测试值 / Fix fixture value"
     assert "## 中文\n" in payload["body"] and "## English\n" in payload["body"]
 
 
@@ -235,6 +277,9 @@ def test_evaluation_before_publication_selects_initial_state(
             output = "[]"
         elif command.argv[:3] == ["gh", "pr", "create"]:
             assert ("--draft" in command.argv) == (assessment != "improved")
+            assert command.argv[command.argv.index("--title") + 1] == (
+                "【RSI-generated pr】修复测试值 / Fix fixture value"
+            )
             output = "https://github.com/example/fixture/pull/9"
         else:
             output = ""

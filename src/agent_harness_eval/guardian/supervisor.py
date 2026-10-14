@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from harbor.models.trial.config import TrialConfig
 
+from .decisions import parse_decision
 from .docker import DockerTarget
 from .driver import run_driver
 from .evidence import append, capture, now, read, write
@@ -68,9 +69,9 @@ async def supervise(config, guardian, agent_id, *, backend=None, worker_argv=Non
     started, start_clock = now(), time.monotonic()
     phase, phase_since = "creating", start_clock
     monitor = Monitor(guardian)
-    incident, driver, verification_until = None, None, None
-    incident_pending, incident_progress = set(), False
+    incident, driver = None, None
     count, failure = 0, None
+    next_investigation = 0
     heartbeat = root / "guardian-status.json"
 
     def active():
@@ -91,7 +92,7 @@ async def supervise(config, guardian, agent_id, *, backend=None, worker_argv=Non
         backend.active = active
 
     async def finish_incident(status, extra=None):
-        nonlocal incident, verification_until
+        nonlocal incident
         if incident:
             try:
                 after = await backend.snapshot()
@@ -102,7 +103,7 @@ async def supervise(config, guardian, agent_id, *, backend=None, worker_argv=Non
                 incident / "outcome.json",
                 {"status": status, "finished_at": now(), **(extra or {})},
             )
-        incident, verification_until = None, None
+        incident = None
 
     try:
         while process.returncode is None:
@@ -143,20 +144,29 @@ async def supervise(config, guardian, agent_id, *, backend=None, worker_argv=Non
                     "worker_pid": process.pid,
                 },
             )
-            reason, changed, snapshot = None, False, {}
+            reason, snapshot = None, {}
             if phase == "agent-start":
                 try:
-                    snapshot = await backend.snapshot()
-                    reason, changed = monitor.observe(
-                        snapshot, time.monotonic(), agent_id
+                    snapshot = await getattr(backend, "observe", backend.snapshot)()
+                    reason, _ = monitor.observe(snapshot, time.monotonic(), agent_id)
+                    telemetry = snapshot.get("telemetry", {})
+                    write(
+                        root / "guardian-observation.json",
+                        {
+                            "time": now(),
+                            "reason": reason,
+                            "monitor": monitor.describe(),
+                            "telemetry": {
+                                k: telemetry.get(k)
+                                for k in ("cursor", "complete", "gap", "error")
+                            },
+                        },
                     )
                 except Exception as error:  # noqa: BLE001 - preserve evidence and continue cleanup on adapter failure
                     append(root / "guardian-observer.jsonl", {"error": str(error)})
             if time.monotonic() - phase_since > budget + guardian.cleanup_seconds:
                 failure = "phase_deadline_exceeded: " + phase
                 break
-            if incident and changed:
-                incident_progress = True
             if driver and driver.done():
                 try:
                     result = driver.result()
@@ -164,26 +174,46 @@ async def supervise(config, guardian, agent_id, *, backend=None, worker_argv=Non
                     result = {"status": "failed", "error": str(error)}
                 write(incident / "driver-result.json", result)
                 driver = None
-                verification_until = time.monotonic() + guardian.verification_seconds
+                try:
+                    decision = (
+                        parse_decision(result.get("assessment", {}))
+                        if result.get("status") == "finished"
+                        else None
+                    )
+                except (ValueError, TypeError):
+                    decision = None
+                if decision is None:
+                    await finish_incident(
+                        "investigation_failed",
+                        {
+                            "driver_status": result.get("status"),
+                            "error": result.get("error", "invalid decision"),
+                        },
+                    )
+                    next_investigation = time.monotonic() + guardian.idle_seconds
+                elif decision.decision == "terminate":
+                    failure = "guardian_requested_termination"
+                    break
+                else:
+                    # Resume ordinary monitoring; no repair-specific countdown.
+                    next_investigation = time.monotonic() + guardian.idle_seconds
+                    await finish_incident(
+                        "continued", {"decision": decision.model_dump()}
+                    )
             if driver and not active():
                 driver.cancel()
                 await asyncio.gather(driver, return_exceptions=True)
                 driver = None
                 write(incident / "driver-result.json", {"status": "authority_expired"})
-            if incident and verification_until:
-                # A newly started tool is useful progress; only the old stalled
-                # calls must have returned. Driver stdout is not monitored here.
-                if incident_progress and not incident_pending.intersection(
-                    monitor.pending
-                ):
-                    await finish_incident("progress_observed")
-                elif time.monotonic() >= verification_until:
-                    failure = "recovery_not_verified"
-                    break
-            if reason and not incident and count < guardian.max_incidents:
+                await finish_incident("authority_expired")
+            if (
+                reason
+                and not incident
+                and count < guardian.max_incidents
+                and time.monotonic() >= next_investigation
+            ):
                 count += 1
                 incident = root / "incidents" / uuid4().hex
-                incident_pending, incident_progress = set(monitor.pending), False
                 await capture(
                     incident,
                     backend,
@@ -193,6 +223,10 @@ async def supervise(config, guardian, agent_id, *, backend=None, worker_argv=Non
                         "agent": agent_id,
                         "phase": phase,
                         "guardian": guardian.model_dump(),
+                        "monitor": monitor.describe(),
+                        "remaining_agent_seconds": max(
+                            0, phase_since + budget - time.monotonic()
+                        ),
                     },
                 )
                 if guardian.mode == "assist" and active():

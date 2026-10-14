@@ -43,6 +43,7 @@ class DockerTarget:
         self.project = re.sub(r"[^a-z0-9_-]", "", (trial_name + "__env").lower())
         self.timeout = timeout
         self.container_id = None
+        self.event_cursor = None
         self.active = lambda: True
 
     async def inspect(self):
@@ -82,7 +83,14 @@ class DockerTarget:
             raise RuntimeError("Task container identity changed")
         return {"id": cid, "state": state, "image": image, "project": self.project}
 
-    async def snapshot(self):
+    async def observe(self):
+        # Diagnostic snapshots never advance this cursor: only the monitor consumes it.
+        value = await self.snapshot(monitor=True)
+        if "telemetry" in value:
+            self.event_cursor = value["telemetry"]["cursor"]
+        return value
+
+    async def snapshot(self, *, monitor=False):
         info = await self.inspect()
         result = await command(
             [
@@ -92,9 +100,15 @@ class DockerTarget:
                 "python3",
                 "-c",
                 Path(__file__).with_name("probe.py").read_text(encoding="utf-8"),
+                json.dumps(
+                    {
+                        "monitor": monitor,
+                        "cursor": self.event_cursor if monitor else None,
+                    }
+                ),
             ],
             self.timeout,
-            limit=2 * 1024 * 1024,
+            limit=4 * 1024 * 1024,
         )
         value = {"captured_at": now(), "container": info}
         try:

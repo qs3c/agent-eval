@@ -280,7 +280,7 @@ time.sleep(30)
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux worker isolation")
-def test_recovery_claim_without_progress_does_not_keep_trial_alive(tmp_path):
+def test_continue_claim_respects_original_deadline(tmp_path):
     cfg = driver(
         tmp_path,
         'print(json.dumps({"id":"done","tool":"finish","arguments":{"assessment":"recovered"}}),flush=True)\n',
@@ -289,7 +289,7 @@ def test_recovery_claim_without_progress_does_not_keep_trial_alive(tmp_path):
         task={"path": tmp_path / "task"},
         trial_name="claim",
         trials_dir=tmp_path / "jobs",
-        agent={"name": "nop", "override_timeout_sec": 60},
+        agent={"name": "nop", "override_timeout_sec": 4},
     )
     state = trial.trials_dir / trial.trial_name / "guardian-state.json"
     worker = (
@@ -309,7 +309,14 @@ def test_recovery_claim_without_progress_does_not_keep_trial_alive(tmp_path):
     )
     assert target.stopped
     summary = incident_summary(state.parent)
-    assert summary["incidents"][0]["outcome"]["reason"] == "recovery_not_verified"
+    assert any(
+        incident["outcome"]["status"] == "continued"
+        for incident in summary["incidents"]
+    )
+    assert (
+        read(state.parent / "result.json")["exception_info"]["exception_message"]
+        == "phase_deadline_exceeded: agent-start"
+    )
 
 
 def test_assistance_preserves_rewards_and_original_result(tmp_path):

@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from .benchmarks.swe import export, instrument, regrade_command
+from .benchmarks.swe import instrument
 from .freezing import freeze_tree, own_archive
 from .guardian.evidence import read, write
 from .manifests import compact_manifest, load_manifest
@@ -132,114 +132,19 @@ def prepare_batch(exp, output, paths, number):
             raise
 
 
-def regrade_batch(exp, output, paths, number):
-    if not exp.batch.official_regrade:
+def regrade_batch(exp, output, paths, number, *, inherited=(), force=False):
+    from .regrading import gate, grade_units, update_summary
+
+    if not force and not exp.batch.official_regrade:
         return
-    directory = output / "batches" / f"{number:03d}" / "official"
-    directory.mkdir(parents=True, exist_ok=True)
-    predictions = directory / "predictions"
-    # Export fresh into a temporary directory; finished trials are never rerun.
-    staging = directory / "export-staging"
-    if staging.exists():
-        shutil.rmtree(staging)
-    export(output, staging)
-    predictions.mkdir(exist_ok=True)
-    ids = {task.name for task in paths}
-    for source in staging.glob("*.jsonl"):
-        rows = [json.loads(line) for line in source.read_text().splitlines()]
-        rows = [row for row in rows if row["instance_id"] in ids]
-        if {row["instance_id"] for row in rows} != ids or len(rows) != len(ids):
-            raise ValueError("Batch predictions do not cover the exact task set")
-        (predictions / source.name).write_text(
-            "".join(json.dumps(row) + "\n" for row in rows)
-        )
-    provenance = read(staging / "export-manifest.json")
-    provenance["trials"] = [t for t in provenance["trials"] if t["instance_id"] in ids]
-    provenance["batch_tasks"] = sorted(ids)
-    write(predictions / "export-manifest.json", provenance)
-    shutil.rmtree(staging)
-    records = [read(task / "tests/config.json") for task in paths]
-    dataset = directory / "records.json"
-    write(dataset, records)
-    errors = []
-    for agent in exp.agents:
-        for attempt in range(1, exp.attempts + 1):
-            work = directory / agent.id / f"attempt-{attempt}"
-            work.mkdir(parents=True, exist_ok=True)
-            run_id = f"{exp.name}-b{number:03d}-{agent.id}-a{attempt}"
-            cmd = regrade_command(
-                predictions / f"{agent.id}.attempt-{attempt}.jsonl",
-                str(dataset.resolve()),
-                run_id,
-            )
-            with (work / "console.log").open("a") as log:
-                result = subprocess.run(
-                    cmd, cwd=work, stdout=log, stderr=subprocess.STDOUT, check=False
-                )
-            if result.returncode:
-                errors.append(
-                    {
-                        "agent": agent.id,
-                        "attempt": attempt,
-                        "returncode": result.returncode,
-                    }
-                )
-                continue
-            reports = [read(p) for p in work.glob("*.json")]
-            reports = [
-                r for r in reports if isinstance(r, dict) and "submitted_instances" in r
-            ]
-            if len(reports) != 1 or set(reports[0].get("submitted_ids", [])) != ids:
-                errors.append(
-                    {
-                        "agent": agent.id,
-                        "attempt": attempt,
-                        "error": "official_report_missing_or_wrong_task_coverage",
-                    }
-                )
-            elif reports[0].get("error_instances", 0) or reports[0].get(
-                "incomplete_ids"
-            ):
-                errors.append(
-                    {
-                        "agent": agent.id,
-                        "attempt": attempt,
-                        "error": "official_grading_errors_or_incomplete_instances",
-                    }
-                )
-    write(
-        directory / "status.json",
-        {
-            "finished_unix": time.time(),
-            "errors": errors,
-            "tasks": sorted(ids),
-            "evaluator": "swebench==4.1.0",
-        },
-    )
-    if errors:
-        raise RuntimeError(
-            "Official batch regrading failed; retain environments and resume after diagnosis"
-        )
-    summary = {
-        "expected_per_agent": len(exp.benchmark.tasks) * exp.attempts,
-        "agents": {},
-    }
-    for agent in exp.agents:
-        rows = []
-        for p in (output / "batches").glob(f"*/official/{agent.id}/attempt-*/*.json"):
-            value = read(p, {})
-            if "submitted_instances" in value:
-                rows.append((p, value))
-        observed = sum(v["submitted_instances"] for _, v in rows)
-        resolved = sum(v["resolved_instances"] for _, v in rows)
-        summary["agents"][agent.id] = {
-            "observed": observed,
-            "resolved": resolved,
-            "complete": observed == summary["expected_per_agent"],
-            "rate_on_observed": resolved / observed if observed else None,
-            "raw_reports": [str(p.relative_to(output)) for p, _ in rows],
-        }
-    write(output / "official-summary.json", summary)
+    if not inherited:
+        with gate("batches") as fd:
+            return regrade_batch(exp, output, paths, number, inherited=(fd,), force=force)
+    try:
+        # Manual recovery also grades experiments whose original policy deferred scoring.
+        grade_units(exp, output, paths, number, inherited, source="manual" if force else "automatic")
+    finally:
+        update_summary(exp, output)
 
 
 def cleanup_batch(exp, output, paths, number):

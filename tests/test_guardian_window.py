@@ -80,7 +80,13 @@ def test_diagnostic_window_survives_worker_exit_or_outer_deadline(
             worker_argv=[sys.executable, "-c", worker],
         )
     )
-    incident = next((root / "incidents").iterdir())
+    incidents = list((root / "incidents").iterdir())
+    diagnoses = [
+        path for path in incidents
+        if read(path / "incident.json", {}).get("reason") == "no_observed_progress"
+    ]
+    assert len(diagnoses) == 1
+    incident = diagnoses[0]
     assert read(incident / "driver-result.json")["status"] == "finished"
     assert (
         read(incident / "outcome.json")["status"] == "diagnosis_completed_after_agent"
@@ -90,6 +96,14 @@ def test_diagnostic_window_survives_worker_exit_or_outer_deadline(
     if worker_ends:
         assert read(root / "result.json")["exception_info"] is None
     else:
+        cleanup = [
+            path for path in incidents
+            if read(path / "incident.json", {}).get("reason")
+            == "phase_deadline_exceeded: agent-start"
+        ]
+        assert len(cleanup) == 1
+        assert read(cleanup[0] / "outcome.json")["status"] == "terminated"
+        assert read(cleanup[0] / "outcome.json")["cleanup"]["resources_released"]
         assert target.stopped
         assert (
             read(root / "result.json")["exception_info"]["exception_message"]

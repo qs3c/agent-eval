@@ -5,8 +5,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from ..provenance import digest, write_json
 from ..manifests import load_manifest
+from ..provenance import digest, write_json
 from ..report import task_key
 
 
@@ -137,4 +137,14 @@ def regrade(predictions: Path, dataset: str, run_id: str, execute: bool):
 
     print(shlex.join(command))
     if execute:
-        subprocess.run(command, check=True)
+        from uuid import uuid4
+
+        from ..regrading import gate, run_command
+
+        work = Path.cwd()
+        log = work / ("swe-regrade-" + uuid4().hex + ".log")
+        with gate("batches") as fd:
+            code = run_command(command, work, log, (fd,))
+        print(f"Official grading log: {log}")
+        if code:
+            raise subprocess.CalledProcessError(code, command)

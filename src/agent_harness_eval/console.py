@@ -131,6 +131,7 @@ class Console:
                 status TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL,
                 historical INTEGER NOT NULL DEFAULT 0, error TEXT, pid INTEGER)""")
         self.stop = threading.Event()
+        self.regrade_worker = None
         self.worker = None
         self.process = None
         self.lock = None
@@ -515,6 +516,8 @@ class Console:
                 "error": row["error"],
                 "experiment": exp,
                 "batch_state": batch_state,
+                "official_regrading": (self.regrading_view(Path(row["path"]), batch_state)
+                                      if exp["benchmark"].get("score_kind") == "resolved" else None),
                 "report": report,
                 "trials": trials,
                 "task_hashes": {
@@ -526,6 +529,48 @@ class Console:
                 "trajectory_note": "ATIF 为末次上下文与终态视图，原始事件为完整诊断依据",
             },
         )
+
+    def regrading_view(self, output, state):
+        from .regrading import jobs
+
+        queued = jobs(output)
+        exp = (read_manifest(output) or {}).get("experiment", {})
+        per_task = len(exp.get("agents", [])) * exp.get("attempts", 1)
+        batches = []
+        for batch in (state or {}).get("batches", []):
+            number = batch["number"]
+            progress = read_json(output, output / "batches" / f"{number:03d}" / "official/progress.json")
+            legacy = read_json(output, output / "batches" / f"{number:03d}" / "official/status.json")
+            status = batch.get("official_regrade", {}).get("status", "pending")
+            if legacy and legacy.get("errors"):
+                status = "failed"
+            if progress:
+                status = "completed" if progress["completed"] == progress["total"] else "failed"
+            job = queued.get(number)
+            if job and (job["status"] in {"queued", "running"} or status != "completed"):
+                # Current validated results supersede an older failed task.
+                status = job["status"]
+            batches.append({"number": number, "status": status, "job": job, "progress": progress,
+                            "eligible": batch["phase"] in {"completed", "failed"},
+                            "task_count": len(batch["tasks"]),
+                            "expected_units": len(batch["tasks"]) * per_task})
+        return {"concurrency": 2, "batches": batches}
+
+    def submit_regrading(self, run_id, number):
+        from .regrading import enqueue
+
+        row = self.row(run_id)
+        output = safe_file(self.artifacts, Path(row["path"]))
+        state = read_json(output, output / "batch-state.json")
+        if not state or not any(b["number"] == number for b in state.get("batches", [])):
+            raise ValueError("批次不存在")
+        manifest = read_manifest(output)
+        if not manifest or manifest["experiment"]["benchmark"]["score_kind"] != "resolved":
+            raise ValueError("仅支持 SWE 官方复评")
+        batch = next(b for b in state["batches"] if b["number"] == number)
+        if batch["phase"] not in {"completed", "failed"}:
+            raise ValueError("该批次尚未结束作答")
+        return enqueue(output, number)
 
     def runs(self):
         self.import_history()
@@ -733,6 +778,11 @@ class Console:
             target=self.work, daemon=True, name="evaluation-worker"
         )
         self.worker.start()
+        from .regrading import queue_worker
+
+        self.regrade_worker = threading.Thread(target=queue_worker, args=(self.stop,),
+                                               daemon=True, name="official-regrading-worker")
+        self.regrade_worker.start()
 
     def work(self):
         while not self.stop.is_set():
@@ -898,6 +948,8 @@ class Console:
 
     def close(self):
         self.stop.set()
+        if self.regrade_worker:
+            self.regrade_worker.join(timeout=1)
         if self.worker:
             self.worker.join(timeout=getattr(self, "shutdown_seconds", 8) + 12)
         if self.lock:

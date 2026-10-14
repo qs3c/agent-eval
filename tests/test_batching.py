@@ -219,9 +219,11 @@ def test_official_regrade_contains_only_current_batch(tmp_path, monkeypatch):
 
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr(batching, "export", export)
-    monkeypatch.setattr(batching, "regrade_command", command)
-    monkeypatch.setattr(batching.subprocess, "run", run)
+    from agent_harness_eval import regrading
+    from agent_harness_eval.benchmarks import swe
+    monkeypatch.setattr(swe, "export", export)
+    monkeypatch.setattr(swe, "regrade_command", command)
+    monkeypatch.setattr(regrading, "run_command", lambda cmd, work, log, inherited: run(cmd, cwd=work).returncode)
     batching.regrade_batch(exp, tmp_path, [task], 1)
     summary = json.loads((tmp_path / "official-summary.json").read_text())
     assert summary["agents"]["positive"]["observed"] == 1

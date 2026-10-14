@@ -115,3 +115,33 @@ def test_experiment_comparison_api_without_starting_work(client):
         a["score"] is None and a["missing"] == 2 for a in data["agents"].values()
     )
     assert client.get(f"/api/runs/{run['id']}").json()["status"] == "queued"
+
+
+def test_batch_regrade_api_is_idempotent_and_scoped(client):
+    import hashlib
+    import json
+
+    from agent_harness_eval.guardian.evidence import write
+
+    console = client.app.state.console
+    output = console.artifacts / "regrade-example"
+    exp = json.loads((console.root / "experiments/controls.json").read_text())
+    exp["benchmark"]["score_kind"] = "resolved"
+    write(output / "manifest.json", {"experiment": exp, "tasks": {}})
+    write(output / "batch-state.json", {"phase": "completed", "batches": [
+        {"number": n, "phase": "completed", "tasks": ["file-create"]} for n in (1, 2)]})
+    console.import_history()
+    run_id = "history-" + hashlib.sha256(output.name.encode()).hexdigest()[:20]
+    url = f"/api/runs/{run_id}/batches/1/regrade"
+    first = client.post(url, json={})
+    assert first.status_code == 202
+    assert client.post(url, json={}).json()["id"] == first.json()["id"]
+    other = client.post(f"/api/runs/{run_id}/batches/2/regrade", json={})
+    assert other.status_code == 202
+    assert other.json()["id"] != first.json()["id"]
+    detail = client.get(f"/api/runs/{run_id}").json()["official_regrading"]
+    assert detail["concurrency"] == 2
+    assert [b["status"] for b in detail["batches"]] == ["queued", "queued"]
+    assert client.post(f"/api/runs/{run_id}/batches/99/regrade", json={}).status_code == 422
+    assert client.post(url, json={}, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert client.get(f"/api/runs/{run_id}/batches/1/regrade-log").json() == {"logs": []}

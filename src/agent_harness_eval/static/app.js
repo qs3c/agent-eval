@@ -408,6 +408,60 @@ function reportTable(report, reviews = {}) {
     }),
   );
 }
+function regradingPanel(run) {
+  const panel = el("section", undefined, "panel");
+  panel.id = "official-regrading";
+  panel.append(el("h2", "官方复评"), el("p", "同一批次只提交一个任务，不同批次排队；全局并发度 2。", "muted"));
+  const names = {pending:"待复评",failed:"复评未成功",interrupted:"复评已中断",queued:"已排队",running:"复评中",completed:"复评完成",disabled:"待复评"};
+  const batches = run.official_regrading?.batches || [];
+  async function submit(batch) {
+    return api(`/api/runs/${run.id}/batches/${batch.number}/regrade`, {method:"POST", body:"{}"});
+  }
+  const all = el("button", "复评全部未完成批次", "button");
+  const pending = batches.filter(b => b.eligible !== false && !["completed", "queued", "running"].includes(b.status));
+  all.disabled = !pending.length;
+  all.onclick = async () => {
+    all.disabled = true;
+    try { for (const batch of pending) await submit(batch); notice("复评已提交，按批次排队执行"); }
+    catch (error) { all.disabled = false; notice(error.message); }
+  };
+  panel.append(all);
+  for (const batch of batches) {
+    const row = el("div", undefined, "detail-top");
+    const progress = batch.progress;
+    row.append(el("span", `批次 ${batch.number} · ${names[batch.status] || batch.status}`));
+    if (!progress && batch.expected_units) row.append(el("span", `待复评 ${batch.expected_units} 项`, "muted"));
+    if (progress) {
+      row.append(el("span", `已完成 ${progress.completed}/${progress.total} 项`, "muted"));
+      for (const unit of Object.values(progress.units || {})) {
+        if (["running", "retrying", "failed"].includes(unit.status)) {
+          row.append(el("span", `${unit.agent} · ${unit.task} · 第 ${unit.retry || 1}/3 次 · ${unit.error || (unit.status === "retrying" ? "等待重试" : "复评中")}`, "muted"));
+        }
+      }
+    }
+    if (batch.status !== "completed" && batch.job?.error) row.append(el("span", batch.job.error, "error"));
+    const button = el("button", "复评未完成题目", "button");
+    button.disabled = batch.eligible === false || ["queued", "running", "completed"].includes(batch.status);
+    button.onclick = async () => {
+      button.disabled = true;
+      try { await submit(batch); button.textContent = "已排队"; notice("该批次复评已提交"); }
+      catch (error) { button.disabled = false; notice(error.message); }
+    };
+    const log = el("button", "查看复评日志", "button");
+    log.onclick = async () => {
+      try {
+        const data = await api(`/api/runs/${run.id}/batches/${batch.number}/regrade-log`);
+        let output = row.querySelector("pre");
+        if (!output) { output = el("pre"); row.append(output); }
+        output.textContent = data.logs.map(item => `${item.agent} · ${item.task}\n${item.text || item.error}`).join("\n\n") || "暂无复评日志";
+      } catch (error) { notice(error.message); }
+    };
+    row.append(button, log);
+    panel.append(row);
+  }
+  return panel;
+}
+
 async function renderDetail(id, token, initial = true) {
   const [r, logs, incidents] = await Promise.all([
     api("/api/runs/" + id),
@@ -488,14 +542,20 @@ async function renderDetail(id, token, initial = true) {
     const phases = {preparing:"准备环境",running:"执行 Agent",regrading:"官方复评",cleaning:"清理环境",completed:"已完成",failed:"批次失败",interrupted:"已中断"};
     const b = r.batch_state;
     $("#detail-state").append(el("span", `批次 ${b.current_batch || 1}/${b.total_batches || Math.ceil(b.total_tasks / b.batch_size)} · ${phases[b.phase] || b.phase} · 每批最多 ${b.batch_size} 题`, "muted"));
-    const pendingRegrades = (b.batches || []).filter(
-      batch => batch.official_regrade?.status === "failed",
+    const pendingRegrades = (r.official_regrading?.batches || []).filter(
+      batch => batch.status !== "completed",
     );
     if (pendingRegrades.length) {
       $("#detail-state").append(el("span",
         `官方复评待处理：批次 ${pendingRegrades.map(batch => batch.number).join("、")}；作答进度独立统计`,
         "error"));
     }
+  }
+  if (r.official_regrading?.batches?.length) {
+    const existing = $("#official-regrading");
+    const panel = regradingPanel(r);
+    if (existing) existing.replaceWith(panel);
+    else $("#detail-state").after(panel);
   }
   stats(
     [

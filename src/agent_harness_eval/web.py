@@ -1,8 +1,8 @@
 """Same-origin local API and static console."""
 
 import re
-from ipaddress import ip_address
 from contextlib import asynccontextmanager
+from ipaddress import ip_address
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .console import Console, redact
+from .console import read_json as read_json_log
 
 
 def create_app(root: Path, allow_live=False, recover=False, *, bind_host="127.0.0.1"):
@@ -114,6 +115,32 @@ def create_app(root: Path, allow_live=False, recover=False, *, bind_host="127.0.
     @app.get("/api/runs/{run_id}")
     def detail(run_id: str):
         return console.detail(run_id)
+
+    @app.post("/api/runs/{run_id}/batches/{number}/regrade", status_code=202)
+    def submit_regrading(run_id: str, number: int):
+        return console.submit_regrading(run_id, number)
+
+    @app.get("/api/runs/{run_id}/batches/{number}/regrade-log")
+    def regrade_log(run_id: str, number: int):
+        from .console import safe_file
+        from .guardian.evidence import log_tail
+
+        output = safe_file(console.artifacts, Path(console.row(run_id)["path"]))
+        directory = safe_file(output, output / "batches" / f"{number:03d}" / "official")
+        progress = read_json_log(output, directory / "progress.json")
+        logs = []
+        for unit in (progress or {}).get("units", {}).values():
+            if unit.get("log"):
+                logs.append({"task": unit["task"], "agent": unit["agent"],
+                             **log_tail(safe_file(output, output / unit["log"]))})
+        if not progress:
+            for path in directory.glob("*/attempt-*/console.log"):
+                logs.append({"task": "旧版批次日志", "agent": path.parent.parent.name,
+                             **log_tail(safe_file(output, path))})
+        for item in logs:
+            if "text" in item:
+                item["text"] = redact(item["text"])
+        return {"logs": logs}
 
     @app.get("/api/runs/{run_id}/logs")
     def logs(run_id: str):

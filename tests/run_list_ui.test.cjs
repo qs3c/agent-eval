@@ -93,3 +93,25 @@ test('missing scores and all-error attempts are distinguished', t => {
     assert.equal(run(`runState(${JSON.stringify(record)})`).querySelector('.badge').textContent, label);
   }
 });
+
+test('official regrading offers one button per batch and sends the whole batch once', async t => {
+  const { run } = setup(t);
+  const data = { id: 'test-run', official_regrading: { concurrency: 2, batches: [
+    {number:1,status:'failed',eligible:true,progress:{completed:1,total:4,units:{}}},
+    {number:2,status:'queued',eligible:true},
+    {number:3,status:'completed',eligible:true},
+  ] } };
+  const panel = run(`regradingPanel(${JSON.stringify(data)})`);
+  assert.match(panel.textContent, /全局并发度 2/);
+  assert.match(panel.textContent, /已完成 1\/4 项/);
+  const buttons = [...panel.querySelectorAll('button')].filter(b => b.textContent === '复评未完成题目');
+  assert.equal(buttons.length, 3);
+  assert.deepEqual(buttons.map(b => b.disabled), [false, true, true]);
+  run(`globalThis.requests = []; fetch = async (url, options) => { requests.push({url,options}); return {ok:true,json:async()=>({id:'job'})}; };`);
+  await buttons[0].onclick();
+  assert.equal(buttons[0].disabled, true);
+  assert.equal(buttons[0].textContent, '已排队');
+  assert.equal(run('requests.length'), 1);
+  assert.equal(run('requests[0].url'), '/api/runs/test-run/batches/1/regrade');
+  assert.equal(run('requests[0].options.body'), '{}');
+});

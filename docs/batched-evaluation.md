@@ -51,3 +51,15 @@ agent-harness-eval run experiments/swe-live-80-assist.json --output artifacts/sw
 ## 验证
 
 单元测试覆盖批次顺序、统一成绩、恢复跳过、冻结文件篡改、共享 archive 独立性、当前批复评覆盖和引用保护。真实禁网 Docker 验收覆盖工作区归档与凭据过滤；真实 Harbor 两批四次正负对照全部按预期评分。独立 SWE harness 使用 `pylint-dev__pylint-6903` 的基准补丁得到 resolved=1、errors=0；这属于离线评分连通性检查，不计为 Agent 成绩。
+
+## 自动重试与手动补评
+
+官方复评按“题目 × Agent × attempt”执行，每项最多尝试 3 次。网络连接重置、连接/读取超时等临时故障在 5 秒、15 秒后重试；单次 harness 进程期限为 1800 秒，超时终止整个进程组。配置错误、报告覆盖不完整直接保留为失败；测试正常运行后的 unresolved 不触发重试。复评失败继续后续作答。
+
+详情页每批只有一个「复评未完成题目」按钮，另有「复评全部未完成批次」。重复提交同一批次返回同一个排队或运行任务；不同批次按照提交顺序排队。作答流水线尚未结束时手动任务等待，避免与镜像清理冲突。批次任务串行出队，任务内部同时执行两项复评。自动批次复评、手动补评及 `swe-regrade --execute` 共用同一 Unix 用户下的全局锁与两个执行槽位，跨工作区和控制台实例也不叠加并发。
+
+队列保存于 `~/.cache/agent-harness-eval/regrading/queue.sqlite3`。服务重启时，确认旧复评进程已释放继承的锁后，将原运行任务标记为 interrupted，等待再次点击；queued 任务继续排队。失败任务可重新提交。补评检查冻结任务哈希；仅复评，不重新执行被测 Agent。
+
+`batches/NNN/official/progress.json` 保存逐项状态和当前日志路径；`units/` 为每次执行生成独立目录，保存输入、日志、官方报告与执行记录。成功项仅在输入哈希、报告哈希及报告覆盖检查一致时跳过。`export-evidence-*.json` 保存本次导出追溯信息；原有失败日志和冻结实验记录保留。`official-summary.json` 单独汇总官方结果，Harbor 原始分数不变。旧版 `deferred.json` 和失败状态在页面显示为待处理，首次补评建立上述逐项记录。
+
+本次本地验证：全量 Python 回归 279 passed、10 skipped；实验列表和 RSI 的 30 项前端测试通过；Ruff、JavaScript 语法及 diff 检查通过。既有守护窗口测试原先随机选取第一条 incident，可能误选超时清理记录；现按 `no_observed_progress` 选择诊断记录，并分别验证诊断完成、到期禁止 exec 与超时清理。未进行真实 SWE 联网复评或部署验收。

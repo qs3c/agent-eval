@@ -30,6 +30,21 @@ function setup(t, records = [experiment]) {
   return { doc: dom.window.document, run: code => vm.runInContext(code, context) };
 }
 
+test('live report distinguishes completed attempts from scored attempts', t => {
+  const { run } = setup(t);
+  const report = { live: true, agents: { bkcrab: {
+    recorded: 20, expected: 30, scored: 16, errors: 4, missing: 10,
+    mean_on_scored: 0.8125, cost_usd: null,
+  } }, trials: [] };
+  const node = run(`reportTable(${JSON.stringify(report)})`);
+  assert.match(node.textContent, /已结束 \/ 应有/);
+  assert.match(node.textContent, /尚未结束/);
+  assert.match(node.textContent, /20 \/ 30/);
+  assert.match(node.textContent, /16 \/ 30/);
+  report.live = false;
+  assert.match(run(`reportTable(${JSON.stringify(report)})`).textContent, /缺失/);
+});
+
 test('default list shows unreviewed real experiments and retains the reviewed filter', async t => {
   const mock = { ...experiment, id: 'mock', name: 'mock-only', category: 'selftest', mode: 'mock' };
   const { doc, run } = setup(t, [experiment, mock]);

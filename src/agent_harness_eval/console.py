@@ -22,7 +22,7 @@ from pydantic import Field
 from .config import Experiment, Strict, load
 from .manifests import load_manifest
 from .provenance import validate_tree, write_json
-from .report import duration, task_key
+from .report import duration, summarize, task_key
 
 
 def now():
@@ -469,6 +469,17 @@ class Console:
             except (OSError, ValueError, KeyError, IndexError):
                 row["status"] = "interrupted"
         from .trace_view import decorate
+
+        if row["status"] == "running":
+            report = summarize(
+                {
+                    "experiment": exp,
+                    "tasks": (manifest or {}).get("tasks", {}),
+                    "evidence_kind": (manifest or {}).get("evidence_kind", ""),
+                },
+                trials,
+            )
+            report["live"] = True
 
         summaries = (report or {}).get("agents", {}).values()
         execution_summary = {

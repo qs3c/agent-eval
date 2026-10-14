@@ -372,6 +372,7 @@ function agentRows(report) {
         : null;
     return [
       id,
+      `${a.recorded} / ${a.expected}`,
       number(a.mean_on_scored),
       `${a.scored} / ${a.expected}`,
       number(a.errors),
@@ -387,10 +388,11 @@ function reportTable(report, reviews = {}) {
   return table(
     [
       "Agent",
+      "已结束 / 应有",
       "已评分均值",
       "已评分 / 应有",
       "异常",
-      "缺失",
+      report.live ? "尚未结束" : "缺失",
       "Agent 秒数",
       "输入 tokens",
       "输出 tokens",
@@ -400,7 +402,7 @@ function reportTable(report, reviews = {}) {
       const review = reviews[row[0]];
       if (review?.status === "diagnostic") {
         row[0] += " · 仅供诊断";
-        row[6] = row[7] = "不纳入对比";
+        row[7] = row[8] = "不纳入对比";
       }
       return row;
     }),
@@ -486,6 +488,14 @@ async function renderDetail(id, token, initial = true) {
     const phases = {preparing:"准备环境",running:"执行 Agent",regrading:"官方复评",cleaning:"清理环境",completed:"已完成",failed:"批次失败",interrupted:"已中断"};
     const b = r.batch_state;
     $("#detail-state").append(el("span", `批次 ${b.current_batch || 1}/${b.total_batches || Math.ceil(b.total_tasks / b.batch_size)} · ${phases[b.phase] || b.phase} · 每批最多 ${b.batch_size} 题`, "muted"));
+    const pendingRegrades = (b.batches || []).filter(
+      batch => batch.official_regrade?.status === "failed",
+    );
+    if (pendingRegrades.length) {
+      $("#detail-state").append(el("span",
+        `官方复评待处理：批次 ${pendingRegrades.map(batch => batch.number).join("、")}；作答进度独立统计`,
+        "error"));
+    }
   }
   stats(
     [

@@ -26,7 +26,8 @@ def test_shared_freezing_is_independent_of_source(tmp_path):
     assert fa.read_bytes() == fb.read_bytes() == b"unchanged grader"
 
 
-def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch):
+@pytest.mark.parametrize("regrade_fails", [False, True])
+def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch, regrade_fails):
     from agent_harness_eval import batching
     from agent_harness_eval.guardian import supervisor
     from agent_harness_eval.run import run_experiment
@@ -60,6 +61,8 @@ def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch):
 
     def regrade(exp, root, paths, number):
         events.append(("regrade", paths[0].name))
+        if regrade_fails:
+            raise ConnectionError("official scoring connection reset")
 
     def cleanup(exp, root, paths, number):
         events.append(("cleanup", paths[0].name))
@@ -85,11 +88,57 @@ def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch):
     report = json.loads((root / "report.json").read_text())
     assert report["agents"]["positive"]["expected"] == 2
     assert report["agents"]["negative"]["recorded"] == 2
+    state = json.loads((root / "batch-state.json").read_text())
+    assert state["phase"] == "completed"
+    for batch in state["batches"]:
+        assert batch["phase"] == "completed"
+        assert batch["official_regrade"]["status"] == (
+            "failed" if regrade_fails else "disabled"
+        )
+        if regrade_fails:
+            assert "connection reset" in batch["official_regrade"]["error"]
     asyncio.run(run_experiment(exp, root, resume=True))
     assert len(events) == 10
     exp.concurrency = 1
     with pytest.raises(ValueError, match="configuration"):
         asyncio.run(run_experiment(exp, root, resume=True))
+
+
+@pytest.mark.parametrize("failure_stage", ["cancel_regrade", "cleanup"])
+def test_batch_execution_still_stops_on_cancel_or_cleanup_error(tmp_path, monkeypatch, failure_stage):
+    from types import SimpleNamespace
+
+    from agent_harness_eval import batching
+    from agent_harness_eval.guardian import supervisor
+
+    exp = load(Path("experiments/controls.json"))
+    exp.batch = BatchConfig(size=1, min_free_gib=0, official_regrade=True)
+    events = []
+
+    async def run(*args, **kwargs):
+        events.append("run")
+
+    def regrade(*args):
+        if failure_stage == "cancel_regrade":
+            raise asyncio.CancelledError()
+        raise ConnectionError("scoring unavailable")
+
+    def cleanup(*args):
+        raise RuntimeError("cleanup failed")
+
+    monkeypatch.setattr(supervisor, "run_guarded", run)
+    monkeypatch.setattr(batching, "prepare_batch", lambda *a: None)
+    monkeypatch.setattr(batching, "record_tasks", lambda *a: None)
+    monkeypatch.setattr(batching, "report", lambda *a: None)
+    monkeypatch.setattr(batching, "regrade_batch", regrade)
+    monkeypatch.setattr(batching, "cleanup_batch", cleanup)
+    tasks = [SimpleNamespace(path=tmp_path / str(i)) for i in range(2)]
+    with pytest.raises(asyncio.CancelledError if failure_stage == "cancel_regrade" else RuntimeError):
+        asyncio.run(batching.run_batches(exp, tmp_path, tasks, {a.id: None for a in exp.agents}))
+    state = json.loads((tmp_path / "batch-state.json").read_text())
+    assert state["current_batch"] == 1
+    assert state["phase"] == ("interrupted" if failure_stage == "cancel_regrade" else "failed")
+    assert len(events) == len(exp.agents)
 
 
 def test_resume_stops_on_modified_frozen_input(tmp_path, monkeypatch):

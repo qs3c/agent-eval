@@ -6,6 +6,39 @@ from pathlib import Path
 import pytest
 
 from agent_harness_eval.console import Console
+from agent_harness_eval.report import summarize
+
+
+def test_running_report_refreshes_each_result_without_rewriting_snapshot(console):
+    item = console.submit({"template": "controls"})
+    console.update(item["id"], "running")
+    run = Path(console.row(item["id"])["path"])
+    run.mkdir()
+    exp = console.detail(item["id"])["experiment"]
+    manifest = {"experiment": exp, "tasks": {}, "evidence_kind": "mock"}
+    snapshot = json.dumps(summarize(manifest, []))
+    (run / "report.json").write_text(snapshot)
+    agent = exp["agents"][0]["id"]
+    for index in range(2):
+        trial = run / "jobs" / agent / str(index)
+        trial.mkdir(parents=True)
+        (trial / "result.json").write_text(json.dumps({
+            "task_name": str(index), "finished_at": "2026-10-14T10:00:00Z",
+            "verifier_result": {"rewards": {"reward": 1}},
+            "exception_info": {"exception_type": "AgentTimeoutError"} if index else None,
+        }))
+        detail = console.detail(item["id"])
+        summary = detail["report"]["agents"][agent]
+        assert detail["completed"] == summary["recorded"] == index + 1
+        assert detail["report"]["live"] is True
+        assert summary["scored"] == 1
+        assert summary["errors"] == index
+        assert summary["mean_on_scored"] == 1
+        assert summary["missing"] == summary["expected"] - index - 1
+        assert (run / "report.json").read_text() == snapshot
+    listing = console.runs()[0]
+    assert listing["completed"] == 2
+    assert listing["execution_summary"]["errors"] == 1
 
 
 @pytest.fixture

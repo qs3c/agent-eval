@@ -71,6 +71,46 @@ def report(root: Path) -> dict:
                 "guardian": incident_summary(path.parent),
             }
         )
+    data = summarize(manifest, trials, report_errors)
+    summaries = data["agents"]
+    write_json(root / "report.json", data)
+    lines = [
+        f"# {exp['name']}",
+        "",
+        manifest["evidence_kind"],
+        "",
+        f"Benchmark: {data['benchmark']}; metric: {metric}",
+        "",
+        "| Agent | Expected | Recorded | Errors | Scored | Mean on scored | Missing |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for name, s in summaries.items():
+        lines.append(
+            f"| {name} | {s['expected']} | {s['recorded']} | {s['errors']} | {s['scored']} | {s['mean_on_scored']} | {s['missing']} |"
+        )
+    for name, s in summaries.items():
+        if s.get("assisted"):
+            lines += [
+                "",
+                f"{name}: {s['assisted']} externally assisted attempts. Raw scores are retained; these are not autonomous results.",
+            ]
+    lines += [
+        "",
+        "Unknown cost remains null. Missing/errored trials are explicitly counted; JSON also reports a diagnostic mean treating unscored attempts as zero. Zero is only a lower bound for nonnegative metrics.",
+        "Paired task values require all requested attempts to be scored. No significance claim is made from smoke tests.",
+    ]
+    if report_errors:
+        lines.append(
+            f"Malformed result files: {len(report_errors)}; counted as missing, with details in report_errors."
+        )
+    (root / "report.md").write_text("\n".join(lines) + "\n")
+    return data
+
+
+def summarize(manifest, trials, report_errors=None):
+    """Build a report without writing or rereading evidence files."""
+    exp = manifest["experiment"]
+    metric = exp["benchmark"]["primary_metric"]
     expected = len(exp["benchmark"]["tasks"]) * exp["attempts"]
     summaries = {}
     for agent in exp["agents"]:
@@ -115,37 +155,6 @@ def report(root: Path) -> dict:
         "agents": summaries,
         "paired_tasks": dict(by_task),
         "trials": trials,
-        "report_errors": report_errors,
+        "report_errors": report_errors or [],
     }
-    write_json(root / "report.json", data)
-    lines = [
-        f"# {exp['name']}",
-        "",
-        manifest["evidence_kind"],
-        "",
-        f"Benchmark: {data['benchmark']}; metric: {metric}",
-        "",
-        "| Agent | Expected | Recorded | Errors | Scored | Mean on scored | Missing |",
-        "|---|---:|---:|---:|---:|---:|---:|",
-    ]
-    for name, s in summaries.items():
-        lines.append(
-            f"| {name} | {s['expected']} | {s['recorded']} | {s['errors']} | {s['scored']} | {s['mean_on_scored']} | {s['missing']} |"
-        )
-    for name, s in summaries.items():
-        if s.get("assisted"):
-            lines += [
-                "",
-                f"{name}: {s['assisted']} externally assisted attempts. Raw scores are retained; these are not autonomous results.",
-            ]
-    lines += [
-        "",
-        "Unknown cost remains null. Missing/errored trials are explicitly counted; JSON also reports a diagnostic mean treating unscored attempts as zero. Zero is only a lower bound for nonnegative metrics.",
-        "Paired task values require all requested attempts to be scored. No significance claim is made from smoke tests.",
-    ]
-    if report_errors:
-        lines.append(
-            f"Malformed result files: {len(report_errors)}; counted as missing, with details in report_errors."
-        )
-    (root / "report.md").write_text("\n".join(lines) + "\n")
     return data

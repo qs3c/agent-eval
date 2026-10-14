@@ -19,7 +19,9 @@
 
 `batch` 默认关闭。开启但未指定守护时使用 observe 期限兜底；指定 assist 时继续使用冻结的守护策略。SWE 准备和复评要求 resolved 类型 benchmark；其他 Harbor 单阶段任务可以使用批次执行而关闭这两个选项。
 
-每批按 `preparing → running（逐个 Agent、各自使用任务并发）→ regrading → cleaning → completed` 执行。先校验补丁和原始评分报告，完成本批独立 SWE harness 4.1.0 复评，再处理镜像；不会为了下批腾空间先删掉尚待复评的镜像。官方报告必须覆盖本批精确 ID 集合，评分异常或不完整报告使该批失败并停止清理。正常 unresolved 和 empty patch 保留在成绩分母中。
+每批按 `preparing → running（逐个 Agent、各自使用任务并发）→ regrading → cleaning → completed` 执行。尝试本批独立 SWE harness 4.1.0 复评后处理镜像。官方报告必须覆盖本批精确 ID 集合；复评异常或报告不完整时，将 `official_regrade.status` 记为 `failed` 并保留错误，继续清理和下一批作答。批次 `completed` 表示作答与清理完成，不表示官方复评通过；控制台单独显示待处理复评批次。正常 unresolved 和 empty patch 保留在成绩分母中。
+
+延期复评保留冻结任务、镜像 digest、runtime archive、补丁和已有复评证据；清理可能删除本批镜像，后续复评需按固定来源重新准备镜像。磁盘不足、准备失败、作答调度错误、清理失败及取消操作仍停止流水线，不因复评容错而忽略。
 
 ## 证据和空间
 
@@ -44,7 +46,7 @@
 agent-harness-eval run experiments/swe-live-80-assist.json --output artifacts/swe-live-80 --resume
 ```
 
-正式运行应使用已冻结的配置文件恢复（当前本地实验为 `.cache/swe-live-80/config.json`）。恢复需要同一配置、完整 provenance、未修改的冻结任务及 Agent 产物；已完成批次跳过，已有终态尝试（包括失败）计入次数而不重跑。存在匹配任务的无结果尝试时拒绝自动重跑，要求先检查原进程和容器；准备阶段私有事务可按原哈希回滚。官方复评或清理失败后的恢复可再次运行独立评分/清理，不重复被测 Agent 调用。
+正式运行应使用已冻结的配置文件恢复（当前本地实验为 `.cache/swe-live-80/config.json`）。恢复需要同一配置、完整 provenance、未修改的冻结任务及 Agent 产物；已完成批次跳过，已有终态尝试（包括失败）计入次数而不重跑。存在匹配任务的无结果尝试时拒绝自动重跑，要求先检查原进程和容器；准备阶段私有事务可按原哈希回滚。清理失败后的恢复可再次运行独立评分/清理，不重复被测 Agent 调用。已完成批次中的失败复评需单独补跑，`--resume` 不会自动重放这些批次，也不会把复评失败改成成功。
 
 ## 验证
 

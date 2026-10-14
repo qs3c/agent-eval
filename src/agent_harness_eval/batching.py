@@ -455,7 +455,22 @@ async def run_batches(
                 )
                 report(output)
             phase("regrading")
-            await asyncio.to_thread(regrade_batch, exp, output, paths, number)
+            try:
+                await asyncio.to_thread(regrade_batch, exp, output, paths, number)
+            except Exception as error:  # noqa: BLE001 - persist scoring failures without aborting Agent execution
+                # Official scoring is independent of Agent execution. Retain
+                # its failure evidence while allowing the next batch to run.
+                entry["official_regrade"] = {
+                    "status": "failed",
+                    "error": str(error),
+                    "updated_unix": time.time(),
+                }
+            else:
+                entry["official_regrade"] = {
+                    "status": "completed" if exp.batch.official_regrade else "disabled",
+                    "updated_unix": time.time(),
+                }
+            entry.pop("error", None)
             phase("cleaning")
             await asyncio.to_thread(cleanup_batch, exp, output, paths, number)
             phase("completed", agent=None)

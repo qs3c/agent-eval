@@ -41,10 +41,11 @@ def state_root():
 
 
 @contextmanager
-def gate(name, blocking=True):
+def gate(name, blocking=True, *, shared=False):
     with (state_root() / (name + ".lock")).open("a") as stream:
         try:
-            fcntl.flock(stream, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+            mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+            fcntl.flock(stream, mode | (0 if blocking else fcntl.LOCK_NB))
         except BlockingIOError:
             yield None
             return
@@ -67,14 +68,14 @@ def slot():
 
 def run_command(command, work, log_path, inherited=()):
     """Kill the whole grading process group on timeout; children hold capacity locks."""
-    with slot() as fd, log_path.open("w") as log:
+    with gate("image-use", shared=True) as image_fd, slot() as fd, log_path.open("w") as log:
         process = subprocess.Popen(
             command,
             cwd=work,
             stdout=log,
             stderr=subprocess.STDOUT,
             start_new_session=True,
-            pass_fds=(*inherited, fd),
+            pass_fds=(*inherited, fd, image_fd),
         )
         try:
             return process.wait(timeout=TIMEOUT)
@@ -431,7 +432,8 @@ def queue_worker(stop):
                         )
                     error = None
                     try:
-                        from .batching import regrade_batch
+                        from .batching import cleanup_batch, regrade_batch
+                        from .image_lifecycle import retain
                         from .config import Experiment
 
                         manifest = load_manifest(output)
@@ -454,6 +456,7 @@ def queue_worker(stop):
                                 raise ValueError(
                                     "冻结任务内容已改变，拒绝复评：" + task.name
                                 )
+                        retain(output, paths, row["batch"])
                         regrade_batch(
                             exp,
                             output,
@@ -462,6 +465,11 @@ def queue_worker(stop):
                             inherited=(fd,),
                             force=True,
                         )
+                        batch["official_regrade"] = {
+                            "status": "completed", "updated_unix": time.time()
+                        }
+                        write(output / "batch-state.json", state)
+                        cleanup_batch(exp, output, paths, row["batch"])
                     except Exception as exc:  # noqa: BLE001 - persist job failure
                         error = str(exc)
                     with database() as db:

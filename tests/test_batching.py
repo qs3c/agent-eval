@@ -73,7 +73,7 @@ def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch, re
     monkeypatch.setattr(batching, "cleanup_batch", cleanup)
     root = tmp_path / "run"
     asyncio.run(run_experiment(exp, root))
-    assert events == [
+    expected_events = [
         ("prepare", "file-create"),
         ("run", "file-create", "positive"),
         ("run", "file-create", "negative"),
@@ -85,6 +85,9 @@ def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch, re
         ("regrade", "file-preserve"),
         ("cleanup", "file-preserve"),
     ]
+    if regrade_fails:
+        expected_events = [event for event in expected_events if event[0] != "cleanup"]
+    assert events == expected_events
     report = json.loads((root / "report.json").read_text())
     assert report["agents"]["positive"]["expected"] == 2
     assert report["agents"]["negative"]["recorded"] == 2
@@ -98,7 +101,7 @@ def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch, re
         if regrade_fails:
             assert "connection reset" in batch["official_regrade"]["error"]
     asyncio.run(run_experiment(exp, root, resume=True))
-    assert len(events) == 10
+    assert len(events) == len(expected_events)
     exp.concurrency = 1
     with pytest.raises(ValueError, match="configuration"):
         asyncio.run(run_experiment(exp, root, resume=True))
@@ -121,7 +124,7 @@ def test_batch_execution_still_stops_on_cancel_or_cleanup_error(tmp_path, monkey
     def regrade(*args):
         if failure_stage == "cancel_regrade":
             raise asyncio.CancelledError()
-        raise ConnectionError("scoring unavailable")
+        # Cleanup is now reached only after successful official grading.
 
     def cleanup(*args):
         raise RuntimeError("cleanup failed")

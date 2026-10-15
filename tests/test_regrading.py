@@ -186,6 +186,7 @@ def test_duplicate_batch_is_one_job_and_other_batches_fifo(grading, monkeypatch)
             stop.set()
 
     monkeypatch.setattr(batching, "regrade_batch", grade)
+    monkeypatch.setattr(batching, "cleanup_batch", lambda *args: None)
     thread = threading.Thread(target=regrading.queue_worker, args=(stop,))
     thread.start()
     assert entered.wait(timeout=3)

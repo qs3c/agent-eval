@@ -148,7 +148,15 @@ def regrade_batch(exp, output, paths, number, *, inherited=(), force=False):
 
 
 def cleanup_batch(exp, output, paths, number):
+    from .image_lifecycle import collect
+
+    collect(exp, output, paths, number)
+
+
+def _cleanup_batch_images(exp, output, paths, number):
     refs = set()
+    for inventory in (output / "batches" / f"{number:03d}" / "official").rglob("official-images.json"):
+        refs.update(read(inventory, []))
     for task in paths:
         runtime = read(task / "runtime-provenance.json", {})
         if runtime.get("image"):
@@ -172,6 +180,8 @@ def cleanup_batch(exp, output, paths, number):
             check=False,
         )
         if inspect.returncode:
+            if "no such image" not in inspect.stderr.lower() and "no such object" not in inspect.stderr.lower():
+                raise RuntimeError(f"Docker image inspection failed for {ref}: {inspect.stderr[-2000:]}")
             operations.append({"image": ref, "status": "already_absent"})
             continue
         image = json.loads(inspect.stdout)[0]
@@ -181,7 +191,9 @@ def cleanup_batch(exp, output, paths, number):
             text=True,
             check=False,
         )
-        if containers.returncode or containers.stdout.split():
+        if containers.returncode:
+            raise RuntimeError(f"Docker container inspection failed: {containers.stderr[-2000:]}")
+        if containers.stdout.split():
             operations.append(
                 {
                     "image": ref,
@@ -229,6 +241,8 @@ def cleanup_batch(exp, output, paths, number):
             text=True,
             check=False,
         )
+        if remains.returncode and "no such image" not in remains.stderr.lower() and "no such object" not in remains.stderr.lower():
+            raise RuntimeError(f"Docker image inspection failed after removal: {remains.stderr[-2000:]}")
         remaining_tags = (
             (json.loads(remains.stdout)[0].get("RepoTags") or [])
             if remains.returncode == 0
@@ -273,6 +287,7 @@ def cleanup_batch(exp, output, paths, number):
         raise RuntimeError(
             "Current-batch image cleanup failed; inspect batch cleanup.json"
         )
+    return not any(op["status"] == "retained_container_reference" for op in operations)
 
 
 async def run_batches(
@@ -305,6 +320,9 @@ async def run_batches(
         entry = next((b for b in state["batches"] if b["number"] == number), None)
         if entry and entry["phase"] == "completed":
             continue
+        from .image_lifecycle import retain
+
+        await asyncio.to_thread(retain, output, paths, number)
         if entry is None:
             entry = {
                 "number": number,
@@ -376,8 +394,14 @@ async def run_batches(
                     "updated_unix": time.time(),
                 }
             entry.pop("error", None)
-            phase("cleaning")
-            await asyncio.to_thread(cleanup_batch, exp, output, paths, number)
+            if entry["official_regrade"]["status"] != "failed":
+                phase("cleaning")
+                await asyncio.to_thread(cleanup_batch, exp, output, paths, number)
+            else:
+                write(output / "batches" / f"{number:03d}" / "cleanup.json", {
+                    "status": "retained_pending_regrade",
+                    "note": "官方复评未完成，保留镜像供重试。",
+                })
             phase("completed", agent=None)
         except BaseException as error:
             phase(

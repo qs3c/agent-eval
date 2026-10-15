@@ -23,6 +23,9 @@ from .report import report
 async def run_experiment(
     exp: Experiment, output: Path, *, manage_signals=True, resume=False
 ):
+    from .search import validate_search_credentials
+
+    validate_search_credentials(exp)
     if exp.guardian is not None:
         from .guardian.config import validate_tasks
 

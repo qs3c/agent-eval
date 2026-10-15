@@ -461,3 +461,23 @@ def test_legacy_swe_inference_respects_explicit_metric(console):
         "历史 SWE 数据集名称 / 修订 / split 未记录"
         in console.compare(item["id"], item["id"])["differences"]
     )
+
+
+def test_submission_copies_dirty_source_evidence(console):
+    path = console.root / "experiments/controls.json"
+    config = json.loads(path.read_text())
+    source = console.root / "build"
+    source.mkdir()
+    changes = source / "provenance.source"
+    changes.mkdir()
+    patch = changes / "changes.patch"
+    patch.write_text("frozen source patch")
+    provenance = source / "provenance.json"
+    provenance.write_text(json.dumps({"changes_directory": changes.name,
+                                     "changes": {patch.name: hashlib.sha256(patch.read_bytes()).hexdigest()}}))
+    config["agents"][0]["kwargs"] = {"provenance": str(provenance)}
+    path.write_text(json.dumps(config))
+    row = console.submit({"template": "controls"})
+    frozen = Path(row["experiment"]["agents"][0]["kwargs"]["provenance"])
+    patch.write_text("subsequently modified source")
+    assert (frozen.parent / changes.name / patch.name).read_text() == "frozen source patch"

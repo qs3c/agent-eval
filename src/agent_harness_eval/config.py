@@ -104,6 +104,14 @@ class Experiment(Strict):
                     f"{agent.id}: incompatible task requirements: {sorted(missing)}"
                 )
             reject_credentials(agent.kwargs)
+            if agent.kwargs.get("web_search") is not None:
+                from .search import WebSearch
+
+                WebSearch.model_validate(agent.kwargs["web_search"])
+                if agent.implementation != "agent_harness_eval.agents.bkcrab:Bkcrab":
+                    raise ValueError("web_search is currently supported by the BKCrab adapter only")
+                if self.model.mode != "live":
+                    raise ValueError("external web_search requires live mode")
             if "sdk-minimal" in str(agent.kwargs):
                 raise ValueError("sdk-minimal is excluded from this comparison")
         return self
@@ -137,6 +145,15 @@ def load(path: Path, *, validate_agent_artifacts=True) -> Experiment:
         from harbor.models.task.config import TaskConfig
 
         config = TaskConfig.model_validate_toml((task / "task.toml").read_text())
+        if not (exp.batch and exp.batch.prepare_swe):
+            from .search import search_hosts
+
+            hosts = search_hosts(exp)
+            if hosts and (
+                config.agent.network_mode.value != "allowlist"
+                or not set(hosts) <= set(config.agent.allowed_hosts)
+            ):
+                raise ValueError("web_search endpoints must be explicitly included in task network allowlist")
         if exp.model.mode == "mock" and config.agent.network_mode.value != "no-network":
             raise ValueError(
                 "mock tasks must explicitly set agent.network_mode = no-network"

@@ -306,6 +306,17 @@ class Console:
                         target = frozen / "agents" / agent["id"] / source.name
                         target.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copyfile(source, target)
+                        if key == "provenance":
+                            identity = json.loads(source.read_text())
+                            directory = identity.get("changes_directory")
+                            if directory:
+                                if Path(directory).name != directory or directory in {".", ".."}:
+                                    raise ValueError("Invalid provenance changes directory")
+                                changes = source.parent / directory
+                                if changes.is_symlink():
+                                    raise ValueError("Provenance symlinks are not supported")
+                                validate_tree(changes)
+                                shutil.copytree(changes, target.parent / directory)
                         agent["kwargs"][key] = str(target)
             write_json(frozen / "config.json", config)
             with self.connect() as db:

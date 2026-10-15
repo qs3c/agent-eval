@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,18 @@ from .guardian.evidence import read, write
 from .manifests import compact_manifest, load_manifest
 from .provenance import digest, tree_manifest
 from .report import report, task_key
+from .search import search_hosts
+
+
+def search_network_policy(text, hosts):
+    """Set only the agent table; preserve verifier and environment policies."""
+    sections = re.split(r"(?m)(?=^\[)", text)
+    for i, section in enumerate(sections):
+        if section and section.splitlines()[0].strip() == "[agent]":
+            section = re.sub(r"(?m)^network_mode\s*=.*\n?", "", section)
+            section = re.sub(r"(?m)^allowed_hosts\s*=\s*\[[^\]]*\][^\n]*\n?", "", section)
+            sections[i] = section.replace("[agent]", '[agent]\nnetwork_mode = "allowlist"\nallowed_hosts = ' + json.dumps(hosts), 1)
+    return "".join(sections)
 
 
 def record_tasks(output, paths):
@@ -107,17 +120,13 @@ def prepare_batch(exp, output, paths, number):
                 raise ValueError("Prepared runtime archive hash mismatch")
             own_archive(runtime, output / "shared-runtime")
             policy = task / "task.toml"
-            text = policy.read_text().replace(
-                'network_mode = "no-network"',
-                'network_mode = "allowlist"\nallowed_hosts = ["api.deepseek.com"]',
-            )
+            hosts = sorted({"api.deepseek.com", *search_hosts(exp)})
+            text = search_network_policy(policy.read_text(), hosts)
             policy.write_text(text)
             import tomllib
 
             agent = tomllib.loads(text)["agent"]
-            if agent["network_mode"] != "allowlist" or agent.get("allowed_hosts") != [
-                "api.deepseek.com"
-            ]:
+            if agent["network_mode"] != "allowlist" or agent.get("allowed_hosts") != hosts:
                 raise ValueError(
                     "Prepared SWE agent network policy is not the frozen allowlist"
                 )

@@ -384,3 +384,63 @@ def test_v2_ids_and_monotonic_timing(tmp_path, monkeypatch):
     from agent_harness_eval.traces import summarize_usage
 
     assert summarize_usage(effective, rows)[1]["usage_complete"] is False
+
+
+def test_exa_relay_records_search_without_forwarding_client_credentials(tmp_path, monkeypatch):
+    monkeypatch.setattr(relay, "LOGS", tmp_path)
+    received = []
+    def upstream(request, timeout):
+        received.append(request)
+        assert request.full_url == "https://api.exa.ai/search"
+        assert request.get_header("X-api-key") == "exa-real-secret"
+        return RetryResponse(b'{"results":[{"title":"Docs","url":"https://docs.python.org","highlights":["Documentation"]}]}')
+    monkeypatch.setattr(relay, "urlopen", upstream)
+    server = relay.ThreadingHTTPServer(("127.0.0.1", 0), relay.Handler)
+    server.search_key = "exa-real-secret"
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        body = {"query": "python", "type": "auto", "contents": {"highlights": True}}
+        request = Request(f"http://127.0.0.1:{server.server_port}/search/exa", json.dumps(body).encode(), {"x-api-key": "relay-only"})
+        with urlopen(request) as response:
+            assert json.load(response)["results"][0]["highlights"] == ["Documentation"]
+        invalid = Request(request.full_url, b'{"query":"python","endpoint":"https://other.example"}')
+        with pytest.raises(HTTPError) as exc:
+            urlopen(invalid)
+        assert exc.value.code == 400
+        exc.value.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+    assert len(received) == 1
+    assert not (tmp_path / "wire_responses.jsonl").exists()
+    records = [json.loads((tmp_path / name).read_text()) for name in ("search_requests.jsonl", "search_results.jsonl", "search_responses.jsonl")]
+    assert len({r["request_id"] for r in records}) == 1
+    assert records[-1]["purpose"] == "web_search"
+    assert records[-1]["outcome"] == "completed"
+    assert all("exa-real-secret" not in p.read_text() for p in tmp_path.iterdir())
+
+
+def test_exa_relay_failure_is_recorded_and_redacted(tmp_path, monkeypatch):
+    monkeypatch.setattr(relay, "LOGS", tmp_path)
+    def upstream(*args):
+        raise HTTPError("https://api.exa.ai/search", 401, "exa-secret", {}, io.BytesIO(b'exa-secret'))
+    monkeypatch.setattr(relay, "open_upstream", upstream)
+    server = relay.ThreadingHTTPServer(("127.0.0.1", 0), relay.Handler)
+    server.search_key = "exa-secret"
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        body = json.dumps({"query": "python", "contents": {"highlights": True}}).encode()
+        with pytest.raises(HTTPError) as exc:
+            urlopen(Request(f"http://127.0.0.1:{server.server_port}/search/exa", body))
+        assert exc.value.code == 401
+        assert b'exa-secret' not in exc.value.read()
+        exc.value.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+    assert json.loads((tmp_path / 'search_responses.jsonl').read_text())["outcome"] == "http_error"
+    assert all("exa-secret" not in p.read_text() for p in tmp_path.iterdir())

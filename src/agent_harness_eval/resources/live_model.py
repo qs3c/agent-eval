@@ -207,6 +207,9 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
+        if self.path == "/search/exa":
+            self.exa_search()
+            return
         paths = {
             "/v1/chat/completions": "/chat/completions",
             "/chat/completions": "/chat/completions",
@@ -377,6 +380,66 @@ class Handler(BaseHTTPRequestHandler):
             )
 
 
+    def exa_search(self):
+        """Relay the native Exa contract, with independent search evidence."""
+        key = getattr(self.server, "search_key", "")
+        if not key:
+            self.send_error(503, "Exa relay is not configured")
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 65536:
+                raise ValueError("invalid request size")
+            body = json.loads(self.rfile.read(length))
+            if not isinstance(body, dict) or not isinstance(body.get("query"), str) or not body["query"].strip():
+                raise ValueError("missing query")
+            if set(body) - {"query", "type", "contents", "numResults"}:
+                raise ValueError("unsupported fields")
+            if body.get("type", "auto") != "auto" or body.get("contents") != {"highlights": True}:
+                raise ValueError("unsupported extraction")
+            if "numResults" in body and (type(body["numResults"]) is not int or not 1 <= body["numResults"] <= 20):
+                raise ValueError("invalid count")
+        except (ValueError, TypeError):
+            self.send_error(400, "Invalid Exa search request")
+            return
+        request_id = str(uuid.uuid4())
+        started = time.monotonic()
+        status, outcome = None, "incomplete"
+        record = {"request_id": request_id, "purpose": "web_search", "provider": "exa"}
+        # Only the platform-owned relay holds the real key. Never log headers.
+        def clean(value):
+            return json.loads(json.dumps(value).replace(key, "[REDACTED]"))
+        append("search_requests.jsonl", {**record, "body": clean(body), "time": datetime.now(UTC).isoformat()})
+        request = Request("https://api.exa.ai/search", json.dumps(body).encode(),
+                          {"Content-Type": "application/json", "x-api-key": key})
+        try:
+            with open_upstream(request, 10, request_id, "web_search") as response:
+                status = response.status
+                data = response.read().replace(key.encode(), b"[REDACTED]")
+                result = json.loads(data)
+                append("search_results.jsonl", {**record, "body": result})
+            outcome = "completed"
+        except HTTPError as error:
+            status, outcome = error.code, "http_error"
+            error.close()
+            data = json.dumps({"error": "Exa upstream HTTP error", "status": status}).encode()
+        except Exception as error:  # noqa: BLE001 - no sensitive exception text
+            status, outcome = 502, "transport_error"
+            data = b'{"error":"Exa upstream request failed"}'
+            append("wire_errors.jsonl", {**record, "error": type(error).__name__})
+        finally:
+            append("search_responses.jsonl", {**record, "schema_version": 2,
+                   "status": status, "outcome": outcome, "protocol": "exa_search",
+                   "usage": None, "stream_complete": outcome == "completed",
+                   "timing_ms": {"finished": (time.monotonic() - started) * 1000},
+                   "retry_policy": RETRY_POLICY})
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
 if __name__ == "__main__":
     key_path = Path("/installed-agent/live.key")
     key = key_path.read_text().strip()
@@ -384,4 +447,8 @@ if __name__ == "__main__":
     server = ThreadingHTTPServer(("127.0.0.1", 18765), Handler)
     server.api_key = key
     server.model_config = json.loads(Path("/installed-agent/model.json").read_text())
+    if server.model_config.get("web_search", {}).get("transport") == "platform-relay":
+        search_path = Path("/installed-agent/search.key")
+        server.search_key = search_path.read_text().strip()
+        search_path.unlink()
     server.serve_forever()

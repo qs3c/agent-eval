@@ -164,6 +164,7 @@ def cleanup_batch(exp, output, paths, number):
 
 def _cleanup_batch_images(exp, output, paths, number):
     refs = set()
+    trial_tags = {}
     for inventory in (output / "batches" / f"{number:03d}" / "official").rglob("official-images.json"):
         refs.update(read(inventory, []))
     for task in paths:
@@ -172,12 +173,21 @@ def _cleanup_batch_images(exp, output, paths, number):
             refs.add(runtime["image"])
     wanted = {task.name for task in paths}
     for result in (output / "jobs").glob("*/*/result.json"):
-        if task_key(read(result, {})) not in wanted:
+        record = read(result, {})
+        if task_key(record) not in wanted:
             continue
         snapshot = read(result.parent / "guardian-agent-end.json", {})
         image = snapshot.get("container", {}).get("image")
         if image:
             refs.add(image)
+            # Harbor's Compose images use project-main, not the older hb__ prefix.
+            # Require the captured image ID AND the exact trial/project identity;
+            # a suffix or task-name match alone must never authorize deletion.
+            trial_name = record.get("trial_name")
+            if trial_name == result.parent.name:
+                project = re.sub(r"[^a-z0-9_-]", "", (trial_name + "__env").lower())
+                if snapshot.get("container", {}).get("project") == project:
+                    trial_tags.setdefault(image, set()).add(project + "-main:latest")
     operations = []
     failures = []
     before = shutil.disk_usage(output).free
@@ -223,7 +233,8 @@ def _cleanup_batch_images(exp, output, paths, number):
         elif ref.startswith("sha256:"):
             # The image was recorded by this trial's DockerTarget before deletion.
             managed = [
-                tag for tag in image.get("RepoTags") or [] if tag.startswith("hb__")
+                tag for tag in image.get("RepoTags") or []
+                if tag.startswith("hb__") or tag in trial_tags.get(ref, set())
             ]
             if not managed:
                 operations.append({"image": ref, "status": "retained_unmanaged_tags"})

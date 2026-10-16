@@ -38,7 +38,7 @@ uv sync --locked --python 3.12
 
 ## 安装与无模型验收
 
-环境：Linux x86_64、Docker、Go 1.25、Node 22、npm、uv 0.13.0。Python 主项目使用 3.12，SWE 生成器使用 3.13。当前机器的 uv 位于 `.tools/uv`。
+环境：Linux x86_64、Docker、Go 1.25、Node 22、npm、uv 0.13.0。Python 主项目使用 3.12，SWE 生成器使用 3.13。当前机器的 uv 位于 `.tools/uv`。 官方复评启动前会先解析服务进程 PATH 中的 `uv`，找不到时回退到源码仓库的 `.tools/uv`，再使用绝对路径启动评分子进程，不依赖评分工作目录。修改评分代码后，已运行的控制台需重启以确保加载新代码；不会自动补评历史失败项。
 
 ```bash
 export PATH="$PWD/.tools:$PATH"

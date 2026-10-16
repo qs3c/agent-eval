@@ -32,7 +32,7 @@
 - `batches/NNN/official/` 保存仅含本批 ID 的 predictions、dataset、命令日志和原始官方报告；`official-summary.json` 汇总 observed/expected 与原始报告位置。
 - `batches/NNN/cleanup.json` 记录实际镜像删除返回值、容器引用保护、构建缓存清理和前后空闲字节数。
 
-20 是任务数上限，不是固定磁盘容量保证。准备每题和进入 Agent 阶段前检查余量；不足时明确停止，不开始新的付费作答。Docker 层共享、单题镜像大小、诊断归档及其他服务仍影响峰值。清理只删除当前批记录的 SWE digest/tag 和 Harbor `hb__` 构建标签；被其他容器引用或不属于这些标签的镜像保留。清理未使用构建缓存可能使以后构建变慢，不删除生产镜像、容器、网络或数据卷。
+20 是任务数上限，不是固定磁盘容量保证。准备每题和进入 Agent 阶段前检查余量；不足时明确停止，不开始新的付费作答。Docker 层共享、单题镜像大小、诊断归档及其他服务仍影响峰值。清理只删除当前批记录的 SWE digest/tag、Harbor `hb__` 构建标签，以及由结果记录和 guardian 快照共同确认的 Compose `project-main:latest` 标签。Compose 归属必须同时匹配当前批任务、trial 名与目录名、捕获的镜像 ID 和按 trial 生成的 project；不通过通用后缀扫描删除。被其他容器引用或带有外部标签的镜像继续受保护。清理未使用构建缓存可能使以后构建变慢，不删除生产镜像、容器、网络或数据卷。
 
 ## 异常保留
 
@@ -47,6 +47,8 @@ agent-harness-eval run experiments/swe-live-80-assist.json --output artifacts/sw
 ```
 
 正式运行应使用已冻结的配置文件恢复（当前本地实验为 `.cache/swe-live-80/config.json`）。恢复需要同一配置、完整 provenance、未修改的冻结任务及 Agent 产物；已完成批次跳过，已有终态尝试（包括失败）计入次数而不重跑。存在匹配任务的无结果尝试时拒绝自动重跑，要求先检查原进程和容器；准备阶段私有事务可按原哈希回滚。清理失败后的恢复可再次运行独立评分/清理，不重复被测 Agent 调用。已完成批次中的失败复评需单独补跑，`--resume` 不会自动重放这些批次，也不会把复评失败改成成功。
+
+基础设施修复后恢复可显式传入 `--workbench-repair repair.json`。该记录包含 `schema_version: 1`、中文 `reason`、完整 `previous` 与 `current` 工作台文件哈希映射；两份清单必须分别精确匹配原冻结清单和当前代码，文件集合不能变化，差异仅允许 `batching.py`、`benchmarks/swe.py`、`run.py`、`cli.py`。Agent、模型调用、搜索、配置解析、守护与评分脚本不在豁免范围。原始清单不改写，恢复记录及改动源码另存于 `recovery/workbench-<记录哈希>/`。这只允许有记录的运维修复，不代表修复前后工作台完全相同；所有其他恢复校验继续生效。
 
 ## 验证
 

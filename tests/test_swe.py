@@ -58,7 +58,10 @@ def test_instrument_before_hidden_tests(tmp_path):
     assert "if [ ! -s /logs/verifier/report.json ]; then exit 2; fi" in text
 
 
-def test_export_never_selects_best_and_counts_missing(tmp_path):
+def test_export_never_selects_best_and_counts_missing(tmp_path, monkeypatch):
+    from agent_harness_eval.benchmarks import swe
+
+    monkeypatch.setattr(swe, "_uv_executable", lambda: "/fixture/uv")
     root = tmp_path / "run"
     root.mkdir()
     (root / "tasks/t/tests").mkdir(parents=True)

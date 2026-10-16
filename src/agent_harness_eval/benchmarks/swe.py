@@ -1,6 +1,7 @@
 """SWE-specific export boundary; no SWE assumptions in the agents or runner."""
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -106,11 +107,25 @@ def export(run: Path, output: Path):
     )
 
 
+def _uv_executable():
+    # systemd/console workers need not inherit the shell's .tools PATH entry.
+    installed = shutil.which("uv")
+    if installed:
+        return str(Path(installed).resolve())
+    bundled = Path(__file__).resolve().parents[3] / ".tools" / "uv"
+    if bundled.is_file() and os.access(bundled, os.X_OK):
+        return str(bundled)
+    raise FileNotFoundError(
+        "Official grading requires uv: install it on the service PATH "
+        f"or provide an executable at {bundled}"
+    )
+
+
 def regrade_command(predictions: Path, dataset: str, run_id: str):
     if not predictions.is_file():
         raise ValueError("predictions file missing")
     return [
-        "uv",
+        _uv_executable(),
         "run",
         "--no-project",
         "--python",

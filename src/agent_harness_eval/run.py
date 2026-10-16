@@ -20,11 +20,34 @@ from .provenance import digest, tree_manifest, write_json
 from .report import report
 
 
+def verify_workbench_repair(previous, current, approval):
+    """Allow only an explicitly inventoried infrastructure repair during resume."""
+    if approval is None:
+        raise ValueError("Resume workbench code differs from the frozen experiment")
+    repair = json.loads(Path(approval).read_text())
+    changed = {name for name in previous.keys() | current.keys() if previous.get(name) != current.get(name)}
+    allowed = {"batching.py", "benchmarks/swe.py", "run.py", "cli.py"}
+    if (
+        repair.get("schema_version") != 1
+        or not isinstance(repair.get("reason"), str)
+        or not repair["reason"].strip()
+        or repair.get("previous") != previous
+        or repair.get("current") != current
+        or not changed.issubset(allowed)
+        or previous.keys() != current.keys()
+    ):
+        raise ValueError("Resume repair inventory mismatch or non-infrastructure code changed")
+    return repair
+
+
 async def run_experiment(
-    exp: Experiment, output: Path, *, manage_signals=True, resume=False
+    exp: Experiment, output: Path, *, manage_signals=True, resume=False,
+    workbench_repair: Path | None = None,
 ):
     from .search import validate_search_credentials
 
+    if workbench_repair is not None and not resume:
+        raise ValueError("Workbench repair requires --resume")
     validate_search_credentials(exp)
     if exp.guardian is not None:
         from .guardian.config import validate_tasks
@@ -76,8 +99,16 @@ async def run_experiment(
         previous_code = json.loads(
             (output / existing["workbench"]["inventory"]["path"]).read_text()
         )
-        if current_code != previous_code:
-            raise ValueError("Resume workbench code differs from the frozen experiment")
+        if current_code != previous_code or workbench_repair is not None:
+            repair = verify_workbench_repair(previous_code, current_code, workbench_repair)
+            # Append evidence separately; never rewrite the frozen inventory.
+            recovery = output / "recovery" / ("workbench-" + digest(Path(workbench_repair)))
+            write_json(recovery / "repair.json", repair)
+            for name in current_code:
+                if current_code[name] != previous_code[name]:
+                    destination = recovery / "code" / name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(Path(__file__).parent / name, destination)
         for name, sha in existing["workbench"].get("preparation_scripts", {}).items():
             if digest(Path(__file__).resolve().parents[2] / "scripts" / name) != sha:
                 raise ValueError("Resume preparation script changed: " + name)
@@ -274,9 +305,9 @@ async def run_experiment(
         report(output)
 
 
-def execute(exp, output, *, resume=False):
+def execute(exp, output, *, resume=False, workbench_repair=None):
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     with (output.parent / ("." + output.name + ".run.lock")).open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        asyncio.run(run_experiment(exp, output, resume=resume))
+        asyncio.run(run_experiment(exp, output, resume=resume, workbench_repair=workbench_repair))

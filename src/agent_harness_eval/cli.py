@@ -37,6 +37,10 @@ def main():
                 action="store_true",
                 help="恢复同一批次实验；不重跑已落盘尝试",
             )
+            q.add_argument(
+                "--workbench-repair", type=Path,
+                help="显式记录并校验基础设施修复前后代码清单；仅与 --resume 一起使用",
+            )
     q = sub.add_parser("report")
     q.add_argument("run", type=Path)
     for name in ("manifest-index", "manifest-verify"):
@@ -80,7 +84,7 @@ def main():
             f"Valid: {len(e.agents)} agents x {len(e.benchmark.tasks)} tasks x {e.attempts} attempts; mode={e.model.mode}"
         )
     elif args.command == "run":
-        execute(load(args.config), args.output, resume=args.resume)
+        execute(load(args.config), args.output, resume=args.resume, workbench_repair=args.workbench_repair)
     elif args.command == "report":
         report(args.run)
     elif args.command == "manifest-index":

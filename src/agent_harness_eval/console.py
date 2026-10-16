@@ -220,7 +220,8 @@ class Console:
             request.model_id or self.models.public()["bindings"].get("experiment")
         ):
             exp.model = type(exp.model).model_validate(
-                self.models.resolve("experiment", request.model_id)
+                {**self.models.resolve("experiment", request.model_id),
+                 "search_review": exp.model.search_review}
             )
         if request.guardian_model_id and (
             not exp.guardian or exp.guardian.mode != "assist"

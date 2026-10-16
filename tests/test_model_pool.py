@@ -111,8 +111,9 @@ def test_api_validation_never_echoes_key_and_rejects_cross_site(pool):
     assert "private-model-key" not in client.get("/api/models", headers=headers).text
 
 
+@pytest.mark.parametrize("with_review", [False, True])
 def test_experiment_submission_freezes_global_selection_and_keeps_controls_offline(
-    pool,
+    pool, with_review,
 ):
     repo = Path(__file__).resolve().parents[1]
     shutil.copytree(repo / "tasks", pool.root / "tasks")
@@ -131,6 +132,16 @@ def test_experiment_submission_freezes_global_selection_and_keeps_controls_offli
         console.submit({"template": "controls", "model_id": identity})
     template = json.loads((pool.root / "experiments/controls.json").read_text())
     template["model"] = {"mode": "live", "spending": "unbounded"}
+    if with_review:
+        template["model"]["search_review"] = {
+            "endpoint": "https://openrouter.ai/api/v1/systemone",
+            "model": "typesafe/jev-1.13-20260917",
+            "api_key_env": "EVAL_SEARCH_REVIEW_API_KEY",
+        }
+        from agent_harness_eval.batching import search_network_policy
+        for task in template["benchmark"]["tasks"]:
+            policy = (pool.root / "experiments" / task).resolve() / "task.toml"
+            policy.write_text(search_network_policy(policy.read_text(), ["openrouter.ai"]))
     template["guardian"] = {
         "mode": "assist",
         "command": ["existing-driver"],
@@ -149,6 +160,11 @@ def test_experiment_submission_freezes_global_selection_and_keeps_controls_offli
     )
     frozen = json.loads(console.row(run["id"])["config"])
     assert frozen["model"]["pool_id"] == identity
+    if with_review:
+        assert frozen["model"]["search_review"]["model"] == "typesafe/jev-1.13-20260917"
+        assert frozen["model"]["search_review"]["api_key_env"] == "EVAL_SEARCH_REVIEW_API_KEY"
+    else:
+        assert frozen["model"]["search_review"] is None
     assert frozen["guardian"]["model"]["pool_id"] == identity
     assert "private-model-key" not in json.dumps(frozen)
     pool.save(ModelInput(label="new", name="new", api_key="new-key"), identity)

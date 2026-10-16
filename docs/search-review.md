@@ -20,6 +20,8 @@
 
 执行平台进程须能读取该密钥环境变量；不要将密钥填入实验 JSON。审查仅支持 live 模式，沿用实验已有 live/spending 授权要求。参数随实验清单冻结。当前没有新增页面开关或模型池场景；直接在实验配置中指定。
 
+控制台切换全局模型池模型时保留模板中的 `search_review`，避免替换 Agent 模型时静默关闭审查。该修复后的模型池与控制台相关回归 `41 passed`。服务器新增模板 `experiments/swe-new-30-jev-20261016.json` 供后续选择，未自动发起评测。
+
 OpenRouter 会将短模型别名解析成实际版本；本实现要求请求与响应模型名完全一致，因此使用完整日期版本，不使用 `jev-latest` 或 `typesafe/jev-1.13`。参考 [OpenRouter System One 文档](https://openrouter.ai/docs/guides/community/typesafe-sdk)。SWE 批次准备自动将审查域名加入 Agent 白名单；非批次任务须预先在 `task.toml` 中配置该域名，加载时检查。服务器密钥使用 `~/.config/agent-harness-eval/search-review.env`（0600），由评测服务的 systemd drop-in 加载；历史冻结实验不会自动启用审查。
 
 协议与服务器现有 JEV 客户端一致：`POST endpoint`，Bearer 认证，发送 `model`、`state: {task, search_query}`、`questions.direct_answer`（`type: noul`）。响应须含对应 model、`answers.direct_answer: {type: noul, noul: 概率}` 和非负整数 `usage.input_tokens/output_tokens`。概率达到阈值判为“是”。0.5 是显式默认决策阈值，尚未通过真实 JEV 数据校准；不是模型输出的天然布尔值。

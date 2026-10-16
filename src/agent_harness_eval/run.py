@@ -40,6 +40,15 @@ def verify_workbench_repair(previous, current, approval):
     return repair
 
 
+def resume_configuration(value):
+    """Normalize only fields declared as sets, retaining every other value."""
+    return {
+        **value,
+        "agents": [{**agent, "capabilities": sorted(agent["capabilities"])} for agent in value["agents"]],
+        "benchmark": {**value["benchmark"], "requires": sorted(value["benchmark"]["requires"])},
+    }
+
+
 async def run_experiment(
     exp: Experiment, output: Path, *, manage_signals=True, resume=False,
     workbench_repair: Path | None = None,
@@ -89,7 +98,9 @@ async def run_experiment(
         if exp.batch is None:
             raise ValueError("Resume requires an explicitly batched experiment")
         existing = verify_manifest(output)
-        if existing["experiment"] != exp.model_dump(mode="json"):
+        # Capabilities/requires are sets. Their JSON list order can change across
+        # Python processes; normalize only sets without weakening ordered tasks.
+        if resume_configuration(existing["experiment"]) != resume_configuration(exp.model_dump(mode="json")):
             raise ValueError("Resume configuration differs from the frozen experiment")
         current_code = {
             str(p.relative_to(Path(__file__).parent)): digest(p)

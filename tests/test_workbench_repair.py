@@ -54,6 +54,12 @@ def test_audited_resume_keeps_frozen_manifest_and_still_checks_tasks(tmp_path, m
     asyncio.run(run.run_experiment(exp, root))
     manifest_path = root / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
+    # JSON order of sets is not stable between independently started processes.
+    manifest["experiment"]["benchmark"]["requires"].reverse()
+    for agent in manifest["experiment"]["agents"]:
+        agent["capabilities"].reverse()
+    write_json(manifest_path, manifest)
+    asyncio.run(run.run_experiment(exp, root, resume=True))
     current = json.loads((root / manifest["workbench"]["inventory"]["path"]).read_text())
     previous = {**current, "batching.py": "historical-code-hash"}
     manifest["workbench"]["inventory"] = store_inventory(root, previous)
@@ -68,6 +74,9 @@ def test_audited_resume_keeps_frozen_manifest_and_still_checks_tasks(tmp_path, m
     saved = list((root / "recovery").glob("*/repair.json"))
     assert len(saved) == 1 and json.loads(saved[0].read_text()) == json.loads(repair.read_text())
     assert (saved[0].parent / "code/batching.py").read_bytes() == Path(batching.__file__).read_bytes()
+    reordered = exp.model_copy(update={"benchmark": exp.benchmark.model_copy(update={"tasks": list(reversed(exp.benchmark.tasks))})})
+    with pytest.raises(ValueError, match="configuration differs"):
+        asyncio.run(run.run_experiment(reordered, root, resume=True, workbench_repair=repair))
     (root / "tasks/file-create/instruction.md").write_text("tampered")
     with pytest.raises(ValueError, match="Frozen task"):
         asyncio.run(run.run_experiment(exp, root, resume=True, workbench_repair=repair))

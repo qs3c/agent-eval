@@ -104,8 +104,8 @@ async def run_experiment(
             # Append evidence separately; never rewrite the frozen inventory.
             recovery = output / "recovery" / ("workbench-" + digest(Path(workbench_repair)))
             write_json(recovery / "repair.json", repair)
-            for name in current_code:
-                if current_code[name] != previous_code[name]:
+            for name, sha in current_code.items():
+                if sha != previous_code[name]:
                     destination = recovery / "code" / name
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(Path(__file__).parent / name, destination)

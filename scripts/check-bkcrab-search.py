@@ -84,6 +84,7 @@ def main():
         relay.LOGS.mkdir()
         relay_server = ThreadingHTTPServer(("127.0.0.1", 0), relay.Handler)
         relay_server.search_key = os.environ["EXA_API_KEY"]
+        relay_server.model_config = {}
         relay_thread = threading.Thread(target=relay_server.serve_forever, daemon=True)
         relay_thread.start()
         search_args = ["--web-search-provider", "exa", "--web-search-endpoint", f"http://127.0.0.1:{relay_server.server_port}/search/exa"]

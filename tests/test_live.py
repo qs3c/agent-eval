@@ -397,6 +397,7 @@ def test_exa_relay_records_search_without_forwarding_client_credentials(tmp_path
     monkeypatch.setattr(relay, "urlopen", upstream)
     server = relay.ThreadingHTTPServer(("127.0.0.1", 0), relay.Handler)
     server.search_key = "exa-real-secret"
+    server.model_config = {}
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -429,6 +430,7 @@ def test_exa_relay_failure_is_recorded_and_redacted(tmp_path, monkeypatch):
     monkeypatch.setattr(relay, "open_upstream", upstream)
     server = relay.ThreadingHTTPServer(("127.0.0.1", 0), relay.Handler)
     server.search_key = "exa-secret"
+    server.model_config = {}
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

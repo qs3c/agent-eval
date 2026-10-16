@@ -36,6 +36,9 @@ def main():
     server = relay.ThreadingHTTPServer(("127.0.0.1", 0), relay.Handler)
     server.model_config = exp.model.model_dump()
     server.api_key = os.environ[exp.model.api_key_env]
+    if exp.model.search_review:
+        server.review_key = os.environ[exp.model.search_review.api_key_env]
+        server.review_task_path = exp.benchmark.tasks[0] / "instruction.md"
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

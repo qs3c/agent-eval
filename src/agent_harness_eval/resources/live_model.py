@@ -18,6 +18,11 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+if __package__:
+    from . import search_review
+else:
+    import search_review
+
 LOCK = threading.Lock()
 LOGS = Path("/logs/agent")
 RETRY_POLICY = "pre-response-transient/v1"
@@ -206,6 +211,51 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def review_search(self, body, request_id, protocol="messages"):
+        config = self.server.model_config.get("search_review")
+        if not config:
+            return True
+        started = time.monotonic()
+        record = {"request_id": request_id, "policy": search_review.POLICY,
+                  "model": config["model"], "deny_threshold": config["deny_threshold"]}
+        status, message = 200, None
+        try:
+            query = body["query"] if protocol == "exa_search" else search_review.query_from_messages(body)
+        except (ValueError, TypeError, AttributeError):
+            status, message = 400, "EVAL_SEARCH_INVALID_REQUEST：搜索参数格式不受支持，未执行搜索。"
+            record["outcome"] = "invalid_request"
+        else:
+            try:
+                task = self.server.review_task_path.read_text(encoding="utf-8")
+                result = search_review.decide(config, self.server.review_key, task, query)
+                record.update(result)
+                record["outcome"] = "denied" if result["denied"] else "allowed"
+                if result["denied"]:
+                    status, message = 403, search_review.DENIED
+            except Exception as error:
+                # Never echo upstream bodies, URLs or credentials into tool feedback.
+                record.update(outcome="unavailable", error_type=type(error).__name__)
+                status, message = 503, search_review.UNAVAILABLE
+        record["elapsed_ms"] = (time.monotonic() - started) * 1000
+        append("search_review.jsonl", record)
+        if message is None:
+            return True
+        response = json.dumps({"type": "error", "error": {
+            "type": "permission_error" if status == 403 else "api_error", "message": message,
+        }}, ensure_ascii=False).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+        append("search_responses.jsonl" if protocol == "exa_search" else "wire_responses.jsonl", {
+            "schema_version": 2, "request_id": request_id, "status": status,
+            "outcome": "search_review_" + record["outcome"], "purpose": "web_search",
+            "protocol": protocol, "usage": None, "stream_complete": False,
+            "timing_ms": {"search_review": record["elapsed_ms"]},
+        })
+        return False
+
     def do_POST(self):
         if self.path == "/search/exa":
             self.exa_search()
@@ -246,6 +296,8 @@ class Handler(BaseHTTPRequestHandler):
         stamp("received")
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         append("native_wire_requests.jsonl", {"request_id": request_id, "body": body})
+        if search and not self.review_search(body, request_id):
+            return
         # Auxiliary search is a separate provider operation: retain its model,
         # token budget and server tools. Main-agent sampling does not apply.
         if not search:
@@ -410,6 +462,8 @@ class Handler(BaseHTTPRequestHandler):
         def clean(value):
             return json.loads(json.dumps(value).replace(key, "[REDACTED]"))
         append("search_requests.jsonl", {**record, "body": clean(body), "time": datetime.now(UTC).isoformat()})
+        if not self.review_search(body, request_id, protocol="exa_search"):
+            return
         request = Request("https://api.exa.ai/search", json.dumps(body).encode(),
                           {"Content-Type": "application/json", "x-api-key": key})
         try:
@@ -451,4 +505,9 @@ if __name__ == "__main__":
         search_path = Path("/installed-agent/search.key")
         server.search_key = search_path.read_text().strip()
         search_path.unlink()
+    server.review_task_path = Path("/installed-agent/prompt.txt")
+    if server.model_config.get("search_review"):
+        review_key = Path("/installed-agent/search-review.key")
+        server.review_key = review_key.read_text().strip()
+        review_key.unlink()
     server.serve_forever()

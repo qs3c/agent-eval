@@ -46,10 +46,13 @@ class WebSearch(Strict):
 
 
 def search_hosts(exp):
-    return sorted({
+    hosts = {
         WebSearch.model_validate(a.kwargs["web_search"]).host
         for a in exp.agents if a.kwargs.get("web_search") is not None
-    })
+    }
+    if exp.model.search_review:
+        hosts.add(urlsplit(exp.model.search_review.endpoint).hostname)
+    return sorted(hosts)
 
 
 def validate_search_credentials(exp):

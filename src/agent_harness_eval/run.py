@@ -44,6 +44,8 @@ async def run_experiment(
             raise ValueError("DSH 实验需要 Messages 接口地址")
         if not os.environ.get(exp.model.api_key_env):
             raise ValueError("live API key environment variable is missing")
+        if exp.model.search_review and not os.environ.get(exp.model.search_review.api_key_env):
+            raise ValueError("search review API key environment variable is missing")
     adapters = {}
     for agent in exp.agents:
         if ":" in agent.implementation:

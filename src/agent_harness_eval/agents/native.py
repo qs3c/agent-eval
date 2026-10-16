@@ -36,6 +36,7 @@ class Native(BaseInstalledAgent):
         await environment.upload_file(source, "/installed-agent/model_server.py")
         await environment.upload_file(source, "/logs/agent/model_server.py")
         if live:
+            await environment.upload_file(source.with_name("search_review.py"), "/installed-agent/search_review.py")
             with tempfile.TemporaryDirectory(prefix="agent-harness-eval-secret-") as tmp:
                 secret = Path(tmp) / "key"
                 secret.touch(mode=0o600)
@@ -44,11 +45,20 @@ class Native(BaseInstalledAgent):
                 config = Path(tmp) / "model.json"
                 config.write_text(json.dumps(self.model_config))
                 await environment.upload_file(config, "/installed-agent/model.json")
+                review = self.model_config.get("search_review")
+                if review:
+                    review_key = Path(tmp) / "search-review.key"
+                    review_key.touch(mode=0o600)
+                    review_key.write_text(os.environ[review["api_key_env"]])
+                    await environment.upload_file(review_key, "/installed-agent/search-review.key")
             owner = shlex.quote(str(environment.default_user or "root"))
             await self.exec_as_root(
                 environment,
                 f"chown {owner} /installed-agent/live.key && chmod 600 /installed-agent/live.key",
             )
+            if self.model_config.get("search_review"):
+                await self.exec_as_root(environment,
+                    f"chown {owner} /installed-agent/search-review.key && chmod 600 /installed-agent/search-review.key")
 
     def wrap_model(self, command):
         ready = "import socket,time\nfor _ in range(100):\n try:\n  socket.create_connection(('127.0.0.1',18765),.1).close(); break\n except OSError: time.sleep(.05)\nelse: raise RuntimeError('model relay did not start')"

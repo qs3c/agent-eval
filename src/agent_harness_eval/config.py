@@ -12,6 +12,26 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class SearchReview(Strict):
+    endpoint: str
+    model: str = Field(pattern=r"^(typesafe/)?jev-[0-9]+\.[0-9]+(\.[0-9]+|-[0-9]{8})$")
+    api_key_env: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    timeout_seconds: float = Field(default=10, gt=0, le=60)
+    deny_threshold: float = Field(default=0.5, gt=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_endpoint(self):
+        from urllib.parse import urlsplit
+
+        url = urlsplit(self.endpoint)
+        if (url.scheme not in {"http", "https"} or not url.hostname
+                or url.username is not None or url.password is not None or url.query or url.fragment
+                or any(c.isspace() for c in self.endpoint)):
+            raise ValueError("审查接口需为不含凭据、查询参数或片段的 HTTP(S) URL")
+        _ = url.port
+        return self
+
+
 class Model(Strict):
     mode: Literal["offline", "mock", "live"] = "offline"
     name: str = "mock"
@@ -22,6 +42,13 @@ class Model(Strict):
     spending: Literal["disabled", "unbounded"] = "disabled"
     max_tokens: int = Field(default=8192, gt=0)
     context_window: int = Field(default=131072, gt=0)
+    search_review: SearchReview | None = None
+
+    @model_validator(mode="after")
+    def validate_search_review(self):
+        if self.search_review and self.mode != "live":
+            raise ValueError("搜索审查仅支持 live 模式")
+        return self
 
 
 class Agent(Strict):

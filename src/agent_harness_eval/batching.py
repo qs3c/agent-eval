@@ -21,6 +21,12 @@ from .search import search_hosts
 
 def search_network_policy(text, hosts):
     """Set only the agent table; preserve verifier and environment policies."""
+    import tomllib
+
+    # Public SWE tasks must be able to fetch arbitrary search-result URLs. API
+    # endpoints are an egress minimum, not a replacement for a public policy.
+    if tomllib.loads(text).get("agent", {}).get("network_mode") == "public":
+        return text
     sections = re.split(r"(?m)(?=^\[)", text)
     for i, section in enumerate(sections):
         if section and section.splitlines()[0].strip() == "[agent]":
@@ -126,9 +132,11 @@ def prepare_batch(exp, output, paths, number):
             import tomllib
 
             agent = tomllib.loads(text)["agent"]
-            if agent["network_mode"] != "allowlist" or agent.get("allowed_hosts") != hosts:
+            if agent["network_mode"] != "public" and (
+                agent["network_mode"] != "allowlist" or agent.get("allowed_hosts") != hosts
+            ):
                 raise ValueError(
-                    "Prepared SWE agent network policy is not the frozen allowlist"
+                    "Prepared SWE agent network policy does not permit required endpoints"
                 )
             record_tasks(output, [task])
             if backup.exists():

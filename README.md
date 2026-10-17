@@ -68,6 +68,8 @@ bash scripts/prepare-native.sh
 
 差异显式保留：无浏览器 UI，容器内使用 `danger-full-access`，禁用 office/runtime 额外包，干净用户状态，无外部个人 skills。子代理、压缩等模块已加载；短任务没有触发它们的完整行为，不能据此宣称所有功能均已验证。
 
+新构建另包含 `deepseek-search-response-content-v1` 兼容补丁：把搜索响应的 `text` 正文保留为工具结果 `content`，同时保留独立来源和 citation 摘要。补丁仅应用到新归档，不改 npm 安装目录或历史实验；`audit.json` / `provenance.json` 记录模块修改前后 SHA-256。上游文件发生变化时构建会停止，要求重新审查补丁。
+
 BKCrab 使用 `agent.NewManager` 和原生 `HandleMessage`，文件工具与 shell 映射同一任务目录。评测配置不接入网关、IM、RAG、MCP、跨任务记忆、技能学习及数据库 goals/cron；这些差异保存在 `run_config`。这次比较的目标是隔离的 coding profile。
 
 ## 扩展 Agent 与 benchmark
@@ -77,6 +79,14 @@ BKCrab 使用 `agent.NewManager` 和原生 `HandleMessage`，文件工具与 she
 新增 benchmark：产生标准 Harbor 目录 `instruction.md`、`task.toml`、`environment/`、`tests/test.sh`，可选 `solution/`；verifier 输出 `/logs/verifier/reward.json` 或 `reward.txt`。实验选择任务列表、所需能力和主指标即可，无需修改 Agent。SWE 才使用补丁导出；一般任务可以返回任意数值指标。
 
 能力声明只是接入前的兼容检查，真正行为仍需各自 smoke 验收。模拟模式要求任务声明 `agent.network_mode = "no-network"`；新增第三方 Agent 的真实模型接入仍需单独实现和验证。
+
+真实实验默认 `"web_proxy": "device"`：网页工具继承运行平台进程的 `HTTPS_PROXY` / `HTTP_PROXY`（也支持小写名称和 HTTP(S) `ALL_PROXY`）。设备代理只监听 loopback 时，平台在本地 Docker 网关临时转发该端口，仅允许当前任务容器 IP 使用，运行结束关闭；不支持远程 Docker daemon 或 loopback HTTPS 代理。没有配置设备代理时使用直连并记录该选择；显式 `"web_proxy": "direct"` 可禁用代理。每题保存脱敏的 `agent/web-proxy.json`。BKCrab 必须使用包含网页代理支持的新构建；DSH 原生支持这些环境变量。模型 relay 的 loopback 请求绕过代理，上游模型/搜索转发不继承网页代理设置。
+
+SWE 准备现在保留任务声明的 `public` 网络，镜像固化不再把它改成 `no-network`，批次准备也不再缩成仅 API 域名白名单。受限任务仍使用显式 API 白名单。
+
+配置 `model.search_review` 后，默认同时启用 `web_fetch` 检查（`web_fetch: true`）：两边原生网页工具在返回模型前检查实际可见正文，URL 只作为来源背景，不做单独的 JEV 判定。正文按 10,000 字符分段、重叠 500 字符，逐段检查，任何一段被拒绝就不返回整次结果。审查超时、格式错误、输入超过限额均不放行，分别以 `EVAL_FETCH_DENIED`（403）和 `EVAL_FETCH_REVIEW_UNAVAILABLE`（503）区分违规判定与基础设施故障。`fetch_review.jsonl` 保存策略版本、URL/正文哈希、分段判定、审查用量及耗时，不把被拒绝的原文写入 agent 可读日志。审查用量独立于主模型用量。旧构建缺少 `web_fetch_review` 能力标记时拒绝启动；如需保留仅搜索审查，可明确设 `web_fetch: false`。
+
+这道检查覆盖原生 `web_fetch`，不是沙箱级防绕过措施：`exec`/`bash` 内直接运行 curl、Python 请求等不经过该工具钩子；Exa 和 DeepSeek 搜索的完整返回结果在平台代理放行前另行审查（`search_result_review.jsonl`），经同一代理的 shell 搜索请求同样覆盖。启用审查时搜索只接受非流式响应，避免先泄漏部分正文再阻断。直接外站请求无法靠命令关键词可靠拦截，本次不引入 HTTPS 解密或沙箱网络改造。JEV 的误判率需要真实样本校准，不能将启用开关等同于完全杜绝答案泄漏。
 
 ## SWE 首期流程
 

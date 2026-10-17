@@ -105,7 +105,7 @@ def test_http_review_gate_before_search(tmp_path, monkeypatch, probability, expe
             feedback = json.loads(caught.value.read())["error"]["message"]
             assert feedback == review.DENIED
             assert not forwarded
-        assert len(seen) == 1
+        assert len(seen) == (2 if expected == 200 else 1)
         data, auth = seen[0]
         assert auth == "Bearer review-secret"
         assert data["state"] == {"task": "Fix OuterRef scoping in this checkout.", "search_query": "Django OuterRef API documentation"}

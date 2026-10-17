@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ..provenance import digest
 from ..search import WebSearch
+from ..web_proxy import web_proxy_environment
 from .native import Native
 
 
@@ -81,11 +82,10 @@ class Bkcrab(Native):
                 command += " --web-search-endpoint http://127.0.0.1:18765/search/exa"
             elif self.web_search.credential_env:
                 command += " --web-search-key-file /installed-agent/search.key"
-        await self.exec_as_agent(
-            environment,
-            self.wrap_model(
-                command + " >/logs/agent/stdout.log 2>/logs/agent/stderr.log"
-            ),
-            env={"EVAL_MODEL_API_KEY": "relay-only"},
-            cwd=work,
-        )
+        async with web_proxy_environment(self, environment) as proxy:
+            await self.exec_as_agent(
+                environment,
+                self.wrap_model(command + " >/logs/agent/stdout.log 2>/logs/agent/stderr.log"),
+                env={"EVAL_MODEL_API_KEY": "relay-only", **proxy},
+                cwd=work,
+            )

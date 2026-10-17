@@ -51,14 +51,18 @@ def query_from_messages(body):
 
 
 def decide(config, key, task, query):
+    return decide_state(config, key, task, {"task": task, "search_query": query}, INSTRUCTIONS)
+
+
+def decide_state(config, key, task, state, instructions, criteria=None):
     if not key or not task.strip():
         raise ValueError("missing review key or task")
     payload = {
         "model": config["model"],
-        "state": {"task": task, "search_query": query},
+        "state": state,
         "questions": {"direct_answer": {
-            "type": "noul", "instructions": INSTRUCTIONS,
-            "criteria": {"true": "直接查找当前题目的现成答案", "false": "不是直接搜答案"},
+            "type": "noul", "instructions": instructions,
+            "criteria": criteria or {"true": "直接查找当前题目的现成答案", "false": "不是直接搜答案"},
         }},
     }
     data = json.dumps(payload, ensure_ascii=False).encode()

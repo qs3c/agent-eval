@@ -18,6 +18,7 @@ class SearchReview(Strict):
     api_key_env: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     timeout_seconds: float = Field(default=10, gt=0, le=60)
     deny_threshold: float = Field(default=0.5, gt=0, le=1)
+    web_fetch: bool = True
 
     @model_validator(mode="after")
     def validate_endpoint(self):
@@ -95,6 +96,7 @@ class Experiment(Strict):
     schema_version: Literal[1] = 1
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     model: Model = Field(default_factory=Model)
+    web_proxy: Literal["device", "direct"] = "device"
     agents: list[Agent] = Field(min_length=1)
     benchmark: Benchmark
     attempts: int = Field(default=1, ge=1)
@@ -176,11 +178,11 @@ def load(path: Path, *, validate_agent_artifacts=True) -> Experiment:
             from .search import search_hosts
 
             hosts = search_hosts(exp)
-            if hosts and (
+            if hosts and config.agent.network_mode.value != "public" and (
                 config.agent.network_mode.value != "allowlist"
                 or not set(hosts) <= set(config.agent.allowed_hosts)
             ):
-                raise ValueError("web_search endpoints must be explicitly included in task network allowlist")
+                raise ValueError("web_search requires public networking or endpoints explicitly included in task network allowlist")
         if exp.model.mode == "mock" and config.agent.network_mode.value != "no-network":
             raise ValueError(
                 "mock tasks must explicitly set agent.network_mode = no-network"

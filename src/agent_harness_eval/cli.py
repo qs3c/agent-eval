@@ -105,6 +105,8 @@ def main():
                 ),
                 "binary_sha256": digest(args.binary),
                 "profile": "isolated-coding",
+                "web_fetch_review": (args.source / "internal/agent/tools/web_fetch_review.go").is_file()
+                and b"EVAL_FETCH_REVIEW_URL" in args.binary.read_bytes(),
             },
         )
     elif args.command == "bundle-dsh":

@@ -254,6 +254,7 @@ async def run_experiment(
                 kw.update(
                     model_config=exp.model.model_dump(),
                     timeout_seconds=exp.timeout_seconds,
+                    web_proxy=exp.web_proxy,
                 )
             selector = (
                 {"import_path": agent.implementation}

@@ -102,7 +102,8 @@ function drawExperimentComparison(data, body, active) {
       label.append(el("small", reviewNames[run.reviews[name]?.status] || "待复核", "run-sub"));
       return [label, score + (run.reviews[name]?.status === "diagnostic" ? "（诊断）" : ""), kind === "resolved" ? `${a.solved_tasks} / ${data.task_count}` : "不适用",
         `${a.scored} / ${a.expected}`, `${a.missing} / ${a.errors} / ${a.unscored} / ${a.extra}`,
-        ...["agent_seconds", "input_tokens", "output_tokens", "cost_usd"].map(k => usageLabel(a.usage[k]))];
+        ...["agent_seconds", "input_tokens", "output_tokens", "cost_usd"].map(k =>
+          k.endsWith("tokens") ? tokenUsageLabel(a.usage[k].total, a.usage[k]) : usageLabel(a.usage[k]))];
     })));
   summary.append(el("p", "暂定比例 = 已观测成功次数 ÷ 计划次数；未评分并未判失败，完成后才形成最终主分。异常包含在未评分中。用量来自运行器原始结果，轨迹页会独立核对请求完整性；未知总量保留未知。总耗时为各次 Agent 执行时间之和。筛选下方任务不会改变本表。", "muted"));
   body.append(meta, summary);

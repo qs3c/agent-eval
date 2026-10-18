@@ -41,6 +41,31 @@ def test_running_report_refreshes_each_result_without_rewriting_snapshot(console
     assert listing["execution_summary"]["errors"] == 1
 
 
+def test_finished_report_recovers_partial_usage_without_mutating_evidence(console):
+    item = console.submit({"template": "controls"})
+    console.update(item["id"], "failed")
+    run = Path(console.row(item["id"])["path"])
+    exp = console.detail(item["id"])["experiment"]
+    agent = exp["agents"][0]["id"]
+    trial = run / "jobs" / agent / "trial"
+    logs = trial / "agent"
+    logs.mkdir(parents=True)
+    (trial / "result.json").write_text(json.dumps({
+        "task_name": "task", "finished_at": "2026-10-14T10:00:00Z",
+        "agent_result": {"n_input_tokens": None, "n_output_tokens": None},
+    }))
+    (logs / "native_wire_requests.jsonl").write_text('{"request_id":"a"}\n{"request_id":"b"}\n')
+    (logs / "wire_responses.jsonl").write_text(
+        '{"request_id":"a","usage":{"input_tokens":123,"output_tokens":4}}\n')
+    snapshot = json.dumps({"agents": {}, "trials": [{"agent": agent, "trial": "trial", "input_tokens": None}]})
+    (run / "report.json").write_text(snapshot)
+    detail = console.detail(item["id"])
+    assert detail["trials"][0]["input_tokens"] is None
+    assert detail["trials"][0]["usage_evidence"]["known_usage"]["input_tokens"] == 123
+    assert detail["report"]["trials"][0]["usage_evidence"]["missing_usage_requests"] == 1
+    assert (run / "report.json").read_text() == snapshot
+
+
 @pytest.fixture
 def console(tmp_path):
     root = Path(__file__).resolve().parents[1]

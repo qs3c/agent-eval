@@ -375,6 +375,14 @@ async function renderCreate(token) {
     }
   };
 }
+function tokenUsageLabel(total, evidence = {}) {
+  if (total != null) return number(total);
+  const known = evidence.known;
+  const notes = [];
+  if (evidence.missing_requests) notes.push(`${evidence.missing_requests} 个请求缺少用量`);
+  notes.push(...(evidence.issues || []));
+  return `${known != null ? `已记录 ≥ ${number(known)}` : "用量未知"}（不完整${notes.length ? "；" + notes.join("、") : ""}）`;
+}
 function agentRows(report) {
   if (!report) return [];
   return Object.entries(report.agents).map(([id, a]) => {
@@ -384,6 +392,14 @@ function agentRows(report) {
       trials.every((t) => t[key] !== null && t[key] !== undefined)
         ? trials.reduce((s, t) => s + t[key], 0)
         : null;
+    const tokens = (key) => {
+      const values = trials.map(t => t[key] ?? t.usage_evidence?.known_usage?.[key]).filter(v => Number.isFinite(v) && v >= 0);
+      return tokenUsageLabel(total(key), {
+        known: values.length ? values.reduce((s, v) => s + v, 0) : null,
+        missing_requests: trials.reduce((s, t) => s + (t.usage_evidence?.missing_usage_requests || 0), 0),
+        issues: [...new Set(trials.flatMap(t => Object.keys(t.usage_evidence?.usage_issues || {})))],
+      });
+    };
     return [
       id,
       `${a.recorded} / ${a.expected}`,
@@ -392,8 +408,8 @@ function agentRows(report) {
       number(a.errors),
       number(a.missing),
       number(total("agent_seconds")),
-      number(total("input_tokens")),
-      number(total("output_tokens")),
+      tokens("input_tokens"),
+      tokens("output_tokens"),
       number(a.cost_usd),
     ];
   });

@@ -86,6 +86,16 @@ def summarize(experiment, trials, score_kind, terminal):
                 "recorded": len(values),
                 "expected": expected,
             }
+            if field in ("input_tokens", "output_tokens") and any(r.get("usage_evidence") for r in rows):
+                partial = [r.get("usage_evidence", {}).get("known_usage", {}).get(field)
+                           if not numeric(r.get(field)) else r[field] for r in rows]
+                partial = [v for v in partial if numeric(v) and v >= 0]
+                usage[field]["known"] = sum(partial) if partial else None
+                usage[field]["recorded"] = len(partial)
+                usage[field]["issues"] = sorted({issue for r in rows for issue in
+                    r.get("usage_evidence", {}).get("usage_issues", {})})
+                usage[field]["missing_requests"] = sum(
+                    r.get("usage_evidence", {}).get("missing_usage_requests") or 0 for r in rows)
         summaries[agent] = {
             "assisted": sum(c["assisted"] for c in cells),
             **counts,

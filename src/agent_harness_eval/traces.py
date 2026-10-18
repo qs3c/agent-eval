@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from pathlib import Path
 
 from harbor.models.trajectories.trajectory import Trajectory
@@ -50,8 +51,44 @@ def _summarize_usage(requests, responses):
         if paired
         else {}
     )
+    # A failed/missing response must not erase independently attributable usage.
+    # Exclude ambiguous IDs instead of guessing which duplicate was billed.
+    request_counts, response_counts = Counter(ids), Counter(response_ids)
+    known = []
+    reasons = Counter()
+    for request in requests:
+        rid = request.get("request_id")
+        if identified and (not rid or request_counts[rid] != 1):
+            reasons["请求 ID 缺失或重复"] += 1
+        elif identified and response_counts[rid] == 0:
+            reasons["缺少响应"] += 1
+        elif identified and response_counts[rid] > 1:
+            reasons["响应 ID 重复"] += 1
+    for response, counters in zip(responses, values):
+        rid = response.get("request_id")
+        attributable = (request_counts[rid] == response_counts[rid] == 1 and bool(rid)) if identified else paired
+        if not attributable:
+            if identified and not request_counts[rid]:
+                reasons["响应无法匹配请求"] += 1
+            continue
+        valid = all(type(v) is int and v >= 0 for v in counters)
+        if valid:
+            known.append(counters)
+        else:
+            reasons["响应缺少有效 usage"] += 1
+        if response.get("schema_version", 1) >= 2 and (
+            response.get("outcome") != "completed" or response.get("stream_complete") is not True
+        ):
+            reasons["响应未完整结束"] += 1
+        if response.get("status") is not None and response["status"] != 200:
+            reasons["响应状态异常"] += 1
     return usage, {
         "usage_complete": bool(paired),
+        "known_usage": {"input_tokens": sum(v[0] for v in known),
+                        "output_tokens": sum(v[1] for v in known)} if known else {},
+        "known_request_count": len(known),
+        "missing_usage_requests": max(0, len(requests) - len(known)),
+        "usage_issues": dict(reasons),
         "request_response_matching": "request_id"
         if identified
         else "legacy_count_only",

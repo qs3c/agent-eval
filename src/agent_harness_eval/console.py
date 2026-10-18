@@ -390,6 +390,7 @@ class Console:
 
     def evidence(self, row):
         from .guardian.evidence import incident_summary
+        from .usage_view import trial_usage
 
         path = safe_file(self.artifacts, Path(row["path"]))
         manifest = read_manifest(path)
@@ -427,10 +428,15 @@ class Console:
                         "agent_seconds": duration(value.get("agent_execution") or {}),
                         "input_tokens": usage.get("n_input_tokens"),
                         "output_tokens": usage.get("n_output_tokens"),
+                        "usage_evidence": trial_usage(result.parent, usage),
                         "cost_usd": usage.get("cost_usd"),
                         "guardian": incident_summary(result.parent),
                     }
                 )
+        if report:
+            evidence = {(t["agent"], t["trial"]): t["usage_evidence"] for t in trials}
+            for trial in report.get("trials", []):
+                trial["usage_evidence"] = evidence.get((trial.get("agent"), trial.get("trial")), {})
         return manifest, report, completed, trials
 
     @staticmethod

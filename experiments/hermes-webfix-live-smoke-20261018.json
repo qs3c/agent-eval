@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "name": "hermes-webfix-live-smoke-20261018",
+  "model": {
+    "mode": "live",
+    "name": "deepseek-flash",
+    "api_base": "https://api.deepseek.com",
+    "api_key_env": "EVAL_POOL_KEY_f7180ddfe34c4811bc25628be683ce99",
+    "messages_base": "https://api.deepseek.com/anthropic",
+    "pool_id": "79aa0124f796459fac13d01311d2f5f7",
+    "spending": "unbounded",
+    "max_tokens": 32768,
+    "context_window": 1000000,
+    "search_review": {
+      "endpoint": "https://openrouter.ai/api/v1/systemone",
+      "model": "typesafe/jev-1.13-20260917",
+      "api_key_env": "EVAL_SEARCH_REVIEW_API_KEY",
+      "timeout_seconds": 10,
+      "deny_threshold": 0.5,
+      "web_fetch": true
+    }
+  },
+  "agents": [
+    {
+      "id": "hermes",
+      "implementation": "agent_harness_eval.agents.frozen_cli:Hermes",
+      "version": "06671b7+web-result-fix.468d8dff",
+      "kwargs": {
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-webfix-frozen-20261018/hermes-webfix-468d8dff.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-webfix-frozen-20261018/provenance-webfix.json"
+      },
+      "capabilities": [
+        "shell",
+        "filesystem"
+      ]
+    }
+  ],
+  "benchmark": {
+    "id": "hermes-web-result-fix-integration",
+    "tasks": [
+      "/home/xavier/Desktop/github/agent-harness-eval/tasks/hermes-webfix-smoke"
+    ],
+    "requires": [
+      "shell",
+      "filesystem"
+    ],
+    "primary_metric": "reward",
+    "score_kind": "metric"
+  },
+  "attempts": 1,
+  "concurrency": 1,
+  "timeout_seconds": 300,
+  "setup_timeout_seconds": 900,
+  "cpus": 2,
+  "memory_mb": 4096,
+  "web_proxy": "device"
+}

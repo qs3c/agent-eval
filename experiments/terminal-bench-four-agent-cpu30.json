@@ -62,10 +62,10 @@
     {
       "id": "hermes",
       "implementation": "agent_harness_eval.agents.frozen_cli:Hermes",
-      "version": "06671b70756452c9bb45c0e7297835f7728143fc",
+      "version": "06671b7+web-result-fix.468d8dff",
       "kwargs": {
-        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-frozen-20261017/hermes.tar.gz",
-        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-frozen-20261017/provenance.json"
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-webfix-frozen-20261018/hermes-webfix-468d8dff.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-webfix-frozen-20261018/provenance-webfix.json"
       },
       "capabilities": [
         "filesystem",

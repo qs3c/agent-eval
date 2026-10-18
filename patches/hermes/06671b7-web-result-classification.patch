@@ -1,0 +1,132 @@
+diff --git a/agent/display.py b/agent/display.py
+index b509bb49..930fec5f 100644
+--- a/agent/display.py
++++ b/agent/display.py
+@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
+ from utils import safe_json_loads
+ from agent.i18n import t
+ from agent.redact import redact_sensitive_text
+-from agent.tool_result_classification import file_mutation_result_landed, is_guardrail_refusal
++from agent.tool_result_classification import file_mutation_result_landed, is_guardrail_refusal, structured_web_result_failure
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -1025,6 +1025,10 @@ def _detect_tool_failure(tool_name: str, result: Any) -> tuple[bool, str]:
+     if is_guardrail_refusal(data):
+         return False, ""
+ 
++    web_failed = structured_web_result_failure(tool_name, result)
++    if web_failed is not None:
++        return web_failed, t("display.failure.generic") if web_failed else ""
++
+     # A denied/timed-out approval carries one human sentence; show it instead of the model-facing
+     # "BLOCKED: ... Do NOT retry" text (which stays in the JSON for the model).
+     if isinstance(data, dict) and data.get("user_summary"):
+@@ -1270,4 +1274,3 @@ def get_cute_tool_message(tool_name: str, args: dict, duration: float, result: s
+         safe_name = tool_name[:9] if isinstance(tool_name, str) and tool_name else t("display.cute.fallback_tool_name")
+         safe_duration = f"{duration:.1f}s" if isinstance(duration, (int, float)) else t("display.cute.fallback_done")
+         return t("display.cute.completed", tool=f"{safe_name:9}", duration=safe_duration)
+-
+diff --git a/agent/tool_guardrails.py b/agent/tool_guardrails.py
+index 258ca3ab..01ea5284 100644
+--- a/agent/tool_guardrails.py
++++ b/agent/tool_guardrails.py
+@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field, fields
+ from typing import Any, Mapping
+ 
+ from utils import safe_json_loads
+-from agent.tool_result_classification import file_mutation_result_landed, is_guardrail_refusal
++from agent.tool_result_classification import file_mutation_result_landed, is_guardrail_refusal, structured_web_result_failure
+ 
+ 
+ IDEMPOTENT_TOOL_NAMES = frozenset({
+@@ -228,6 +228,10 @@ def classify_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str
+     if is_guardrail_refusal(result):
+         return False, ""
+ 
++    web_failed = structured_web_result_failure(tool_name, result)
++    if web_failed is not None:
++        return web_failed, " [error]" if web_failed else ""
++
+     if tool_name == "terminal":
+         data = safe_json_loads(result)
+         exit_code = data.get("exit_code") if isinstance(data, dict) else None
+diff --git a/agent/tool_result_classification.py b/agent/tool_result_classification.py
+index 1e11b47f..61268245 100644
+--- a/agent/tool_result_classification.py
++++ b/agent/tool_result_classification.py
+@@ -9,6 +9,28 @@ from typing import Any
+ FILE_MUTATING_TOOL_NAMES = frozenset({"write_file", "patch"})
+ 
+ 
++def structured_web_result_failure(tool_name: str, result: Any) -> bool | None:
++    """Classify provider envelopes by values, never by words in page content."""
++    if tool_name not in {"web_search", "web_extract"}:
++        return None
++    data = result
++    if isinstance(result, str):
++        try:
++            data = json.loads(result)
++        except (ValueError, TypeError):
++            return None
++    if not isinstance(data, dict):
++        return None
++    if data.get("success") is False or data.get("error"):
++        return True
++    pages = data.get("results")
++    if tool_name == "web_extract" and isinstance(pages, list) and all(isinstance(p, dict) for p in pages):
++        return any(bool(p.get("error")) or p.get("success") is False for p in pages)
++    if data.get("success") is True or "error" in data:
++        return False
++    return None
++
++
+ # Tools whose interrupted/dangling execution is safe to discard because they
+ # cannot mutate either external state or Hermes session state. Unknown/plugin/
+ # MCP tools stay effect-capable by default.
+diff --git a/tests/agent/test_web_result_classification.py b/tests/agent/test_web_result_classification.py
+new file mode 100644
+index 00000000..ebb2c87f
+--- /dev/null
++++ b/tests/agent/test_web_result_classification.py
+@@ -0,0 +1,40 @@
++"""Successful web envelopes must not feed the repeated-failure guardrail."""
++import json
++
++import pytest
++
++from agent.display import _detect_tool_failure
++from agent.tool_guardrails import ToolCallGuardrailController, classify_tool_failure
++
++
++@pytest.mark.parametrize('classifier', [_detect_tool_failure, classify_tool_failure])
++@pytest.mark.parametrize('result,failed', [
++    ({'results': [{'url': 'https://example.com', 'content': 'Example Domain', 'error': None}]}, False),
++    ({'results': [{'content': 'Documentation mentioning "error" and "failed"', 'error': None}]}, False),
++    ({'results': [{'content': '', 'error': 'Request timed out'}]}, True),
++    ({'success': False, 'error': 'Provider unavailable'}, True),
++])
++def test_extract_classifiers_use_error_values(classifier, result, failed):
++    assert classifier('web_extract', json.dumps(result))[0] is failed
++
++
++@pytest.mark.parametrize('classifier', [_detect_tool_failure, classify_tool_failure])
++def test_search_success_and_true_provider_failure(classifier):
++    success = {'success': True, 'data': {'web': [{'description': 'An "error" field example'}]}, 'error': None}
++    assert classifier('web_search', json.dumps(success))[0] is False
++    assert classifier('web_search', json.dumps({'success': False, 'error': 'Backend failed'}))[0] is True
++
++
++def test_successful_extract_does_not_accumulate_failure_warnings():
++    guard = ToolCallGuardrailController()
++    result = json.dumps({'results': [{'content': 'Example Domain', 'error': None}]})
++    for _ in range(3):
++        failed, _ = _detect_tool_failure('web_extract', result)
++        decision = guard.after_call('web_extract', {'urls': ['https://example.com']}, result, failed=failed)
++        assert decision.code != 'repeated_exact_failure_warning'
++
++
++@pytest.mark.parametrize('classifier', [_detect_tool_failure, classify_tool_failure])
++def test_web_guardrail_refusal_does_not_count_as_failure(classifier):
++    result = json.dumps({'error': 'Repeated query refused', 'guardrail_refusal': True})
++    assert classifier('web_search', result)[0] is False

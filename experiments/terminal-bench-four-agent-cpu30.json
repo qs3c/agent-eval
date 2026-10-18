@@ -39,7 +39,12 @@
       "version": "0.2.1-alpha.2+search-content+platform-review",
       "kwargs": {
         "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/dsh-bundle-platform-review-20261017/runtime.tar.gz",
-        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/dsh-bundle-platform-review-20261017/provenance.json"
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/dsh-bundle-platform-review-20261017/provenance.json",
+        "web_search": {
+          "provider": "exa",
+          "credential_env": "EXA_API_KEY",
+          "transport": "platform-relay"
+        }
       },
       "capabilities": [
         "filesystem",
@@ -52,7 +57,12 @@
       "version": "1.19.3",
       "kwargs": {
         "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/opencode-frozen-20261017/opencode.tar.gz",
-        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/opencode-frozen-20261017/provenance.json"
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/opencode-frozen-20261017/provenance.json",
+        "web_search": {
+          "provider": "exa",
+          "credential_env": "EXA_API_KEY",
+          "transport": "direct"
+        }
       },
       "capabilities": [
         "filesystem",
@@ -64,8 +74,13 @@
       "implementation": "agent_harness_eval.agents.frozen_cli:Hermes",
       "version": "06671b7+web-result-fix.468d8dff",
       "kwargs": {
-        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-webfix-frozen-20261018/hermes-webfix-468d8dff.tar.gz",
-        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-webfix-frozen-20261018/provenance-webfix.json"
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-paid-exa-frozen-20261018/hermes-paid-exa-468d8dff.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-paid-exa-frozen-20261018/provenance-paid-exa.json",
+        "web_search": {
+          "provider": "exa",
+          "credential_env": "EXA_API_KEY",
+          "transport": "direct"
+        }
       },
       "capabilities": [
         "filesystem",

@@ -137,9 +137,18 @@ class Experiment(Strict):
             if agent.kwargs.get("web_search") is not None:
                 from .search import WebSearch
 
-                WebSearch.model_validate(agent.kwargs["web_search"])
-                if agent.implementation != "agent_harness_eval.agents.bkcrab:Bkcrab":
-                    raise ValueError("web_search is currently supported by the BKCrab adapter only")
+                search = WebSearch.model_validate(agent.kwargs["web_search"])
+                adapters = {
+                    "agent_harness_eval.agents.bkcrab:Bkcrab": None,
+                    "agent_harness_eval.agents.dsh:DeepSeekStandard": "platform-relay",
+                    "agent_harness_eval.agents.frozen_cli:OpenCode": "direct",
+                    "agent_harness_eval.agents.frozen_cli:Hermes": "direct",
+                }
+                if agent.implementation not in adapters:
+                    raise ValueError("web_search requires a supported native adapter")
+                transport = adapters[agent.implementation]
+                if transport and (search.provider != "exa" or search.transport != transport):
+                    raise ValueError("This adapter requires Exa with transport=" + transport)
                 if self.model.mode != "live":
                     raise ValueError("external web_search requires live mode")
             if "sdk-minimal" in str(agent.kwargs):

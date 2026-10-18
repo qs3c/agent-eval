@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "name": "paid-exa-four-agent-smoke-20261018",
+  "model": {
+    "mode": "live",
+    "name": "deepseek-flash",
+    "api_base": "https://api.deepseek.com",
+    "api_key_env": "EVAL_POOL_KEY_f7180ddfe34c4811bc25628be683ce99",
+    "messages_base": "https://api.deepseek.com/anthropic",
+    "pool_id": "79aa0124f796459fac13d01311d2f5f7",
+    "spending": "unbounded",
+    "max_tokens": 32768,
+    "context_window": 1000000,
+    "search_review": {
+      "endpoint": "https://openrouter.ai/api/v1/systemone",
+      "model": "typesafe/jev-1.13-20260917",
+      "api_key_env": "EVAL_SEARCH_REVIEW_API_KEY",
+      "timeout_seconds": 10,
+      "deny_threshold": 0.5,
+      "web_fetch": true
+    }
+  },
+  "agents": [
+    {
+      "id": "bkcrab",
+      "implementation": "agent_harness_eval.agents.bkcrab:Bkcrab",
+      "version": "f162130+native-web+platform-review",
+      "kwargs": {
+        "binary": "/home/xavier/Desktop/github/agent-harness-eval/.cache/bkcrab-platform-review-20261017/bkcrab-eval",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/bkcrab-platform-review-20261017/provenance.json",
+        "web_search": {
+          "provider": "exa",
+          "credential_env": "EXA_API_KEY",
+          "transport": "platform-relay"
+        }
+      },
+      "capabilities": [
+        "shell",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "dsh-standard",
+      "implementation": "agent_harness_eval.agents.dsh:DeepSeekStandard",
+      "version": "0.2.1-alpha.2+search-content+platform-review",
+      "kwargs": {
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/dsh-bundle-platform-review-20261017/runtime.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/dsh-bundle-platform-review-20261017/provenance.json",
+        "web_search": {
+          "provider": "exa",
+          "credential_env": "EXA_API_KEY",
+          "transport": "platform-relay"
+        }
+      },
+      "capabilities": [
+        "shell",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "opencode",
+      "implementation": "agent_harness_eval.agents.frozen_cli:OpenCode",
+      "version": "1.19.3",
+      "kwargs": {
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/opencode-frozen-20261017/opencode.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/opencode-frozen-20261017/provenance.json",
+        "web_search": {
+          "provider": "exa",
+          "credential_env": "EXA_API_KEY",
+          "transport": "direct"
+        }
+      },
+      "capabilities": [
+        "shell",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "hermes",
+      "implementation": "agent_harness_eval.agents.frozen_cli:Hermes",
+      "version": "06671b7+web-result-fix.468d8dff",
+      "kwargs": {
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-paid-exa-frozen-20261018/hermes-paid-exa-468d8dff.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-paid-exa-frozen-20261018/provenance-paid-exa.json",
+        "web_search": {
+          "provider": "exa",
+          "credential_env": "EXA_API_KEY",
+          "transport": "direct"
+        }
+      },
+      "capabilities": [
+        "shell",
+        "filesystem"
+      ]
+    }
+  ],
+  "benchmark": {
+    "id": "native-web-integration",
+    "tasks": [
+      "/home/xavier/Desktop/github/agent-harness-eval/tasks/four-agent-web-smoke"
+    ],
+    "requires": [
+      "shell",
+      "filesystem"
+    ],
+    "primary_metric": "reward",
+    "score_kind": "metric"
+  },
+  "attempts": 1,
+  "concurrency": 2,
+  "timeout_seconds": 300,
+  "setup_timeout_seconds": 900,
+  "cpus": 2,
+  "memory_mb": 4096,
+  "web_proxy": "device"
+}

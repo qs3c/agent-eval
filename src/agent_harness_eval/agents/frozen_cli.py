@@ -26,6 +26,7 @@ class FrozenCLI(Native):
         await environment.upload_file(self.bundle, "/installed-agent/native.tar.gz")
         await self.exec_as_root(environment, "mkdir -p /installed-agent/native && tar -xzf /installed-agent/native.tar.gz -C /installed-agent/native && chmod -R a+rX /installed-agent/native")
         await self.model_setup(environment)
+        await self.search_setup(environment)
 
     async def put_config(self, environment, config):
         with tempfile.TemporaryDirectory(prefix="native-cli-config-") as tmp:
@@ -39,6 +40,9 @@ class FrozenCLI(Native):
                 "XDG_DATA_HOME": "/logs/agent/native-data", "XDG_STATE_HOME": "/logs/agent/native-state"}
 
     async def execute(self, environment, work, command, env):
+        if self.web_search:
+            # Read only inside the container; never put the key in logged env/config.
+            command = 'export EXA_API_KEY="$(cat /installed-agent/search.key)" && rm /installed-agent/search.key && ' + command
         async with web_proxy_environment(self, environment) as proxy:
             await self.exec_as_agent(environment, self.wrap_model(command), env={**env, **proxy}, cwd=work)
 
@@ -61,7 +65,7 @@ class OpenCode(FrozenCLI):
         await self.put_config(environment, self.configuration())
         env = {**self.home_environment(), "OPENCODE_CONFIG": "/logs/agent/effective-config.json",
                "DEEPSEEK_API_KEY": "relay-only", "OPENCODE_DISABLE_AUTOUPDATE": "true",
-               "OPENCODE_ENABLE_EXA": "true"}
+               "OPENCODE_ENABLE_EXA": "true", "OPENCODE_WEBSEARCH_PROVIDER": "exa"}
         command = 'mkdir -p "$HOME" && /installed-agent/native/opencode run --print-logs --format json --model ' + shlex.quote("deepseek/" + self.model_config["name"]) + ' --auto "$(cat /installed-agent/prompt.txt)" >/logs/agent/opencode.jsonl 2>/logs/agent/stderr.log'
         await self.execute(environment, work, command, env)
 
@@ -76,7 +80,7 @@ class Hermes(FrozenCLI):
                           "base_url": "http://127.0.0.1:18765/v1", "api_mode": "chat_completions",
                           "context_length": self.model_config["context_window"]},
                 "toolsets": ["hermes-cli"], "terminal": {"backend": "local"},
-                "web": {"backend": "exa"}}
+                "web": {"backend": "exa", **({"provider_tier": {"exa": "paid"}, "keyless_fallback": False, "keyless_rescue": False} if getattr(self, "web_search", None) else {})}}
 
     async def run(self, instruction, environment, context):
         work = await self.prepare(environment, instruction)

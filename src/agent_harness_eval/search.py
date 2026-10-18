@@ -1,4 +1,4 @@
-"""Explicit, non-secret BKCrab search configuration and its egress hosts."""
+"""Explicit, non-secret native search configuration and its egress hosts."""
 
 import os
 from typing import Literal
@@ -50,6 +50,8 @@ def search_hosts(exp):
         WebSearch.model_validate(a.kwargs["web_search"]).host
         for a in exp.agents if a.kwargs.get("web_search") is not None
     }
+    if any(a.implementation == "agent_harness_eval.agents.frozen_cli:OpenCode" and a.kwargs.get("web_search") for a in exp.agents):
+        hosts.add("mcp.exa.ai")
     if exp.model.search_review:
         hosts.add(urlsplit(exp.model.search_review.endpoint).hostname)
     return sorted(hosts)

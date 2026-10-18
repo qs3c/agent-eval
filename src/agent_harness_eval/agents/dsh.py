@@ -29,6 +29,7 @@ class DeepSeekStandard(Native):
             "mkdir -p /installed-agent/dsh && tar -xzf /installed-agent/dsh.tar.gz -C /installed-agent/dsh && chmod -R a+rX /installed-agent/dsh",
         )
         await self.model_setup(environment)
+        await self.search_setup(environment)
 
     async def run(self, instruction, environment, context):
         work = await self.prepare(environment, instruction)

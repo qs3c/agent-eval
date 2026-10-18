@@ -7,17 +7,19 @@ from pathlib import Path
 from harbor.agents.installed.base import BaseInstalledAgent
 
 from ..traces import convert
+from ..search import WebSearch
 
 
 class Native(BaseInstalledAgent):
     supported_model_modes = frozenset({"mock", "live"})
     accepts_model_config = True
 
-    def __init__(self, *args, model_config, timeout_seconds=300, provenance, web_proxy="device", **kwargs):
+    def __init__(self, *args, model_config, timeout_seconds=300, provenance, web_proxy="device", web_search=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_config = model_config
         self.timeout_seconds = timeout_seconds
         self.web_proxy = web_proxy
+        self.web_search = WebSearch.model_validate(web_search) if web_search is not None else None
         self.provenance = Path(provenance)
         self.identity = json.loads(self.provenance.read_text())
 
@@ -53,7 +55,10 @@ class Native(BaseInstalledAgent):
                 secret.write_text(os.environ[self.model_config["api_key_env"]])
                 await environment.upload_file(secret, "/installed-agent/live.key")
                 config = Path(tmp) / "model.json"
-                config.write_text(json.dumps(self.model_config))
+                config_value = self.model_config.copy()
+                if getattr(self, "web_search", None) and self.web_search.transport == "platform-relay":
+                    config_value["web_search"] = {"provider": "exa", "transport": "platform-relay"}
+                config.write_text(json.dumps(config_value))
                 await environment.upload_file(config, "/installed-agent/model.json")
                 review = self.model_config.get("search_review")
                 if review:
@@ -69,6 +74,19 @@ class Native(BaseInstalledAgent):
             if self.model_config.get("search_review"):
                 await self.exec_as_root(environment,
                     f"chown {owner} /installed-agent/search-review.key && chmod 600 /installed-agent/search-review.key")
+
+    async def search_setup(self, environment):
+        if self.web_search and self.web_search.credential_env:
+            value = os.environ.get(self.web_search.credential_env, "").strip()
+            if not value:
+                raise ValueError("Missing web search credential environment variable: " + self.web_search.credential_env)
+            with tempfile.TemporaryDirectory(prefix="eval-search-") as tmp:
+                path = Path(tmp) / "search.key"
+                path.touch(mode=0o600)
+                path.write_text(value)
+                await environment.upload_file(path, "/installed-agent/search.key")
+            owner = shlex.quote(str(environment.default_user or "root"))
+            await self.exec_as_root(environment, f"chown {owner} /installed-agent/search.key && chmod 600 /installed-agent/search.key")
 
     def wrap_model(self, command):
         ready = "import socket,time\nfor _ in range(100):\n try:\n  socket.create_connection(('127.0.0.1',18765),.1).close(); break\n except OSError: time.sleep(.05)\nelse: raise RuntimeError('model relay did not start')"

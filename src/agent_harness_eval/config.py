@@ -90,6 +90,7 @@ class BatchConfig(Strict):
     retain_gib: float = Field(default=20, gt=0)
     retain_hours: float = Field(default=24, gt=0)
     min_free_gib: float = Field(default=20, ge=0)
+    rotate_agents: bool = False
 
 
 class Experiment(Strict):
@@ -101,10 +102,10 @@ class Experiment(Strict):
     benchmark: Benchmark
     attempts: int = Field(default=1, ge=1)
     concurrency: int = Field(default=1, ge=1)
-    timeout_seconds: int = Field(default=300, gt=0)
+    timeout_seconds: int | None = Field(default=300, gt=0)
     setup_timeout_seconds: int = Field(default=600, gt=0)
-    cpus: int = Field(default=2, gt=0)
-    memory_mb: int = Field(default=4096, gt=0)
+    cpus: int | None = Field(default=2, gt=0)
+    memory_mb: int | None = Field(default=4096, gt=0)
     guardian: GuardianConfig | None = None
     batch: BatchConfig | None = None
 
@@ -174,16 +175,17 @@ def load(path: Path, *, validate_agent_artifacts=True) -> Experiment:
         from harbor.models.task.config import TaskConfig
 
         config = TaskConfig.model_validate_toml((task / "task.toml").read_text())
+        policy = config.agent.explicit_phase_policy() or config.environment.resolve_baseline()
         if not (exp.batch and exp.batch.prepare_swe):
             from .search import search_hosts
 
             hosts = search_hosts(exp)
-            if hosts and config.agent.network_mode.value != "public" and (
-                config.agent.network_mode.value != "allowlist"
-                or not set(hosts) <= set(config.agent.allowed_hosts)
+            if hosts and policy.network_mode.value != "public" and (
+                policy.network_mode.value != "allowlist"
+                or not set(hosts) <= set(policy.allowed_hosts)
             ):
                 raise ValueError("web_search requires public networking or endpoints explicitly included in task network allowlist")
-        if exp.model.mode == "mock" and config.agent.network_mode.value != "no-network":
+        if exp.model.mode == "mock" and config.agent.network_mode != "no-network":
             raise ValueError(
                 "mock tasks must explicitly set agent.network_mode = no-network"
             )

@@ -152,6 +152,20 @@ def grade_units(exp, output, paths, number, inherited, source="automatic"):
         for key, record in records.items()
     ):
         raise ValueError("冻结任务记录缺失或题目 ID 不一致")
+    image_map = {}
+    for task in paths:
+        runtime = read(task / "runtime-provenance.json", {})
+        if runtime:
+            ref = runtime.get("image", "")
+            if "@sha256:" not in ref:
+                raise ValueError("官方复评要求冻结的镜像 digest")
+            image_map[task.name] = ref
+    if image_map and set(image_map) != set(records):
+        raise ValueError("部分任务缺少冻结镜像，不能混用 latest")
+    delivery_policy = {
+        "patch_delivery": "atomic-git-apply-v1",
+        "runner_sha256": digest(Path(__file__).parent / "resources/official_runner.py"),
+    }
     progress_path = directory / "progress.json"
     units = {}
     mutex = threading.Lock()
@@ -181,14 +195,12 @@ def grade_units(exp, output, paths, number, inherited, source="automatic"):
             }
             if not set(records).issubset(predictions):
                 raise ValueError("补丁未覆盖本批全部题目")
-            legacy = import_legacy(
-                directory, agent.id, attempt, records, predictions, output
-            )
+            # Historical reports used non-atomic fallbacks and mutable image tags.
             for task, record in records.items():
                 key = f"{agent.id}/attempt-{attempt}/{task}"
                 fingerprint = hashlib.sha256(
                     json.dumps(
-                        [record, predictions[task], EVALUATOR], sort_keys=True
+                        [record, predictions[task], EVALUATOR, delivery_policy, image_map.get(task)], sort_keys=True
                     ).encode()
                 ).hexdigest()
                 previous = read(directory / "units" / key / "status.json", {})
@@ -206,37 +218,6 @@ def grade_units(exp, output, paths, number, inherited, source="automatic"):
                             cached = True
                     except (KeyError, ValueError, OSError):
                         pass
-                if not cached and legacy:
-                    report_path = (
-                        directory
-                        / "units"
-                        / key
-                        / ("import-" + uuid.uuid4().hex)
-                        / "report.json"
-                    )
-                    write(
-                        report_path,
-                        {
-                            "submitted_instances": 1,
-                            "submitted_ids": [task],
-                            "resolved_instances": int(task in legacy["resolved"]),
-                            "error_instances": 0,
-                            "incomplete_ids": [],
-                            "source_report": legacy["path"],
-                            "source_sha256": legacy["sha256"],
-                        },
-                    )
-                    previous = {
-                        "status": "completed",
-                        "task": task,
-                        "agent": agent.id,
-                        "attempt": attempt,
-                        "input_sha256": fingerprint,
-                        "report": str(report_path.relative_to(output)),
-                        "report_sha256": digest(report_path),
-                    }
-                    write(directory / "units" / key / "status.json", previous)
-                    cached = True
                 units[key] = (
                     previous
                     if cached
@@ -257,6 +238,8 @@ def grade_units(exp, output, paths, number, inherited, source="automatic"):
             "source": source,
             "created_unix": time.time(),
             "evaluator": EVALUATOR,
+            "delivery_policy": delivery_policy,
+            "images": image_map,
             "source_manifest_sha256": digest(output / "manifest.json")
             if (output / "manifest.json").exists()
             else None,
@@ -277,6 +260,10 @@ def grade_units(exp, output, paths, number, inherited, source="automatic"):
             work = base / uuid.uuid4().hex
             work.mkdir(parents=True)
             write(work / "records.json", [record])
+            if image_map:
+                write(work / "official-image-map.json", {
+                    record["instance_id"]: image_map[record["instance_id"]]
+                })
             (work / "predictions.jsonl").write_text(json.dumps(prediction) + "\n")
             with mutex:
                 status.update(

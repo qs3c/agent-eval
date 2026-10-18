@@ -380,7 +380,12 @@ async def run_batches(
             record_tasks(output, paths)
             if shutil.disk_usage(output).free < exp.batch.min_free_gib * 1024**3:
                 raise RuntimeError("Insufficient disk headroom before Agent execution")
-            for agent in exp.agents:
+            order = list(exp.agents)
+            if exp.batch.rotate_agents:
+                offset = (number - 1) % len(order)
+                order = order[offset:] + order[:offset]
+            entry["agent_order"] = [agent.id for agent in order]
+            for agent in order:
                 phase("running", agent=agent.id)
                 policy = {
                     "max_count": exp.batch.retain_count,

@@ -32,6 +32,8 @@ uv sync --locked --python 3.12
 - `tasks/`：两个非 SWE 的文件任务，演示独立 benchmark 和多指标评分。
 - `src/agent_harness_eval/benchmarks/`：SWE 任务加工、完整补丁提取、predictions 导出、官方复评入口。
 - `experiments/`：Agent、任务、重复次数、资源与模型配置的组合。
+
+Terminal-Bench 可通过 `agent-harness-eval terminal-bench-prepare` 导入官方固定版本，复用已有 Agent 模板并保留原始 verifier、任务资源和来源哈希。支持显式 CPU 子集与确定性抽样；使用方法、控制验收及限制见 [Terminal-Bench 接入](docs/terminal-bench.md)。
 - `locks/`、`uv.lock`：Python 与 DSH npm 依赖锁。
 - `integrations/bkcrab-eval.patch`：BKCrab 仓库中独立入口的可移植补丁；当前工作区已添加该入口。
 - `artifacts/<run>/`：冻结任务、Agent 包和来源、原始日志、ATIF、评分和报告。被 Git 忽略。

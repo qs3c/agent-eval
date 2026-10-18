@@ -290,6 +290,13 @@ class Console:
         frozen = self.state / "inputs" / run_id
         frozen.mkdir()
         try:
+            parents = {Path(task).parent for task in config["benchmark"]["tasks"]}
+            if len(parents) == 1:
+                selection = next(iter(parents)) / "selection.json"
+                if selection.is_file():
+                    safe_file(next(iter(parents)), selection)
+                    (frozen / "tasks").mkdir(exist_ok=True)
+                    shutil.copyfile(selection, frozen / "tasks/selection.json")
             for i, task in enumerate(config["benchmark"]["tasks"]):
                 source = Path(task)
                 validate_tree(

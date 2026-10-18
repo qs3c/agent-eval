@@ -41,7 +41,10 @@ def verify_workbench_repair(previous, current, approval):
 
 
 def resume_configuration(value):
-    """Normalize only fields declared as sets, retaining every other value."""
+    """Normalize set fields and the legacy default for batch agent rotation."""
+    value = dict(value)
+    if value.get("batch") is not None:
+        value["batch"] = {"rotate_agents": False, **value["batch"]}
     return {
         **value,
         "agents": [{**agent, "capabilities": sorted(agent["capabilities"])} for agent in value["agents"]],
@@ -195,7 +198,7 @@ async def run_experiment(
                 ).get("archive_sha256")
         manifest["tasks"][task.name] = inventory
         copied_tasks.append(TaskConfig(path=target))
-    if not resume and exp.batch:
+    if not resume:
         source_selection = exp.benchmark.tasks[0].parent / "selection.json"
         if source_selection.is_file():
             shutil.copyfile(source_selection, output / "selection.json")

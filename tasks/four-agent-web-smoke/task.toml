@@ -1,0 +1,14 @@
+schema_version = "1.4"
+[metadata]
+purpose = "Four native agents live tool and web integration smoke; excluded from SWE scores"
+[agent]
+timeout_sec = 300
+network_mode = "public"
+[verifier]
+timeout_sec = 30
+network_mode = "no-network"
+[environment]
+workdir = "/app"
+network_mode = "no-network"
+cpus = 2
+memory_mb = 4096

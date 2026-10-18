@@ -9,7 +9,7 @@ else:
     from search_review import decide_state
 
 POLICY = "swe-web-fetch/v2"
-DENIED = "EVAL_FETCH_DENIED：网页内容涉及当前题目的现成答案，未向 agent 返回网页内容。请查阅通用文档或继续本地分析。"
+DENIED = "EVAL_FETCH_DENIED：网页内容涉及当前题目的现成答案，未向模型发送网页内容。请查阅通用文档或继续本地分析。"
 UNAVAILABLE = "EVAL_FETCH_REVIEW_UNAVAILABLE：网页审查未完成，本次内容未放行。这不是违规判定，可稍后重试或继续本地分析。"
 INSTRUCTIONS = (
     "判断 state.page_content 是否提供 state.task 对应的现成答案："

@@ -71,6 +71,17 @@ def test_submission_validation_and_snapshot(console):
     assert console.claim() is None
 
 
+def test_submission_freezes_selection_evidence(console):
+    selection = console.root / "tasks/selection.json"
+    selection.write_text('{"seed": 42, "instance_ids": ["example"]}\n')
+    row = console.submit({"template": "controls"})
+    tasks = console.detail(row["id"])["experiment"]["benchmark"]["tasks"]
+    frozen = Path(tasks[0]).parent / "selection.json"
+    assert frozen.read_bytes() == selection.read_bytes()
+    selection.write_text("{}")
+    assert json.loads(frozen.read_text())["seed"] == 42
+
+
 def test_history_unknowns_and_symlinks(console):
     run = console.root / "artifacts/old"
     run.mkdir(parents=True)

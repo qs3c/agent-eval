@@ -27,13 +27,14 @@ def test_shared_freezing_is_independent_of_source(tmp_path):
 
 
 @pytest.mark.parametrize("regrade_fails", [False, True])
-def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch, regrade_fails):
+@pytest.mark.parametrize("rotate_agents", [False, True])
+def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch, regrade_fails, rotate_agents):
     from agent_harness_eval import batching
     from agent_harness_eval.guardian import supervisor
     from agent_harness_eval.run import run_experiment
 
     exp = load(Path("experiments/controls.json"))
-    exp.batch = BatchConfig(size=1, min_free_gib=0)
+    exp.batch = BatchConfig(size=1, min_free_gib=0, rotate_agents=rotate_agents)
     from agent_harness_eval.guardian.config import GuardianConfig
 
     exp.guardian = GuardianConfig()
@@ -85,6 +86,8 @@ def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch, re
         ("regrade", "file-preserve"),
         ("cleanup", "file-preserve"),
     ]
+    if rotate_agents:
+        expected_events[6], expected_events[7] = expected_events[7], expected_events[6]
     if regrade_fails:
         expected_events = [event for event in expected_events if event[0] != "cleanup"]
     assert events == expected_events

@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "name": "terminal-bench-4-0-0",
+  "model": {
+    "mode": "live",
+    "name": "deepseek-flash",
+    "api_base": "https://api.deepseek.com",
+    "api_key_env": "EVAL_POOL_KEY_f7180ddfe34c4811bc25628be683ce99",
+    "messages_base": "https://api.deepseek.com/anthropic",
+    "pool_id": "79aa0124f796459fac13d01311d2f5f7",
+    "spending": "unbounded",
+    "max_tokens": 32768,
+    "context_window": 1000000,
+    "search_review": null
+  },
+  "web_proxy": "device",
+  "agents": [
+    {
+      "id": "bkcrab",
+      "implementation": "agent_harness_eval.agents.bkcrab:Bkcrab",
+      "version": "f162130+native-web+platform-review",
+      "kwargs": {
+        "binary": "/home/xavier/Desktop/github/agent-harness-eval/.cache/bkcrab-platform-review-20261017/bkcrab-eval",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/bkcrab-platform-review-20261017/provenance.json",
+        "web_search": {
+          "provider": "exa",
+          "credential_env": "EXA_API_KEY",
+          "transport": "platform-relay"
+        }
+      },
+      "capabilities": [
+        "filesystem",
+        "shell"
+      ]
+    },
+    {
+      "id": "dsh-standard",
+      "implementation": "agent_harness_eval.agents.dsh:DeepSeekStandard",
+      "version": "0.2.1-alpha.2+search-content+platform-review",
+      "kwargs": {
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/dsh-bundle-platform-review-20261017/runtime.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/dsh-bundle-platform-review-20261017/provenance.json"
+      },
+      "capabilities": [
+        "filesystem",
+        "shell"
+      ]
+    },
+    {
+      "id": "opencode",
+      "implementation": "agent_harness_eval.agents.frozen_cli:OpenCode",
+      "version": "1.19.3",
+      "kwargs": {
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/opencode-frozen-20261017/opencode.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/opencode-frozen-20261017/provenance.json"
+      },
+      "capabilities": [
+        "filesystem",
+        "shell"
+      ]
+    },
+    {
+      "id": "hermes",
+      "implementation": "agent_harness_eval.agents.frozen_cli:Hermes",
+      "version": "06671b70756452c9bb45c0e7297835f7728143fc",
+      "kwargs": {
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-frozen-20261017/hermes.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-frozen-20261017/provenance.json"
+      },
+      "capabilities": [
+        "filesystem",
+        "shell"
+      ]
+    }
+  ],
+  "benchmark": {
+    "id": "terminal-bench",
+    "tasks": [
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/bun-sourcemap-leak",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/cad-model",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/ctr-optimization",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/cumulative-layout-shift",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/embedding-drift-monitor",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/fin-saccr-rwa",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/foodstuff-beta-activity",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/formal-crypto",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/freecad-impeller",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/freecad-platform-drawing",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/freecad-spring-clip",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/heat-pump-warranty",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/layout-config-recreation",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/live-database-cutover",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/mp-checkpoint-consolidation",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/mvcc-lsm-compaction",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/nextjs-performance",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/payments-pipeline-fix",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/production-planning",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/satb-audio-transcription",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/session-window-debug",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/sglang-qwen-burst",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/shadow-relay",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/sound-change-cascade",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/takens-embedding-lean",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/telecom-entity-resolution",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/vba-userform-port",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/vf2-speedup-networkx",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/wal-recovery-ordering",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-4.0.0-cpu30/wdm-design"
+    ],
+    "requires": [
+      "filesystem",
+      "shell"
+    ],
+    "primary_metric": "reward",
+    "score_kind": "resolved",
+    "dataset": {
+      "name": "terminal-bench/terminal-bench",
+      "revision": "sha256:39d9f44b40420cde8fdcc087579c0d72a7e14fa3656d603c3f0d22fb35e27732",
+      "split": "test"
+    },
+    "evaluation": {
+      "name": "Terminal-Bench upstream task verifier",
+      "version": "4.0.0",
+      "environment": "Harbor Docker; original task.toml resource and timeout limits; task files hashed in selection.json"
+    }
+  },
+  "attempts": 1,
+  "concurrency": 2,
+  "timeout_seconds": null,
+  "setup_timeout_seconds": 900,
+  "cpus": null,
+  "memory_mb": null,
+  "guardian": null,
+  "batch": null
+}

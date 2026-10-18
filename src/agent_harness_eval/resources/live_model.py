@@ -19,10 +19,11 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 if __package__:
-    from . import search_review, fetch_review
+    from . import search_review, fetch_review, tool_result_review
 else:
     import search_review
     import fetch_review
+    import tool_result_review
 
 LOCK = threading.Lock()
 LOGS = Path("/logs/agent")
@@ -272,17 +273,17 @@ class Handler(BaseHTTPRequestHandler):
         response = json.dumps({"type": "error", "error": {
             "type": "permission_error" if status == 403 else "api_error", "message": message,
         }}, ensure_ascii=False).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(response)))
-        self.end_headers()
-        self.wfile.write(response)
         append("search_responses.jsonl" if protocol == "exa_search" else "wire_responses.jsonl", {
             "schema_version": 2, "request_id": request_id, "status": status,
             "outcome": "search_review_" + record["outcome"], "purpose": "web_search",
             "protocol": protocol, "usage": None, "stream_complete": False,
             "timing_ms": {"search_review": record["elapsed_ms"]},
         })
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
         return False
 
     def review_search_result(self, result, request_id, protocol):
@@ -351,8 +352,29 @@ class Handler(BaseHTTPRequestHandler):
 
         stamp("received")
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        append("native_wire_requests.jsonl", {"request_id": request_id, "body": body})
+        response_format = body.get("response_format") or {}
+        if (not search and isinstance(response_format, dict)
+                and isinstance(response_format.get("json_schema"), dict)
+                and response_format["json_schema"].get("name") == "session_title"):
+            purpose = "session_title"
+        if not search:
+            config = self.server.model_config.get("search_review")
+            if config and config.get("web_fetch", True):
+                with LOCK:
+                    if not hasattr(self.server, "fetch_gate"):
+                        self.server.fetch_gate = tool_result_review.Gate()
+                body = self.server.fetch_gate.filter(
+                    body, config, self.server.review_key,
+                    self.server.review_task_path.read_text(encoding="utf-8"), request_id,
+                    lambda record: append("fetch_review.jsonl", record))
+        append("native_wire_requests.jsonl", {"request_id": request_id, "purpose": purpose, "protocol": protocol, "body": body})
         if search and self.server.model_config.get("search_review") and body.get("stream"):
+            append("wire_responses.jsonl", {
+                "schema_version": 2, "request_id": request_id, "purpose": purpose,
+                "protocol": protocol, "status": 400, "outcome": "invalid_request",
+                "usage": None, "stream_complete": False,
+                "timing_ms": {"finished": (time.monotonic_ns() - started) / 1e6},
+            })
             self.send_error(400, "Reviewed search requires a non-streaming response")
             return
         if search and not self.review_search(body, request_id):

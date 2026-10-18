@@ -65,7 +65,7 @@ def test_fetch_review_jev_failure_is_unavailable(tmp_path, monkeypatch):
     assert "secret" not in (tmp_path/"fetch_review.jsonl").read_text()
 
 
-def test_old_agent_artifact_cannot_silently_skip_fetch_review(tmp_path, monkeypatch):
+def test_fetch_review_is_enforced_at_platform_boundary(tmp_path, monkeypatch):
     from harbor.agents.installed.base import BaseInstalledAgent
     from agent_harness_eval.agents.bkcrab import Bkcrab
     from agent_harness_eval.provenance import digest
@@ -75,8 +75,8 @@ def test_old_agent_artifact_cannot_silently_skip_fetch_review(tmp_path, monkeypa
     provenance = tmp_path/"provenance.json"
     identity = {"binary_sha256":digest(binary)}
     provenance.write_text(json.dumps(identity))
-    with pytest.raises(ValueError, match="web_fetch_review"):
-        Bkcrab(binary=binary, provenance=provenance, model_config={"search_review":config()})
+    agent = Bkcrab(binary=binary, provenance=provenance, model_config={"search_review":config()})
+    assert "EVAL_FETCH_REVIEW_URL" not in agent.wrap_model("native")
     provenance.write_text(json.dumps({**identity, "web_fetch_review":True}))
     Bkcrab(binary=binary, provenance=provenance, model_config={"search_review":config()})
 

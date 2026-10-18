@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "name": "terminal-bench-2-0",
+  "model": {
+    "mode": "offline",
+    "name": "mock",
+    "api_base": "https://api.deepseek.com",
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "messages_base": null,
+    "pool_id": null,
+    "spending": "disabled",
+    "max_tokens": 8192,
+    "context_window": 131072,
+    "search_review": null
+  },
+  "web_proxy": "device",
+  "agents": [
+    {
+      "id": "oracle",
+      "implementation": "oracle",
+      "version": "harbor-0.24.0",
+      "kwargs": {},
+      "capabilities": [
+        "shell",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "nop",
+      "implementation": "nop",
+      "version": "harbor-0.24.0",
+      "kwargs": {},
+      "capabilities": [
+        "shell",
+        "filesystem"
+      ]
+    }
+  ],
+  "benchmark": {
+    "id": "terminal-bench",
+    "tasks": [
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-2.0-smoke/fix-git",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/terminal-bench-2.0-smoke/openssl-selfsigned-cert"
+    ],
+    "requires": [
+      "shell",
+      "filesystem"
+    ],
+    "primary_metric": "reward",
+    "score_kind": "resolved",
+    "dataset": {
+      "name": "terminal-bench",
+      "revision": "2.0",
+      "split": "test"
+    },
+    "evaluation": {
+      "name": "Terminal-Bench upstream task verifier",
+      "version": "2.0",
+      "environment": "Harbor Docker; original task.toml resource and timeout limits; task files hashed in selection.json"
+    }
+  },
+  "attempts": 1,
+  "concurrency": 1,
+  "timeout_seconds": null,
+  "setup_timeout_seconds": 600,
+  "cpus": null,
+  "memory_mb": null,
+  "guardian": null,
+  "batch": null
+}

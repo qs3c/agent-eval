@@ -20,9 +20,6 @@ class Native(BaseInstalledAgent):
         self.web_proxy = web_proxy
         self.provenance = Path(provenance)
         self.identity = json.loads(self.provenance.read_text())
-        review = self.model_config.get("search_review")
-        if review and review.get("web_fetch", True) and not self.identity.get("web_fetch_review"):
-            raise ValueError("网页审查需要支持 web_fetch_review 的新 Agent 构建；不能静默使用旧包")
 
     async def prepare(self, environment, instruction):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
@@ -31,6 +28,13 @@ class Native(BaseInstalledAgent):
         await environment.upload_file(prompt, "/installed-agent/prompt.txt")
         await environment.upload_file(self.provenance, "/logs/agent/provenance.json")
         work = await self.exec_as_agent(environment, "pwd")
+        helper = Path(__file__).parents[1] / "resources/capture_patch.py"
+        await environment.upload_file(helper, "/installed-agent/capture_patch.py")
+        # Capture after native installation but before any model/tool execution.
+        frozen = await self.exec_as_agent(environment,
+            "if [ -d /testbed/.git ]; then python3 /installed-agent/capture_patch.py --freeze --repo /testbed --baseline /logs/agent/swe-baseline.json; fi")
+        if frozen.return_code:
+            raise RuntimeError("SWE initial workspace snapshot failed")
         return work.stdout.strip()
 
     async def model_setup(self, environment):
@@ -42,6 +46,7 @@ class Native(BaseInstalledAgent):
         if live:
             await environment.upload_file(source.with_name("search_review.py"), "/installed-agent/search_review.py")
             await environment.upload_file(source.with_name("fetch_review.py"), "/installed-agent/fetch_review.py")
+            await environment.upload_file(source.with_name("tool_result_review.py"), "/installed-agent/tool_result_review.py")
             with tempfile.TemporaryDirectory(prefix="agent-harness-eval-secret-") as tmp:
                 secret = Path(tmp) / "key"
                 secret.touch(mode=0o600)
@@ -66,9 +71,6 @@ class Native(BaseInstalledAgent):
                     f"chown {owner} /installed-agent/search-review.key && chmod 600 /installed-agent/search-review.key")
 
     def wrap_model(self, command):
-        review = self.model_config.get("search_review")
-        if review and review.get("web_fetch", True):
-            command = "(export EVAL_FETCH_REVIEW_URL=http://127.0.0.1:18765/review/web-fetch; " + command + ")"
         ready = "import socket,time\nfor _ in range(100):\n try:\n  socket.create_connection(('127.0.0.1',18765),.1).close(); break\n except OSError: time.sleep(.05)\nelse: raise RuntimeError('model relay did not start')"
         return (
             "env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY -u all_proxy "

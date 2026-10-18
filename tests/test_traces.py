@@ -106,3 +106,88 @@ def test_dsh_relay_coverage_is_not_native_provider_hook(tmp_path):
     _, _, coverage = convert(tmp_path, "dsh-standard", "test")
     assert coverage["provider_requests"] is True
     assert coverage["native_provider_hook"] is False
+
+
+def test_auxiliary_failures_do_not_erase_main_usage():
+    from agent_harness_eval.traces import summarize_usage
+    requests = [{"request_id": "main"}, {"request_id": "search"},
+                {"request_id": "missing", "purpose": "web_search"}]
+    responses = [
+        {"request_id": "main", "purpose": "agent", "usage": {"input_tokens": 10, "output_tokens": 2}},
+        {"request_id": "search", "purpose": "web_search", "status": 403, "usage": None},
+    ]
+    usage, coverage = summarize_usage(requests, responses)
+    assert usage == {"input_tokens": 10, "output_tokens": 2}
+    assert coverage["usage_scope"] == "agent" and coverage["usage_complete"]
+    search = coverage["usage_by_purpose"]["web_search"]
+    assert search["usage"] == {} and not search["usage_complete"]
+    assert search["request_count"] == 2 and search["response_count"] == 1
+    # Truly unknown main/legacy requests must still invalidate main totals.
+    assert summarize_usage(requests + [{"request_id": "unknown"}], responses)[0] == {}
+
+
+def test_convert_uses_timing_for_legacy_unmatched_search_and_separates_reviews(tmp_path):
+    rows = {
+        "wire_requests": [{"messages": [{"role": "user", "content": "task"}]}],
+        "native_wire_requests": [{"request_id": "main"}, {"request_id": "search"}],
+        "wire_responses": [{"request_id": "main", "purpose": "agent", "usage": {"input_tokens": 10, "output_tokens": 2}}],
+        "wire_timing": [{"request_id": "search", "purpose": "web_search", "phase": "received"}],
+        "search_review": [{"request_id": "search", "outcome": "denied", "usage": {"input_tokens": 30, "output_tokens": 1}}],
+        "fetch_review": [{"outcome": "unavailable", "checks": [{"usage": {"input_tokens": 50, "output_tokens": 1}}]}],
+    }
+    for name, records in rows.items():
+        (tmp_path / (name + ".jsonl")).write_text("\n".join(json.dumps(r) for r in records))
+    _, usage, coverage = convert(tmp_path, "dsh-standard", "test")
+    assert usage == {"input_tokens": 10, "output_tokens": 2}
+    assert coverage["usage_by_purpose"]["web_search"]["response_count"] == 0
+    assert coverage["review_usage"]["search_review"]["usage"] == {"input_tokens": 30, "output_tokens": 1}
+    assert coverage["review_usage"]["fetch_review"]["usage"] == {}
+
+
+def test_title_after_tool_conversation_does_not_replace_trajectory(tmp_path):
+    conversation = {"model": "main", "tools": [{"type": "function"}], "messages": [
+        {"role": "user", "content": "create file"},
+        {"role": "assistant", "content": "", "tool_calls": [{"id": "call", "function": {"name": "write", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call", "content": "written"},
+    ]}
+    title = {"model": "title", "messages": [{"role": "user", "content": "name session"}]}
+    (tmp_path / "wire_requests.jsonl").write_text("\n".join(json.dumps(r) for r in [{"name": "probe"}, conversation, title]))
+    (tmp_path / "wire_responses.jsonl").write_text('\n'.join(json.dumps({"usage": {"input_tokens": 10, "output_tokens": 1}}) for _ in range(3)))
+    (tmp_path / "events.jsonl").write_text(json.dumps({"type": "run_end", "data": {"final_response": "done"}}))
+    trajectory, usage, coverage = convert(tmp_path, "hermes", "test")
+    value = trajectory.model_dump()
+    assert value["agent"]["model_name"] == "main"
+    assert value["steps"][-1]["message"] == "done"
+    assert value["steps"][1]["observation"]["results"][0]["content"] == "written"
+    assert usage == {"input_tokens": 30, "output_tokens": 3}  # no accounting exclusion
+    assert coverage["atif_request_index"] == 1
+
+
+def test_conversation_selection_recognizes_anthropic_history_without_tools():
+    from agent_harness_eval.traces import conversation_request
+    request = {"messages": [{"role": "assistant", "content": [{"type": "tool_use", "id": "a"}]}]}
+    assert conversation_request([request, {"messages": [{"role": "user", "content": "title"}]}])[0] == 0
+    assert conversation_request([{"name": "probe"}, {"messages": [{"role": "user", "content": "task"}]}, {"name": "probe"}])[0] == 1
+
+
+def test_review_cache_is_not_billed_and_nested_intent_is_counted(tmp_path):
+    from agent_harness_eval.traces import review_usage
+    records = [
+        {"outcome": "allowed", "cache_hit": False,
+         "intent_check": {"usage": {"input_tokens": 10, "output_tokens": 1}},
+         "checks": [{"usage": {"input_tokens": 20, "output_tokens": 2}}]},
+        {"outcome": "allowed", "cache_hit": True},
+        {"outcome": "denied", "cache_hit": False,
+         "intent_check": {"usage": {"input_tokens": 30, "output_tokens": 3}}},
+    ]
+    path = tmp_path / "fetch_review.jsonl"
+    path.write_text('\n'.join(json.dumps(r) for r in records))
+    summary = review_usage(tmp_path)["fetch_review"]
+    assert summary["usage"] == {"input_tokens": 60, "output_tokens": 6}
+    assert summary["usage_complete"] and summary["check_count"] == 3
+    assert summary["cache_hit_count"] == 1
+    path.write_text(json.dumps(records[1]))
+    assert review_usage(tmp_path)["fetch_review"]["usage"] == {"input_tokens": 0, "output_tokens": 0}
+    records[0]["outcome"] = "unavailable"
+    path.write_text('\n'.join(json.dumps(r) for r in records))
+    assert review_usage(tmp_path)["fetch_review"]["usage"] == {}

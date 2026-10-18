@@ -293,9 +293,14 @@ async function renderCreate(token) {
         .toISOString()
         .replace(/[-:TZ.]/g, "")
         .slice(0, 14);
-    Object.entries(t.defaults).forEach(
-      ([k, v]) => (form.elements[k].value = v),
-    );
+    Object.entries(t.defaults).forEach(([k, v]) => {
+      const input = form.elements[k];
+      input.value = v ?? "";
+      if (["timeout_seconds", "cpus", "memory_mb"].includes(k)) {
+        input.required = v != null;
+        input.placeholder = v == null ? "使用每道题的配置" : "";
+      }
+    });
     checks($("#agent-options"), "agents", t.agents);
     checks($("#task-options"), "tasks", t.tasks);
     $("#template-info").textContent =
@@ -338,8 +343,10 @@ async function renderCreate(token) {
       "timeout_seconds",
       "cpus",
       "memory_mb",
-    ])
-      payload[k] = Number(fd.get(k));
+    ]) {
+      const value = fd.get(k);
+      if (value != null && String(value).trim() !== "") payload[k] = Number(value);
+    }
     if (!payload.agents.length || !payload.tasks.length) {
       $("#form-error").textContent = "请至少选择一个 Agent 和一个任务。";
       return;
@@ -569,7 +576,7 @@ async function renderDetail(id, token, initial = true) {
       [
         "任务并发",
         r.experiment.concurrency,
-        `每任务 ${r.experiment.cpus} CPU / ${r.experiment.memory_mb} MiB`,
+        `CPU：${r.experiment.cpus ?? "按题目配置"} / 内存：${r.experiment.memory_mb == null ? "按题目配置" : r.experiment.memory_mb + " MiB"}`,
       ],
     ],
     $("#detail-stats"),

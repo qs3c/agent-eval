@@ -116,6 +116,12 @@ def create_app(root: Path, allow_live=False, recover=False, *, bind_host="127.0.
     def detail(run_id: str):
         return console.detail(run_id)
 
+    @app.post("/api/runs/{run_id}/official-regrading")
+    def set_official_regrading(run_id: str, data: dict):
+        if set(data) != {"enabled"}:
+            raise ValueError("仅接受 enabled 开关")
+        return console.set_official_regrading(run_id, data["enabled"])
+
     @app.post("/api/runs/{run_id}/batches/{number}/regrade", status_code=202)
     def submit_regrading(run_id: str, number: int):
         return console.submit_regrading(run_id, number)

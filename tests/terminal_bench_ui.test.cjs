@@ -44,3 +44,30 @@ test('Terminal-Bench per-task limits remain unset when submitted from the browse
   await form.onsubmit({preventDefault(){}});
   assert.equal(submitted.cpus, 4);
 });
+
+
+test('SWE creation submits the explicit official regrading switch', async t => {
+  const dom = new JSDOM(fs.readFileSync(path.join(dir, 'index.html'), 'utf8'),
+    {url:'http://localhost/#create', runScripts:'outside-only'});
+  t.after(() => dom.window.close());
+  const templates = [{id:'swe', name:'swe-fixture', benchmark:'swe', official_regrade:true,
+    mode:'offline', model:'mock', guardian_mode:null, available:true, agents:['oracle'], tasks:['alpha'],
+    defaults:{attempts:1, concurrency:1, timeout_seconds:300, cpus:2, memory_mb:4096}}];
+  let submitted;
+  dom.window.fetch = async (url, options) => ({ok:true, json:async () => {
+    if (url === '/api/templates') return {templates};
+    if (url === '/api/models') return {models:[], bindings:{}};
+    if (url === '/api/runs') {submitted=JSON.parse(options.body);return {id:'fixture'};}
+    throw new Error(url);
+  }});
+  const context=dom.getInternalVMContext();
+  const app=fs.readFileSync(path.join(dir,'app.js'),'utf8').split('window.addEventListener("hashchange", route);')[0];
+  vm.runInContext(app+'\n'+['rsi.js','models.js','comparison.js'].map(f=>fs.readFileSync(path.join(dir,f),'utf8')).join('\n'),context);
+  await vm.runInContext('renderCreate(0)',context);
+  const form=dom.window.document.querySelector('#create-form');
+  assert.equal(dom.window.document.querySelector('#official-regrade-option').hidden,false);
+  assert.equal(form.elements.official_regrade.checked,true);
+  form.elements.official_regrade.checked=false;
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(submitted.official_regrade,false);
+});

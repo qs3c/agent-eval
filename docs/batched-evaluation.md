@@ -76,3 +76,11 @@ agent-harness-eval run experiments/swe-live-80-assist.json --output artifacts/sw
 Docker 检查仅在明确返回不存在时视为幂等成功，服务不可用、权限失败等异常保留租约并报错。镜像仍被容器引用时保留 ready 租约，后续协调回收再次尝试；不会把跳过删除记成已完成回收。取消后不再恢复的批次仍需管理员确认后处理，当前不按时间自动释放待恢复租约。
 
 2026-10-15 部署前验证：生命周期、批次、复评、SWE 和 Web 的 39 项回归通过；全量测试首次为 283 passed、9 skipped、1 failed，失败原因是隔离测试目录漏传 integrations 补丁，补齐后该测试模块 12 项全部通过。固定 SWE 4.1.0 启动适配器命令行兼容性检查通过；未重新执行付费 Agent 实验。
+
+## 官方复评开关
+
+创建分批 SWE 实验时，可勾选“启用官方 SWE 复评”；对应冻结配置为 `batch.official_regrade`。关闭后仍执行 Harbor 自带 verifier 并生成原始 reward、报告、补丁和轨迹，跳过额外的官方测试重放，完成批次后照常清理镜像。官方复评本身不调用解题模型，主要节约测试和环境准备时间。
+
+详情页“自动官方复评”开关可修改本轮后续策略。操作追加记录在 `operations/official-regrading-history.jsonl`，当前生效值写入 `operations/official-regrading.json`，不改写冻结配置、manifest 或已有报告。开关对尚未开始的自动复评生效；已开始的复评正常结束。关闭的批次显示“已关闭”，不会提示为复评失败；仍可显式手动提交复评。
+
+基础设施修复恢复的允许清单额外包含 `console.py`、`web.py` 两个控制面入口；仍须提供精确的修复前后源码哈希记录，Agent、模型调用和 verifier 不在豁免范围内。经运维确认已完成并清理在途任务后，可在该运行的 Console 输入目录保存 `resume.json`（包含 `run_id`，可选 `workbench_repair` 路径且必须在本运行输出目录内），再恢复同一运行队列。恢复沿用原配置并追加执行日志，不重复已有终态尝试；原 `manifest.json` 保留不变。

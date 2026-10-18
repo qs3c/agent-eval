@@ -264,3 +264,18 @@ def test_cleanup_keeps_images_referenced_by_other_containers(tmp_path, monkeypat
     assert not any(c[1:3] == ["image", "rm"] for c in commands)
     record = json.loads((tmp_path / "batches/001/cleanup.json").read_text())
     assert record["images"][0]["status"] == "retained_container_reference"
+
+
+def test_regrading_policy_override_skips_grader_without_changing_frozen_config(tmp_path, monkeypatch):
+    from agent_harness_eval import batching, regrading
+    exp = load(Path('experiments/controls.json'))
+    exp.batch = BatchConfig(size=1, official_regrade=True)
+    write_json(tmp_path / 'operations/official-regrading.json', {'schema_version': 1, 'enabled': False})
+    original = exp.model_dump(mode='json')
+    monkeypatch.setattr(regrading, 'grade_units', lambda *a, **k: pytest.fail('disabled grading invoked'))
+    batching.regrade_batch(exp, tmp_path, [], 1)
+    assert not batching.official_regrade_enabled(exp, tmp_path)
+    assert exp.model_dump(mode='json') == original
+    write_json(tmp_path / 'operations/official-regrading.json', {'schema_version': 1, 'enabled': 'false'})
+    with pytest.raises(ValueError, match='policy'):
+        batching.regrade_batch(exp, tmp_path, [], 1)

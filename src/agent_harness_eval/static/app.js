@@ -7,6 +7,7 @@ const labels = {
   completed: "已完成",
   failed: "执行异常",
   interrupted: "已中断",
+  paused: "已暂停",
   incomplete: "结果不完整",
 };
 const modes = { offline: "离线对照", mock: "模拟模型", live: "真实模型" };
@@ -313,6 +314,9 @@ async function renderCreate(token) {
     modelSummary();
     modelSummary();
     form.elements.confirm_unbounded.checked = false;
+    $("#official-regrade-option").hidden = t.official_regrade == null;
+    $("#official-regrade-hint").hidden = t.official_regrade == null;
+    form.elements.official_regrade.checked = t.official_regrade === true;
     updateCount();
   }
   function modelSummary() {
@@ -350,6 +354,9 @@ async function renderCreate(token) {
     if (!payload.agents.length || !payload.tasks.length) {
       $("#form-error").textContent = "请至少选择一个 Agent 和一个任务。";
       return;
+    }
+    if (templates.find(t => t.id === select.value)?.official_regrade != null) {
+      payload.official_regrade = form.elements.official_regrade.checked;
     }
     const button = $("#submit");
     button.disabled = true;
@@ -419,7 +426,23 @@ function regradingPanel(run) {
   const panel = el("section", undefined, "panel");
   panel.id = "official-regrading";
   panel.append(el("h2", "官方复评"), el("p", "同一批次只提交一个任务，不同批次排队；全局并发度 2。", "muted"));
-  const names = {pending:"待复评",failed:"复评未成功",interrupted:"复评已中断",queued:"已排队",running:"复评中",completed:"复评完成",disabled:"待复评"};
+  if (run.official_regrading?.supported) {
+    const label = el("label", undefined, "check-card"), toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = run.official_regrading.enabled;
+    label.append(toggle, document.createTextNode("自动官方复评"));
+    panel.append(label, el("p", "关闭后使用 Harbor 原始评分；对尚未开始的自动复评生效。", "muted"));
+    toggle.onchange = async () => {
+      toggle.disabled = true;
+      try {
+        await api(`/api/runs/${run.id}/official-regrading`, {method:"POST", body:JSON.stringify({enabled:toggle.checked})});
+        notice(toggle.checked ? "自动官方复评已开启" : "自动官方复评已关闭，保留 Harbor 评分");
+        await renderDetail(run.id, epoch, false);
+      } catch (error) { toggle.checked = !toggle.checked; notice(error.message); }
+      finally { toggle.disabled = false; }
+    };
+  }
+  const names = {pending:"待复评",failed:"复评未成功",interrupted:"复评已中断",queued:"已排队",running:"复评中",completed:"复评完成",disabled:"已关闭"};
   const batches = run.official_regrading?.batches || [];
   async function submit(batch) {
     return api(`/api/runs/${run.id}/batches/${batch.number}/regrade`, {method:"POST", body:"{}"});
@@ -546,11 +569,11 @@ async function renderDetail(id, token, initial = true) {
   );
   if (r.error) $("#detail-state").append(el("span", r.error, "error"));
   if (r.batch_state) {
-    const phases = {preparing:"准备环境",running:"执行 Agent",regrading:"官方复评",cleaning:"清理环境",completed:"已完成",failed:"批次失败",interrupted:"已中断"};
+    const phases = {preparing:"准备环境",running:"执行 Agent",regrading:"官方复评",cleaning:"清理环境",completed:"已完成",failed:"批次失败",interrupted:"已中断",paused:"已暂停"};
     const b = r.batch_state;
     $("#detail-state").append(el("span", `批次 ${b.current_batch || 1}/${b.total_batches || Math.ceil(b.total_tasks / b.batch_size)} · ${phases[b.phase] || b.phase} · 每批最多 ${b.batch_size} 题`, "muted"));
     const pendingRegrades = (r.official_regrading?.batches || []).filter(
-      batch => batch.status !== "completed",
+      batch => !["completed", "disabled"].includes(batch.status),
     );
     if (pendingRegrades.length) {
       $("#detail-state").append(el("span",

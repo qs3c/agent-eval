@@ -26,7 +26,7 @@ def verify_workbench_repair(previous, current, approval):
         raise ValueError("Resume workbench code differs from the frozen experiment")
     repair = json.loads(Path(approval).read_text())
     changed = {name for name in previous.keys() | current.keys() if previous.get(name) != current.get(name)}
-    allowed = {"batching.py", "benchmarks/swe.py", "run.py", "cli.py"}
+    allowed = {"batching.py", "benchmarks/swe.py", "run.py", "cli.py", "console.py", "web.py"}
     if (
         repair.get("schema_version") != 1
         or not isinstance(repair.get("reason"), str)

@@ -492,3 +492,69 @@ def test_submission_copies_dirty_source_evidence(console):
     frozen = Path(row["experiment"]["agents"][0]["kwargs"]["provenance"])
     patch.write_text("subsequently modified source")
     assert (frozen.parent / changes.name / patch.name).read_text() == "frozen source patch"
+
+
+def test_submission_exposes_official_regrading_switch(console):
+    path = console.root / 'experiments/controls.json'
+    exp = json.loads(path.read_text())
+    exp['batch'] = {'size': 1, 'prepare_swe': True, 'official_regrade': True}
+    exp['benchmark']['score_kind'] = 'resolved'
+    path.write_text(json.dumps(exp))
+    assert console.templates()[0]['official_regrade'] is True
+    row = console.submit({'template': 'controls', 'official_regrade': False})
+    frozen = console.detail(row['id'])['experiment']
+    assert frozen['batch']['official_regrade'] is False
+    assert json.loads(path.read_text())['batch']['official_regrade'] is True
+
+
+def test_operational_regrading_policy_preserves_manifest(console):
+    from agent_harness_eval.guardian.evidence import write
+    row = console.submit({'template': 'controls'})
+    output = Path(console.row(row['id'])['path'])
+    exp = console.detail(row['id'])['experiment']
+    exp['batch'] = {'size': 1, 'prepare_swe': True, 'official_regrade': True}
+    exp['benchmark']['score_kind'] = 'resolved'
+    with console.connect() as db:
+        db.execute('UPDATE runs SET config=? WHERE id=?', (json.dumps(exp), row['id']))
+    write(output / 'manifest.json', {'experiment': exp, 'tasks': {}})
+    manifest = (output / 'manifest.json').read_bytes()
+    state = {'batches': [{'number': 1, 'phase': 'running', 'tasks': ['file-create']}]}
+    assert console.set_official_regrading(row['id'], False)['enabled'] is False
+    view = console.regrading_view(output, state)
+    assert view['enabled'] is False and view['batches'][0]['status'] == 'disabled'
+    assert (output / 'manifest.json').read_bytes() == manifest
+    console.set_official_regrading(row['id'], True)
+    assert console.regrading_view(output, state)['enabled'] is True
+    assert len((output / 'operations/official-regrading-history.jsonl').read_text().splitlines()) == 2
+    with pytest.raises(ValueError):
+        console.set_official_regrading(row['id'], 'false')
+
+
+def test_console_resume_uses_frozen_config_and_preserves_log(console, monkeypatch):
+    from agent_harness_eval.guardian.evidence import write
+    row = console.submit({'template': 'controls'})
+    output = Path(console.row(row['id'])['path'])
+    repair = output / 'recovery/repair.json'
+    write(repair, {'schema_version': 1})
+    write(console.state / 'inputs' / row['id'] / 'resume.json',
+          {'run_id': row['id'], 'workbench_repair': str(repair)})
+    log = console.state / 'logs' / (row['id'] + '.log')
+    log.write_text('original evidence\n')
+    console.lock = (console.state / 'test.lock').open('a')
+    captured = []
+    class Process:
+        pid = 12345
+        def poll(self): return 0
+        def wait(self): return 0
+    def popen(argv, **kwargs):
+        captured.append(argv)
+        kwargs['stdout'].write(b'resumed\n')
+        return Process()
+    monkeypatch.setattr('agent_harness_eval.console.subprocess.Popen', popen)
+    try:
+        console.execute(console.row(row['id']))
+    finally:
+        console.lock.close()
+    assert '--resume' in captured[0]
+    assert captured[0][-2:] == ['--workbench-repair', str(repair)]
+    assert log.read_text() == 'original evidence\nresumed\n'

@@ -147,7 +147,7 @@
   "batch": {
     "size": 3,
     "prepare_swe": true,
-    "official_regrade": true,
+    "official_regrade": false,
     "retain_count": 3,
     "retain_gib": 20.0,
     "retain_hours": 24.0,

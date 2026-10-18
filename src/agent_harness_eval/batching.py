@@ -19,6 +19,20 @@ from .report import report, task_key
 from .search import search_hosts
 
 
+def official_regrade_enabled(exp, output):
+    """Read an audited operational override without rewriting frozen inputs."""
+    configured = bool(exp.batch and exp.batch.official_regrade)
+    path = Path(output) / "operations/official-regrading.json"
+    if not path.exists():
+        return configured
+    if path.is_symlink():
+        raise ValueError("Official regrading policy cannot be a symlink")
+    policy = json.loads(path.read_text())
+    if policy.get("schema_version") != 1 or type(policy.get("enabled")) is not bool:
+        raise ValueError("Invalid official regrading policy")
+    return policy["enabled"]
+
+
 def search_network_policy(text, hosts):
     """Set only the agent table; preserve verifier and environment policies."""
     import tomllib
@@ -152,14 +166,15 @@ def prepare_batch(exp, output, paths, number):
 def regrade_batch(exp, output, paths, number, *, inherited=(), force=False):
     from .regrading import gate, grade_units, update_summary
 
-    if not force and not exp.batch.official_regrade:
-        return
+    if not force and not official_regrade_enabled(exp, output):
+        return "disabled"
     if not inherited:
         with gate("batches") as fd:
             return regrade_batch(exp, output, paths, number, inherited=(fd,), force=force)
     try:
         # Manual recovery also grades experiments whose original policy deferred scoring.
         grade_units(exp, output, paths, number, inherited, source="manual" if force else "automatic")
+        return "completed"
     finally:
         update_summary(exp, output)
 
@@ -410,9 +425,10 @@ async def run_batches(
                     resume=resume,
                 )
                 report(output)
-            phase("regrading")
+            enabled = official_regrade_enabled(exp, output)
+            phase("regrading" if enabled else "cleaning")
             try:
-                await asyncio.to_thread(regrade_batch, exp, output, paths, number)
+                grading_status = await asyncio.to_thread(regrade_batch, exp, output, paths, number)
             except Exception as error:  # noqa: BLE001 - persist scoring failures without aborting Agent execution
                 # Official scoring is independent of Agent execution. Retain
                 # its failure evidence while allowing the next batch to run.
@@ -423,7 +439,7 @@ async def run_batches(
                 }
             else:
                 entry["official_regrade"] = {
-                    "status": "completed" if exp.batch.official_regrade else "disabled",
+                    "status": grading_status or ("completed" if enabled else "disabled"),
                     "updated_unix": time.time(),
                 }
             entry.pop("error", None)

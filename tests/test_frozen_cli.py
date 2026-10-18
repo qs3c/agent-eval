@@ -1,10 +1,40 @@
 import json
+import os
+import subprocess
+import sys
 import tarfile
 
 import pytest
 
 from agent_harness_eval.agents.frozen_cli import OpenCode, Hermes
 from agent_harness_eval.native_cli_bundle import build_bundle
+
+
+@pytest.mark.parametrize("name", ["requests", "json", "logging", "typing"])
+def test_python_agent_isolated_from_workspace_but_tools_keep_workspace(tmp_path, name):
+    from agent_harness_eval.agents.frozen_cli import isolated_python_module
+    workspace = tmp_path / "task"
+    runtime = tmp_path / "runtime"
+    workspace.mkdir()
+    runtime.mkdir()
+    (workspace / (name + ".py")).write_text("raise RuntimeError('workspace module imported')\n")
+    (runtime / (name + ".py")).write_text("ORIGIN = 'frozen-runtime'\n")
+    (runtime / "probe.py").write_text(
+        "import os, sys, subprocess\n"
+        f"import {name} as dependency\n"
+        "assert dependency.ORIGIN == 'frozen-runtime'\n"
+        "assert sys.flags.safe_path and sys.flags.no_user_site\n"
+        "assert os.getcwd() == sys.argv[1]\n"
+        "assert 'PYTHONHOME' not in os.environ\n"
+        # Tool commands still see the task's modules; flags don't leak via env.
+        f"child = subprocess.run([sys.executable, '-c', 'import {name}'], capture_output=True, text=True)\n"
+        "assert child.returncode != 0 and 'workspace module imported' in child.stderr\n"
+    )
+    command = isolated_python_module(sys.executable, "probe") + ' "$TASK_DIR"'
+    result = subprocess.run(command, shell=True, cwd=workspace, capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(runtime), "PYTHONHOME": str(tmp_path / "invalid-home"),
+             "TASK_DIR": str(workspace)}, timeout=10)
+    assert result.returncode == 0, result.stderr
 
 
 def test_bundle_pins_materialized_bytes(tmp_path):

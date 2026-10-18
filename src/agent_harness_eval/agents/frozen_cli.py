@@ -10,6 +10,16 @@ from ..web_proxy import web_proxy_environment
 from .native import Native
 
 
+def isolated_python_module(executable, module):
+    """Isolate the Agent interpreter, while preserving the task's working directory.
+
+    -P excludes cwd/script paths; -s excludes user site packages. These flags
+    apply only to the Agent process, not Python commands issued by its tools.
+    PYTHONPATH is supplied explicitly by the adapter for the frozen runtime.
+    """
+    return f"env -u PYTHONHOME {shlex.quote(executable)} -sP -m {shlex.quote(module)}"
+
+
 class FrozenCLI(Native):
     def __init__(self, *args, bundle, **kwargs):
         super().__init__(*args, **kwargs)
@@ -89,7 +99,7 @@ class Hermes(FrozenCLI):
                "OPENAI_BASE_URL": "http://127.0.0.1:18765/v1", "HERMES_DISABLE_LAZY_INSTALLS": "1",
                "PYTHONPATH": "/installed-agent/native/source:/installed-agent/native/site-packages",
                "HERMES_INSTALL_ROOT": "/installed-agent/native/source"}
-        executable = "/installed-agent/native/python/bin/python3 -m hermes_cli.main"
+        executable = isolated_python_module("/installed-agent/native/python/bin/python3", "hermes_cli.main")
         command = 'mkdir -p "$HOME" "$HERMES_HOME" && cp /logs/agent/effective-config.json "$HERMES_HOME/config.yaml" && ' + executable + ' --yolo chat -Q --provider custom --model ' + shlex.quote(self.model_config["name"]) + ' -q "$(cat /installed-agent/prompt.txt)" >/logs/agent/stdout.log 2>/logs/agent/stderr.log'
         # State is inside this trial's log mount: fresh per task and retained as raw evidence.
         await self.execute(environment, work, command, env)

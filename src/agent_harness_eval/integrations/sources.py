@@ -29,7 +29,7 @@ class Sources:
         directory.mkdir(parents=True, exist_ok=True)
         self.path = directory / "sources.sqlite"
         with self.transaction() as db:
-            db.executescript("""
+            schema = """
                 CREATE TABLE IF NOT EXISTS sources (
                     id TEXT PRIMARY KEY, repository TEXT NOT NULL, ref TEXT NOT NULL,
                     recipe TEXT, observed TEXT, admitted TEXT, recommended TEXT,
@@ -42,7 +42,13 @@ class Sources:
                     UNIQUE(source,sha));
                 CREATE TABLE IF NOT EXISTS source_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, created REAL NOT NULL);
-            """)
+            """
+            # executescript commits an outstanding transaction first. Keep DDL
+            # under the same write lock so concurrent first readers cannot race
+            # the additive column migration below.
+            for statement in schema.split(";"):
+                if statement.strip():
+                    db.execute(statement)
             if "attempt" not in {row[1] for row in db.execute("PRAGMA table_info(revisions)")}:
                 db.execute("ALTER TABLE revisions ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0")
             if "pinned" not in {row[1] for row in db.execute("PRAGMA table_info(revisions)")}:

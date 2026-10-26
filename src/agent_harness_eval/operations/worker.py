@@ -62,7 +62,7 @@ def execute(manager, job):
             execute_experiment(manager, job)
         elif job["kind"] == "grade":
             execute_grade(manager, job)
-        elif job["kind"] in {"integration", "source-refresh", "integration-assist", "cycle-refresh"}:
+        elif job["kind"] in {"integration", "source-refresh", "integration-assist", "cycle-refresh", "swe-grade"}:
             execute_integration(manager, job)
         else:
             raise ValueError("Executor not registered: " + job["kind"])
@@ -82,7 +82,7 @@ def execute_integration(manager, job):
     console.shutdown_seconds = 40
     with (logs / (job["id"] + ".log")).open("ab") as log:
         console.process = subprocess.Popen([sys.executable, "-m", "agent_harness_eval.cli",
-            {"source-refresh": "source-work", "integration-assist": "integration-assist-work", "cycle-refresh": "cycle-work"}.get(job["kind"], "integration-work"), job["id"], "--root", str(manager.root)], cwd=manager.root,
+            {"source-refresh": "source-work", "integration-assist": "integration-assist-work", "cycle-refresh": "cycle-work", "swe-grade": "swe-grade-work"}.get(job["kind"], "integration-work"), job["id"], "--root", str(manager.root)], cwd=manager.root,
             env={**os.environ, **console.operation_environment}, stdout=log, stderr=subprocess.STDOUT,
             start_new_session=True, pass_fds=(console.lock.fileno(),))
         try:

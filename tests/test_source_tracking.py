@@ -15,6 +15,20 @@ def git(path, *args):
     return subprocess.check_output(["git", "-C", str(path), *args], text=True).strip()
 
 
+def test_concurrent_first_registration_has_one_source_and_one_event(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    def register(_):
+        return Sources(tmp_path).add("https://github.com/Fixture/Agent", "main")["id"]
+    with ThreadPoolExecutor(8) as pool:
+        identities = list(pool.map(register, range(20)))
+    assert len(set(identities)) == 1
+    sources = Sources(tmp_path)
+    assert len(sources.list()) == 1
+    with sources.transaction() as db:
+        assert db.execute("SELECT COUNT(*) FROM source_events").fetchone()[0] == 1
+
+
 def push(path, value):
     (path / "agent.py").write_text("VALUE = " + str(value) + "\n")
     git(path, "add", ".")

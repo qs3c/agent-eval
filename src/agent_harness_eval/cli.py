@@ -89,6 +89,10 @@ def main():
     q.add_argument("--dataset", default="princeton-nlp/SWE-bench_Verified")
     q.add_argument("--run-id", required=True)
     q.add_argument("--execute", action="store_true")
+    q.add_argument("--root", type=Path, default=Path.cwd())
+    q = sub.add_parser("swe-grade-work", help="内部官方评分 Worker")
+    q.add_argument("job")
+    q.add_argument("--root", type=Path, required=True)
     args = p.parse_args()
     if args.command == "benchmark":
         import json
@@ -259,10 +263,28 @@ def main():
         from .benchmarks.swe import instrument
 
         instrument(args.task)
+    elif args.command == "swe-grade-work":
+        from .operations.official import perform
+
+        perform(args.root, args.job)
     elif args.command == "swe-regrade":
         from .benchmarks.swe import regrade
 
-        regrade(args.predictions, args.dataset, args.run_id, args.execute)
+        if not args.execute:
+            regrade(args.predictions, args.dataset, args.run_id, False)
+        else:
+            from .operations.official import submit
+            from .operations.manager import ensure, status
+            from .operations.commands import Commands
+            from .operations.submission import wait
+
+            current = status(args.root)
+            ensure(args.root, allow_live=current.get("allow_live", False))
+            job = submit(args.root, args.predictions, args.dataset, args.run_id, Path.cwd())
+            print("Operation: " + job["id"], flush=True)
+            result = wait(Commands(args.root), job["id"])
+            if result["status"] != "completed":
+                raise SystemExit(result["error"] or result["status"])
 
 
 if __name__ == "__main__":

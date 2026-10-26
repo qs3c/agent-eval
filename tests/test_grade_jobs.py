@@ -7,6 +7,38 @@ from agent_harness_eval.operations.commands import Commands
 from agent_harness_eval.workspace.models import ExperimentPlan
 
 
+def test_standalone_official_cli_freezes_inputs_and_uses_manager_queue(tmp_path):
+    from agent_harness_eval.operations.official import submit
+
+    predictions = tmp_path / "predictions.jsonl"
+    predictions.write_text('{"instance_id":"task","model_patch":"diff original"}\n')
+    dataset = tmp_path / "records.json"
+    dataset.write_text('[{"instance_id":"task","base_commit":"original"}]')
+    job = submit(tmp_path, predictions, str(dataset), "fixture-official", tmp_path / "scores")
+    assert job["kind"] == "swe-grade" and job["status"] == "queued"
+    predictions.write_text("changed after submission")
+    dataset.write_text("changed after submission")
+    from pathlib import Path
+
+    assert "diff original" in Path(job["payload"]["predictions"]).read_text()
+    assert "original" in Path(job["payload"]["dataset"]).read_text()
+    assert job["payload"]["scorer"] == "swebench==4.1.0"
+    assert len(job["payload"]["hashes"]) == 2
+
+
+def test_official_worker_rejects_changed_frozen_input_before_scoring(tmp_path, monkeypatch):
+    from pathlib import Path
+    from agent_harness_eval.operations import official, worker
+
+    predictions = tmp_path / "predictions.jsonl"
+    predictions.write_text('{"instance_id":"task","model_patch":"original"}\n')
+    job = official.submit(tmp_path, predictions, "fixture/dataset", "fixture-official", tmp_path / "scores")
+    Path(job["payload"]["predictions"]).write_text("changed")
+    monkeypatch.setattr(worker, "is_managed_worker", lambda: True)
+    with pytest.raises(ValueError, match="inputs changed"):
+        official.perform(tmp_path, job["id"])
+
+
 def test_grade_retry_creates_new_immutable_record_without_agent_execution(tmp_path, monkeypatch):
     commands = Commands(tmp_path)
     plan = commands.store.create_plan(ExperimentPlan(experiment={"name": "frozen"}), "plan")

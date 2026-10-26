@@ -14,6 +14,8 @@ agent-harness-eval manager stop --root .
 
 `run` 默认提交冻结配置到 Manager，并等待结果；标准输出给出 operation ID。CLI 关闭不自动取消已提交作业。Web 启动会连接或启动同一个 Manager。`rsi-action --execute` 与独立 `rsi-work` 也经过相同调度入口。实际 Worker 使用继承的所有权与代际信息进入执行器，不能再次入队。
 
+`swe-regrade --execute` 现在也先冻结 predictions 和本机 dataset 文件，再提交 `swe-grade` 作业。`--root` 默认当前目录，可指定所属平台工作区；评分输出仍写入命令启动时的当前目录，日志可从 operation ID 找到。未加 `--execute` 仍只打印命令，不执行、不启动 Manager。远端数据集名称保留为名称引用，不伪造本机文件 hash 或远端 revision。作业失败、取消和恢复遵守同一代际/所有权规则，官方评分与 Agent 执行保持分离。
+
 Manager 的 `--allow-live` 是进程级策略。已运行 Manager 的策略与调用方不同时拒绝连接；更改策略需先显式停止 Manager，再按所需策略启动。这里不会保存 API key 明文，也不会因为旧队列含有 live 配置就绕过当前策略。
 
 `manager stop` 排空当前作业后退出，尚未开始的作业留在队列；暂停的当前作业需要恢复才能排空。`manager stop --cancel` 取消待执行作业并通知当前 Worker 清理后退出。取消不会删除已落盘证据。Manager 日志在 `.workspace/manager.log`，CLI 实验日志在 `.workspace/logs/<operation-id>.log`，Web 实验和 RSI 继续使用原日志目录。

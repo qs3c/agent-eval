@@ -47,10 +47,29 @@ def execute(args):
     elif args.command == "rsi-action":
         result = store.enqueue(args.candidate, args.kind, args.confirm_unbounded)
         if args.execute:
-            asyncio.run(perform(store, result["id"], args.allow_live))
+            from ..operations.commands import Commands
+            from ..operations.manager import ensure
+            from ..operations.submission import wait
+
+            commands = Commands(args.root)
+            job = commands.submit("rsi", {"action_id": result["id"]}, key="rsi:" + result["id"])
+            ensure(args.root, allow_live=args.allow_live)
+            wait(commands, job["id"])
             result = store.action(result["id"])
     else:
-        asyncio.run(perform(store, args.action, args.allow_live))
+        from ..operations.worker import is_managed_worker
+
+        if is_managed_worker():
+            asyncio.run(perform(store, args.action, args.allow_live))
+        else:
+            from ..operations.commands import Commands
+            from ..operations.manager import ensure
+            from ..operations.submission import wait
+
+            commands = Commands(args.root)
+            job = commands.submit("rsi", {"action_id": args.action}, key="rsi:" + args.action)
+            ensure(args.root, allow_live=args.allow_live)
+            wait(commands, job["id"])
         result = store.action(args.action)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result.get("status") in {"failed", "interrupted"}:

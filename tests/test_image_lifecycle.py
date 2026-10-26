@@ -6,6 +6,28 @@ from pathlib import Path
 import pytest
 
 from agent_harness_eval import batching, image_lifecycle, regrading
+
+
+def test_known_pending_consumer_only_protects_its_actual_images(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    pending, ready = tmp_path / "pending", tmp_path / "ready"
+    pending.mkdir()
+    ready.mkdir()
+    monkeypatch.setattr(batching, "batch_images", lambda output, paths, number: ({"shared:tag"}, {}) if output == pending else ({"own:tag"}, {}))
+    image_lifecycle.retain(pending, [], 1, prepared=True)
+    image_lifecycle.retain(ready, [], 1, prepared=True)
+    monkeypatch.setattr(image_lifecycle.subprocess, "run", lambda *a, **k:
+                        SimpleNamespace(returncode=0, stdout='[{"Id":"sha256:shared"}]', stderr=""))
+    calls = []
+    def cleanup(exp, output, paths, number, *, protected_images):
+        calls.append((output, protected_images))
+        return True
+    monkeypatch.setattr(batching, "_cleanup_batch_images", cleanup)
+    image_lifecycle.collect(None, ready, [], 1)
+    assert calls == [(ready, {"sha256:shared"})]
+    assert len(image_lifecycle.leases()) == 1
+    assert image_lifecycle.leases()[image_lifecycle.identity(pending, 1)]["status"] == "waiting"
 from agent_harness_eval.guardian.evidence import read
 
 

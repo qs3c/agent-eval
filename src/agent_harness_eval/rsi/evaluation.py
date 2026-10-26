@@ -18,6 +18,13 @@ def compare(parent, candidate):
     a, b = load_manifest(parent), load_manifest(candidate)
     reports = [read(path / "report.json", {}) for path in (parent, candidate)]
     problems = []
+    from ..measurement.results import official_trials, uses_official_swe
+
+    for output, manifest, report in zip((parent, candidate), (a, b), reports, strict=True):
+        if uses_official_swe(manifest["experiment"], output):
+            selected, issues = official_trials(output, manifest["experiment"], report.get("trials", []))
+            report["trials"] = selected
+            problems.extend(issues)
     contracts = []
     for manifest in (a, b):
         agents = []
@@ -231,6 +238,7 @@ async def replay_tasks(store, record, allow_live):
                     "output": output,
                     "evidence": store.path("cases", record["case"]) / "evidence",
                 },
+                lane="build",
             )
             await assert_clean(workspace, commit)
             config = exp.model_copy(deep=True)

@@ -192,7 +192,8 @@ def test_dsh_plan_is_frozen_and_executed_on_both_exact_commits(
     store, case, record, _ = native_case
     commands = []
 
-    async def execute(command, cwd, log=None, values=None, stdin=None):
+    async def execute(command, cwd, log=None, values=None, stdin=None, *, lane=None):
+        assert lane == ("platform-agent" if stdin else "build")
         if stdin:
             assert stdin["purpose"] == "targeted_regression_plan"
             destination = Path(stdin["result_path"]).parent

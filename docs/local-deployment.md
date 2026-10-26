@@ -1,6 +1,6 @@
 # 本地单用户部署与环境诊断
 
-本页描述 P0 安装入口；P1/T03 已新增显式 `workspace-import` 预览/索引导入，详见[迁移说明](workspace-migration.md)。统一后台 Manager、Web 暂停/取消、通用 GitHub 接入和自动升级闭环仍在后续阶段，不应按目标架构假定已经实现。
+本页描述本地安装入口；P1/T03 已提供显式 `workspace-import`，T04 已提供独立后台 Manager 与作业控制 CLI/API，详见[迁移说明](workspace-migration.md)和[Manager 使用说明](local-manager.md)。通用 GitHub 接入与自动升级闭环仍在后续阶段，不应按目标架构假定已经实现。
 
 ## 支持范围
 
@@ -68,7 +68,7 @@ BKCrab checkout 必须已经具有 `cmd/bkcrab-eval`。首次应用平台补丁�
 
 默认访问 `http://127.0.0.1:8765`。私网连接使用 `serve --host <可信私网IP> --port 8765`，必须给具体地址，保留 Host 白名单与同源检查。当前控制台没有账号登录，不公开暴露。
 
-浏览器刷新不影响实验；当前 Web 服务关闭会终止其启动的子进程。意外重启后的队列恢复仍需检查遗留的自有进程/容器，再按现有 `serve --recover` 语义恢复派发。不要将它当作恢复全部已中断实验；批次恢复使用原 `run --resume` 及冻结输入校验。独立 Manager 属于 P1。
+浏览器刷新、关闭页面或停止 Web 服务都不停止 Manager 中的实验。显式执行 `manager stop` 会等待当前作业结束；`manager stop --cancel` 取消并清理当前作业。意外中断需先核查自有进程、容器和外部请求，再使用 `operation acknowledge --acknowledge-cleanup` 解除派发阻塞；不会自动重放中断作业。批次恢复仍使用 `run --resume` 及冻结输入校验。详见 [Manager 生命周期](local-manager.md)。
 
 默认不允许 live；模型配置与费用策略由用户本次操作明确选择，README 中旧实验授权不沿用。当前没有保证金额不超支的预算功能。
 

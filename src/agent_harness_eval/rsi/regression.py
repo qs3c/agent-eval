@@ -237,6 +237,7 @@ async def evaluate(store, record, allow_live):
             workspace,
             destination / "planner-process.json",
             stdin=context,
+            lane="platform-agent",
         )
         verify_case(store, case)
         await assert_clean(workspace, record["commit"])
@@ -290,7 +291,7 @@ async def evaluate(store, record, allow_live):
                 ],
                 timeout_seconds=6000,
             )
-            await checked(command, workspace, destination / (side + "-process.json"))
+            await checked(command, workspace, destination / (side + "-process.json"), lane="build")
             results[side] = read(destination / side / "results.json")
         evaluation.update(compare(plan, results))
         await assert_clean(workspace, record["commit"])

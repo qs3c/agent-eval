@@ -1,6 +1,6 @@
 # 本地工作区兼容与迁移
 
-P0 建立旧格式夹具和只读历史登记回归测试。P1/T03 已新增 `.workspace/state.sqlite`、领域对象、事务事件、schema 备份和显式导入命令。**导入只建立索引，不切换执行调度、不恢复或重跑旧作业**；现有 `.console/`、RSI、复评队列和 artifacts 继续工作。统一 Manager 属于后续 T04。
+P0 建立旧格式夹具和只读历史登记回归测试。P1/T03 已新增 `.workspace/state.sqlite`、领域对象、事务事件、schema 备份和显式导入命令。**导入只建立索引，不启动 Manager、不恢复或重跑旧作业**。T04 的 Web/CLI 启动使用统一 Manager，旧 `.console/`、RSI 与复评表暂时保留为兼容收件箱和读视图；新旧消费者共用互斥锁。启动 Manager 是独立动作，会接收尚未执行的旧排队项；旧 running/interrupted 项须先核查，不会自动重放。见 [Manager 文档](local-manager.md)。
 
 ## T03 已实现的导入入口
 

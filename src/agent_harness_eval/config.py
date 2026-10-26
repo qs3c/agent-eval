@@ -89,6 +89,8 @@ class BatchConfig(Strict):
     retain_gib: float = Field(default=20, gt=0)
     retain_hours: float = Field(default=24, gt=0)
     min_free_gib: float = Field(default=20, ge=0)
+    max_pending_grade_batches: int = Field(default=2, ge=1, le=20)
+    estimated_task_gib: float = Field(default=2, gt=0)
 
 
 class Experiment(Strict):

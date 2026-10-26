@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tarfile
 import threading
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 
@@ -17,6 +18,52 @@ _LOCK = threading.Lock()
 _SECRET = re.compile(
     r"(^|[._-])(key|token|secret|credential|password)([._-]|$)", re.IGNORECASE
 )
+
+
+@contextmanager
+def archive_guard(output, *, blocking=True):
+    import fcntl
+
+    path = output / ".retention.lock"
+    if path.is_symlink():
+        raise ValueError("Retention lock cannot be a symlink")
+    with path.open("a") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        yield
+
+
+def sweep(output, policy):
+    """Expire only our completed snapshots, even when no new archive is produced."""
+    with _LOCK, archive_guard(output, blocking=False):
+        entries = []
+        for record in (output / "jobs").glob("*/*/retention.json"):
+            archive = record.parent / "retained-workspace.tar"
+            if (any(p.is_symlink() for p in (record, archive, record.parent, record.parent.parent))
+                    or not archive.is_file() or not archive.resolve().is_relative_to(output.resolve())):
+                continue
+            value = read(record, {})
+            if value.get("status") != "snapshot_retained":
+                continue
+            try:
+                created = datetime.fromisoformat(value["created_at"])
+                if created.tzinfo is None:
+                    continue
+            except (KeyError, TypeError, ValueError):
+                continue
+            entries.append((created, record, archive, value))
+        entries.sort(key=lambda row: row[0])
+        total = sum(row[2].stat().st_size for row in entries)
+        cutoff = datetime.now(UTC) - timedelta(hours=policy["retain_hours"])
+        removed = []
+        while entries and (entries[0][0] < cutoff or len(entries) > policy["retain_count"]
+                           or total > policy["retain_gib"] * 1024**3):
+            _, record, archive, value = entries.pop(0)
+            total -= archive.stat().st_size
+            archive.unlink()
+            value.update(status="snapshot_evicted", evicted_at=now(), eviction_reason="periodic_quota_or_ttl")
+            write(record, value)
+            removed.append(str(archive))
+        return removed
 
 
 def reasons(root, policy):
@@ -119,7 +166,7 @@ def _secret(member):
 
 def _archive(root, cid, policy):
     """Copy only /testbed; no container Env, credentials directory or image layers."""
-    with _LOCK:
+    with _LOCK, archive_guard(root.parents[2]):
         base = root.parents[2] / "jobs"
         count = int(policy.get("max_count", 3))
         limit = int(float(policy.get("max_gib", 20)) * 1024**3)
@@ -220,7 +267,7 @@ def _archive(root, cid, policy):
 
 
 def _publish(root, record):
-    with _LOCK:
+    with _LOCK, archive_guard(root.parents[2]):
         current = read(root / "retention.json", {})
         if (
             record["status"] == "snapshot_retained"

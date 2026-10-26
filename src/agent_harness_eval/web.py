@@ -27,21 +27,29 @@ def create_app(root: Path, allow_live=False, recover=False, *, bind_host="127.0.
 
     @asynccontextmanager
     async def lifespan(app):
-        # Recovery acknowledgement is deliberately local CLI-only, never a browser action.
-        console.start()
+        from .operations.manager import ensure
+
         if recover:
-            with console.connect() as db:
-                db.execute(
-                    "UPDATE runs SET status='failed', error='用户已检查并处理遗留执行；该运行未重跑' WHERE status='interrupted'"
-                )
-            console.blocked = None
-        try:
-            yield
-        finally:
-            console.close()
+            from .operations.commands import Commands
+
+            commands = Commands(root)
+            for job in commands.list():
+                if job["status"] == "interrupted":
+                    commands.acknowledge_interruption(job["id"])
+        ensure(root, allow_live=allow_live)
+        yield
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.console = console
+    from .operations.commands import Commands
+
+    @app.get("/api/operations")
+    def operations():
+        return {"operations": Commands(root).list()}
+
+    @app.post("/api/operations/{job_id}/{action}")
+    def control_operation(job_id: str, action: str):
+        return Commands(root).control(job_id, action)
     from .rsi.api import router
 
     app.include_router(router(console))

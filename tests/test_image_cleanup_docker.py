@@ -29,7 +29,7 @@ def test_compose_cleanup_with_real_container_and_external_tag(tmp_path, monkeypa
 
     def run(cmd, **kwargs):
         if cmd[:3] == ["docker", "builder", "prune"]:
-            return SimpleNamespace(returncode=0, stdout="fixture: host cache untouched", stderr="")
+            raise AssertionError("Shared host build cache must remain untouched")
         return real_run(cmd, **kwargs)
 
     monkeypatch.setattr(batching.subprocess, "run", run)

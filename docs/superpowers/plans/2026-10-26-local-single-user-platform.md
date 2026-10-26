@@ -38,7 +38,7 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 ## P0：建立可重复的本地产品基线
 
-**状态：已完成（2026-10-26）。** 实现 doctor、独立 Agent 准备入口和旧格式兼容夹具；完成独立 Python 环境安装、Linux Docker controls 与相关回归。完整命令、测试数量、原有改动保护和验收局限见 [P0 验证记录](../../p0-validation.md)。本阶段不提供新 schema 迁移；P1 尚未开始。
+**状态：已完成（2026-10-26）。** 实现 doctor、独立 Agent 准备入口和旧格式兼容夹具；完成独立 Python 环境安装、Linux Docker controls 与相关回归。完整命令、测试数量、原有改动保护和验收局限见 [P0 验证记录](../../p0-validation.md)。本阶段不提供新 schema 迁移；P1 的交付与验证见下文。
 
 ### T01 — 当前能力与安装诊断（R01、R12）
 
@@ -66,9 +66,11 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 ## P1：可靠的实验内核
 
+**状态：已完成。** 全量离线与真实 Docker 回归 442 passed、3 skipped；抽样记录冻结修复后定向回归 35 passed。完整边界见 [P1 验证记录](../../p1-validation.md)。
+
 ### T03 — 领域对象与本地状态库（R06、R12）
 
-**状态：已完成。** 验证与边界见 [P1/T03 验证记录](../../p1-validation.md)。新增状态放在项目根下 `.workspace/`，避免污染源码根和覆盖既有 `.console/`；逻辑数据归属与设计一致。T04–T06 尚未完成，P1 不能标记为整体完成。
+**状态：已完成。** 验证与边界见 [P1/T03 验证记录](../../p1-validation.md)。新增状态放在项目根下 `.workspace/`，避免污染源码根和覆盖既有 `.console/`；逻辑数据归属与设计一致。T04–T06 已完成，后续验收记录见同一文档。
 
 **文件：** 新增 `src/agent_harness_eval/workspace/{__init__,models,store,migrations,legacy}.py`、`tests/test_workspace_store.py`、`tests/test_workspace_migration.py`；修改 `config.py`、`freezing.py`、`manifests.py`。
 
@@ -85,13 +87,15 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 ### T04 — 单一命令服务与管理进程（R01、R10、R12）
 
+**状态：已完成。** 新增 `operations/submission.py` 冻结 CLI 输入；旧表作为兼容收件箱和读视图保留，Manager 同时持有旧锁，不能与旧消费者并行执行。真实 Docker 暂停/恢复/取消和失败修复证据见 [P1 验证记录](../../p1-validation.md)；使用见 [Manager 文档](../../local-manager.md)。
+
 **文件：** 新增 `src/agent_harness_eval/operations/{__init__,commands,manager,worker,recovery}.py`、`tests/test_operation_commands.py`、`tests/test_manager_recovery.py`；修改 `console.py`、`cli.py`、`web.py`、`run.py`、`rsi/api.py`。
 
-- [ ] 实现统一 `submit/pause/resume/cancel/query` 服务；Web/CLI/RSI 只交命令，不再各自创建实验运行队列。
-- [ ] Manager 通过 executor façade 调用现有 `execute`；实现本机唯一锁、heartbeat、generation fencing 和启动 reconcile。
-- [ ] 将 Web 生命周期与 Manager 分离；增加启动/状态/停止入口，停止 Manager 的行为明确为排空或取消，不等同浏览器关闭。
-- [ ] 暂停不派新 attempt，取消回收自有资源；恢复保留已完成 attempts，只重试确认可重试作业。
-- [ ] 测试中杀 Worker/Manager、延迟旧 Worker 回包、模拟外部请求结果未知；必须拒绝旧 generation 写入并展示 reconciliation 状态。
+- [x] 实现统一 `submit/pause/resume/cancel/query` 服务；Web/CLI/RSI 只交命令，不再各自创建实验运行队列。
+- [x] Manager 通过 executor façade 调用现有 `execute`；实现本机唯一锁、heartbeat、generation fencing 和启动 reconcile。
+- [x] 将 Web 生命周期与 Manager 分离；增加启动/状态/停止入口，停止 Manager 的行为明确为排空或取消，不等同浏览器关闭。
+- [x] 暂停不派新 attempt，取消回收自有资源；恢复保留已完成 attempts，只重试确认可重试作业。
+- [x] 测试中杀 Worker/Manager、延迟旧 Worker 回包、模拟外部请求结果未知；必须拒绝旧 generation 写入并展示 reconciliation 状态。
 
 **验收：** `uv run pytest -q tests/test_operation_commands.py tests/test_manager_recovery.py`；关闭 Web 后 fake 长任务继续、重启后已完成 attempt 执行计数仍为 1。旧入口在迁移开关下不能同时消费同一作业。
 
@@ -99,11 +103,11 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 **文件：** 新增 `operations/{resources,retention}.py`、`tests/test_resource_admission.py`、`tests/test_resource_recovery.py`；修改 `batching.py`、`image_lifecycle.py`、`regrading.py`、`guardian/docker.py`、`guardian/retention.py`。
 
-- [ ] 统一 eval/grade/build/platform-agent 的主机资源账本，迁移现有同用户复评限制；所有入口使用同一准入层。
-- [ ] 资源记录实际 ID、owner 与消费者；acquire/release 幂等，带 fencing；接管前核验进程/容器仍存活。
-- [ ] 批次增加磁盘估算/headroom/评分积压检查，限制预取窗口；保留按数量分批作为上限。
-- [ ] 添加周期 TTL/配额 GC；归档失败、清理失败、空间不足可重试且不影响已确认评分。
-- [ ] 模拟 500 任务、低磁盘、评分阻塞、外部镜像引用、重复释放和进程重启；仅回收无消费者且确认自有资源。
+- [x] 统一 eval/grade/build/platform-agent 的主机资源账本，迁移现有同用户复评限制；所有入口使用同一准入层。
+- [x] 资源记录实际 ID、owner 与消费者；acquire/release 幂等，带 fencing；接管前核验进程/容器仍存活。
+- [x] 批次增加磁盘估算/headroom/评分积压检查，限制预取窗口；保留按数量分批作为上限。
+- [x] 添加周期 TTL/配额 GC；归档失败、清理失败、空间不足可重试且不影响已确认评分。
+- [x] 模拟 500 任务、低磁盘、评分阻塞、外部镜像引用、重复释放和进程重启；仅回收无消费者且确认自有资源。
 
 **验收：** `uv run pytest -q tests/test_resource_admission.py tests/test_resource_recovery.py`；fake 运行记录最大在途资源不超配置、准备数量有界、外部资源删除数为 0。再执行已有镜像清理相关测试，覆盖 Compose 实际镜像与旧 hb 镜像。
 
@@ -111,11 +115,11 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 **文件：** 新增 `src/agent_harness_eval/measurement/{__init__,results,comparability}.py`、`tests/test_measurement_results.py`、`tests/test_grade_jobs.py`；修改 `regrading.py`、`report.py`、`comparison.py`、`console.py`、`static/{app,comparison}.js`。
 
-- [ ] 将官方复评接入 Manager 作业，保留现有哈希校验与瞬态重试；GradeRun 绑定补丁 hash 和 scorer 版本，不覆盖旧结果。
-- [ ] 汇总 execution/scoring/evidence/resources 四轴；SWE 默认主结果来源为指定官方复评，Harbor 内置分数仍独立可查。
-- [ ] 展示计划/执行/已评分分母、未知费用比例、逐题重复和错误；部分评分不输出伪全量通过率。
-- [ ] 比较不兼容时列出条件差异；禁止 best-of 与静默删除 assisted 样本。
-- [ ] 验证一次评分故障重试只增加 GradeRun 执行计数，不增加 Agent 执行计数；unresolved 不触发基础设施重试。
+- [x] 将官方复评接入 Manager 作业，保留现有哈希校验与瞬态重试；GradeRun 绑定补丁 hash 和 scorer 版本，不覆盖旧结果。
+- [x] 汇总 execution/scoring/evidence/resources 四轴；SWE 默认主结果来源为指定官方复评，Harbor 内置分数仍独立可查。
+- [x] 展示计划/执行/已评分分母、未知费用比例、逐题重复和错误；部分评分不输出伪全量通过率。
+- [x] 比较不兼容时列出条件差异；禁止 best-of 与静默删除 assisted 样本。
+- [x] 验证一次评分故障重试只增加 GradeRun 执行计数，不增加 Agent 执行计数；unresolved 不触发基础设施重试。
 
 **验收：** `uv run pytest -q tests/test_measurement_results.py tests/test_grade_jobs.py`；页面 fixture 覆盖待官方评分、评分失败、未解出、缺失证据和清理失败的不同展示。
 

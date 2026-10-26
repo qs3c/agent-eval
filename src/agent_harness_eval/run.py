@@ -4,6 +4,7 @@ import importlib.metadata
 import json
 import os
 import shutil
+import signal
 import sys
 from datetime import UTC, datetime
 from importlib import import_module
@@ -300,6 +301,12 @@ async def run_experiment(
                 )
                 continue
             job = await Job.create(cfg)
+            if os.environ.get("HARNESS_OPERATION_ID"):
+                from .operations.worker import Admission
+
+                admission = Admission()
+                job.on_trial_started(admission.started)
+                job.on_trial_ended(admission.ended)
             await job.run()
         if exp.batch is not None:
             from .batching import run_batches
@@ -321,4 +328,15 @@ def execute(exp, output, *, resume=False, workbench_repair=None):
     output.parent.mkdir(parents=True, exist_ok=True)
     with (output.parent / ("." + output.name + ".run.lock")).open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        asyncio.run(run_experiment(exp, output, resume=resume, workbench_repair=workbench_repair))
+        async def owned_run():
+            loop, owner = asyncio.get_running_loop(), asyncio.current_task()
+            previous = signal.getsignal(signal.SIGTERM)
+            loop.add_signal_handler(signal.SIGTERM, owner.cancel)
+            try:
+                await run_experiment(exp, output, resume=resume, workbench_repair=workbench_repair,
+                                     manage_signals=False)
+            finally:
+                loop.remove_signal_handler(signal.SIGTERM)
+                signal.signal(signal.SIGTERM, previous)
+
+        asyncio.run(owned_run())

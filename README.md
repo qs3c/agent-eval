@@ -11,7 +11,7 @@
 
 以上是目标设计，不代表规划功能已经实现。下文及各专题文档描述现有使用流程；历史试跑的模型选择和费用授权仅适用于对应记录，不自动适用于新实验。
 
-实施进度：P0 已完成，P1/T03 已提供版本化状态库与 `workspace-import` 旧数据索引导入（默认只预览）。见 [迁移使用说明](docs/workspace-migration.md)；统一管理进程、暂停/取消与资源协调仍在后续任务，不把 T03 视为 P1 整体完成。
+实施进度：P0、P1/T03 状态库与 T04 独立 Manager 已完成。`workspace-import` 默认只预览；Web 与 CLI 通过 Manager 调度，暂停/恢复/取消见 [Manager 使用说明](docs/local-manager.md)。资源协调与统一评分视图继续实施、验证，P1 尚未整体完成。见 [P1 验证记录](docs/p1-validation.md)与[迁移说明](docs/workspace-migration.md)。
 
 ## 本机 Web 控制台
 
@@ -35,7 +35,7 @@ uv sync --locked --python 3.12
 - 浏览器刷新不影响执行。服务关闭会终止自己启动的评测进程组；意外重启将未完成运行标为中断，不自动重跑。存在中断运行时暂停队列。检查对应输出中的 trial 名称和遗留进程、Docker 容器并完成清理后，用 `.venv/bin/agent-harness-eval serve --recover` 确认恢复；中断记录保留为失败，不重新执行。若旧进程仍持有锁，新服务拒绝启动。
 - 默认禁止创建真实模型运行。需要时使用模型设置或模板指定的环境变量配置凭据，启动 `serve --allow-live`，并在页面明确确认本次费用策略；历史授权不自动沿用到新任务。重启后执行旧队列仍检查本次启动策略。不要把密钥写入实验模板、日志或 Git；配置方式见 [模型池](docs/model-pool.md)。
 
-当前不提供账号系统或 Web 取消/断点续跑按钮；支持显式可信私网地址，批次 CLI 保留 `run --resume`。Web 生命周期与执行尚未分离，统一 Manager 属于 P1。模板准备依赖下述安装步骤。验收见 [WEB_VALIDATION.md](WEB_VALIDATION.md)。
+当前不提供账号系统；支持显式可信私网地址。Web 生命周期已与执行分离，关闭 Web 不停止实验；通过 `operation` 命令或 `/api/operations` API 控制作业，页面按钮在后续产品流程任务中补齐。批次 CLI 保留 `run --resume` 及冻结校验。模板准备依赖下述安装步骤；新生命周期验收见 [P1 验证记录](docs/p1-validation.md)，既有页面验收见 [WEB_VALIDATION.md](WEB_VALIDATION.md)。
 
 当前可以运行：确定性正负对照、两个原生 Agent 的模拟/真实模型接入、SWE 补丁导出和官方 harness 复评。历史 DeepSeek 单题试跑使用 `deepseek-flash`，当时的不限费用授权仅属于那次实验，不适用于新用户或新运行。
 

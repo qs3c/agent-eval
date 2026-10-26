@@ -68,7 +68,9 @@ def slot():
 
 def run_command(command, work, log_path, inherited=()):
     """Kill the whole grading process group on timeout; children hold capacity locks."""
-    with gate("image-use", shared=True) as image_fd, slot() as fd, log_path.open("w") as log:
+    from .operations.resources import Request, reservation, cancellation_requested
+
+    with reservation(Request("grade", 1, 2048)), gate("image-use", shared=True) as image_fd, slot() as fd, log_path.open("w") as log:
         process = subprocess.Popen(
             command,
             cwd=work,
@@ -78,7 +80,17 @@ def run_command(command, work, log_path, inherited=()):
             pass_fds=(*inherited, fd, image_fd),
         )
         try:
-            return process.wait(timeout=TIMEOUT)
+            deadline = time.monotonic() + TIMEOUT
+            while True:
+                if cancellation_requested():
+                    raise InterruptedError("Grading cancelled")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, TIMEOUT)
+                try:
+                    return process.wait(timeout=min(0.25, remaining))
+                except subprocess.TimeoutExpired:
+                    continue
         except BaseException:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
@@ -278,6 +290,10 @@ def grade_units(exp, output, paths, number, inherited, source="automatic"):
             work.mkdir(parents=True)
             write(work / "records.json", [record])
             (work / "predictions.jsonl").write_text(json.dumps(prediction) + "\n")
+            from .measurement.grading import begin as begin_grade, finish as finish_grade
+
+            grade_id = begin_grade(output, work, agent=status["agent"], task=status["task"],
+                                   repeat=status["attempt"], scorer=EVALUATOR, input_digest=status["input_sha256"])
             with mutex:
                 status.update(
                     status="running",
@@ -325,6 +341,7 @@ def grade_units(exp, output, paths, number, inherited, source="automatic"):
                 )
                 write(base / "status.json", status)
                 persist()
+                finish_grade(grade_id, success=error is None)
             if error is None or not transient or retry == 3:
                 return
             with mutex:
@@ -399,6 +416,53 @@ def jobs(output):
     for row in rows:
         latest.setdefault(row["batch"], dict(row))
     return latest
+
+
+def execute_queued(identity):
+    """Run exactly one legacy inbox item under the shared host batch lock."""
+    with gate("batches") as fd:
+        with database() as db:
+            row = db.execute("SELECT * FROM jobs WHERE id=?", (identity,)).fetchone()
+            if not row:
+                raise KeyError(identity)
+            if row["status"] != "queued":
+                return dict(row)
+            db.execute("UPDATE jobs SET status='running' WHERE id=?", (identity,))
+        output = Path(row["output"])
+        try:
+            from .batching import cleanup_batch, regrade_batch
+            from .image_lifecycle import retain
+            from .config import Experiment
+
+            state = read(output / "batch-state.json", {})
+            if state.get("phase") not in {"completed", "failed", "interrupted"}:
+                raise ValueError("Experiment has not finished; refusing concurrent regrading")
+            manifest = load_manifest(output)
+            exp = Experiment.model_validate(manifest["experiment"])
+            batch = next(b for b in state["batches"] if b["number"] == row["batch"])
+            paths = [output / "tasks" / name for name in batch["tasks"]]
+            cache = {}
+            for task in paths:
+                if task.is_symlink() or not task.resolve().is_relative_to(output.resolve()):
+                    raise ValueError("Frozen task escapes output")
+                validate_tree(task)
+                if tree_manifest(task, hash_cache=cache)["sha256"] != manifest["tasks"][task.name]["sha256"]:
+                    raise ValueError("Frozen task changed: " + task.name)
+            retain(output, paths, row["batch"])
+            regrade_batch(exp, output, paths, row["batch"], inherited=(fd,), force=True)
+            batch["official_regrade"] = {"status": "completed", "updated_unix": time.time()}
+            write(output / "batch-state.json", state)
+            cleanup_batch(exp, output, paths, row["batch"])
+        except BaseException as exc:
+            with database() as db:
+                db.execute("UPDATE jobs SET status=?,error=? WHERE id=?",
+                           ("failed" if isinstance(exc, Exception) else "interrupted", str(exc), identity))
+            raise
+        else:
+            with database() as db:
+                db.execute("UPDATE jobs SET status='completed',error=NULL WHERE id=?", (identity,))
+        with database() as db:
+            return dict(db.execute("SELECT * FROM jobs WHERE id=?", (identity,)).fetchone())
 
 
 def queue_worker(stop):

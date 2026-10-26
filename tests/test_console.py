@@ -303,8 +303,15 @@ def test_comparison_requires_content_identity(console):
             "cost_usd": None,
         }
         report = {"agents": {"positive": summary, "negative": summary}, "trials": []}
+        for agent in exp["agents"]:
+            for task in exp["benchmark"]["tasks"]:
+                name = Path(task).name
+                trial = run / "jobs" / agent["id"] / name
+                trial.mkdir(parents=True)
+                (trial / "result.json").write_text(json.dumps({"task_name": name, "task_id": {"path": task},
+                    "finished_at": "2026-10-26T00:00:00Z", "verifier_result": {"rewards": {"reward": 1}}}))
         (run / "manifest.json").write_text(
-            json.dumps({"experiment": exp, "tasks": {"a": {"sha256": "same"}}})
+            json.dumps({"experiment": exp, "tasks": {Path(task).name: {"sha256": "same"} for task in exp["benchmark"]["tasks"]}})
         )
         (run / "report.json").write_text(json.dumps(report))
     console.import_history()
@@ -312,7 +319,7 @@ def test_comparison_requires_content_identity(console):
     assert console.compare(*ids)["compatible"] is True
     path = console.artifacts / "two" / "manifest.json"
     datum = json.loads(path.read_text())
-    datum["tasks"]["a"]["sha256"] = "different"
+    datum["tasks"][next(iter(datum["tasks"]))]["sha256"] = "different"
     path.write_text(json.dumps(datum))
     assert console.compare(*ids)["compatible"] is False
 
@@ -327,6 +334,22 @@ def test_live_queue_rechecks_current_service_policy(console):
         )
     with pytest.raises(ValueError, match="当前服务未开启"):
         console.execute(console.row(row["id"]))
+
+
+def test_manager_preflight_failure_updates_console_projection(console, monkeypatch):
+    from agent_harness_eval.operations.manager import Manager
+
+    item = console.submit({"template": "controls"})
+    manager = Manager(console.root)
+    job = manager.commands.claim(manager.owner)
+    config = item["experiment"]
+    config["attempts"] += 1
+    with console.connect() as db:
+        db.execute("UPDATE runs SET config=? WHERE id=?", (json.dumps(config), item["id"]))
+    monkeypatch.setattr(manager.console, "execute", lambda _: pytest.fail("Changed plan must not execute"))
+    manager.execute(job)
+    assert manager.commands.query(job["id"])["status"] == "failed"
+    assert console.row(item["id"])["status"] == "failed"
 
 
 def test_atomic_claim_with_two_connections(console):

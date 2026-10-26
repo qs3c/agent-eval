@@ -6,6 +6,7 @@ prefers retaining shared images to guessing whether another batch needs them.
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 from .guardian.evidence import write
@@ -34,8 +35,9 @@ def leases():
     return value
 
 
-def retain(output, paths, number):
+def retain(output, paths, number, *, prepared=False):
     from .regrading import gate
+    from .batching import batch_images
 
     with gate("image-lifecycle"):
         entries = leases()
@@ -44,6 +46,7 @@ def retain(output, paths, number):
             "paths": [str(p.resolve()) for p in paths],
             "number": number,
             "status": "waiting",
+            "references": sorted(batch_images(output, paths, number)[0]) if prepared else None,
         }
         write(registry(), entries)
 
@@ -64,7 +67,8 @@ def collect(exp, output, paths, number):
             "status": "ready",
         }
         write(registry(), entries)
-        if any(v["status"] == "waiting" for v in entries.values()):
+        waiting = [v for v in entries.values() if v["status"] == "waiting"]
+        if any(v.get("references") is None for v in waiting):
             write(output / "batches" / f"{number:03d}" / "cleanup.json", {
                 "status": "deferred_active_or_pending_grading",
                 "note": "其他批次仍在执行或等待复评，保留镜像。",
@@ -72,14 +76,23 @@ def collect(exp, output, paths, number):
             return
         # Includes standalone CLI grading, whose child inherits the shared lock.
         with gate("image-use"):
+            protected = set()
+            for ref in sorted({ref for lease in waiting for ref in lease["references"]}):
+                result = subprocess.run(["docker", "image", "inspect", ref], capture_output=True, text=True, check=False)
+                if result.returncode:
+                    if "no such image" in result.stderr.lower() or "no such object" in result.stderr.lower():
+                        continue
+                    raise RuntimeError("Cannot resolve active image consumer: " + ref)
+                protected.add(json.loads(result.stdout)[0]["Id"])
             for lease_key, lease in list(entries.items()):
+                if lease["status"] != "ready":
+                    continue
                 root = Path(lease["output"])
                 if not root.is_dir():
                     # A missing archive cannot authorize deleting its resources.
                     continue
-                completed = _cleanup_batch_images(
-                    exp, root, [Path(p) for p in lease["paths"]], lease["number"]
-                )
+                kwargs = {"protected_images": protected} if protected else {}
+                completed = _cleanup_batch_images(exp, root, [Path(p) for p in lease["paths"]], lease["number"], **kwargs)
                 if completed is False:
                     continue
                 del entries[lease_key]

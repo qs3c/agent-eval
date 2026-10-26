@@ -294,7 +294,8 @@ def test_native_pair_builds_exact_commits_and_overrides_stale_artifacts(
     store, case, record, _ = native_case
     builds, runs = [], []
 
-    async def build(command, workspace, log, values):
+    async def build(command, workspace, log, values, *, lane=None):
+        assert lane == "build"
         builds.append(git(workspace, "rev-parse", "HEAD"))
         shutil.copyfile(workspace / "harness.py", values["output"] / "bkcrab-eval")
         write(values["output"] / "provenance.json", {"commit": builds[-1]})

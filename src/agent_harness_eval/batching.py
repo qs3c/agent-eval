@@ -50,6 +50,16 @@ def record_tasks(output, paths):
 def prepare_batch(exp, output, paths, number):
     if not exp.batch.prepare_swe:
         return
+    from .operations.resources import Request, reservation
+
+    footprint = int(len(paths) * exp.batch.estimated_task_gib * 1024**3)
+    with reservation(Request("build", exp.cpus, exp.memory_mb, footprint),
+                     free_bytes=lambda: shutil.disk_usage(output).free,
+                     headroom_bytes=int(exp.batch.min_free_gib * 1024**3)):
+        return _prepare_batch(exp, output, paths, number)
+
+
+def _prepare_batch(exp, output, paths, number):
     script = Path(__file__).resolve().parents[2] / "scripts/pin-swe-runtime.py"
     if not script.is_file():
         raise ValueError(
@@ -162,7 +172,7 @@ def cleanup_batch(exp, output, paths, number):
     collect(exp, output, paths, number)
 
 
-def _cleanup_batch_images(exp, output, paths, number):
+def batch_images(output, paths, number):
     refs = set()
     trial_tags = {}
     for inventory in (output / "batches" / f"{number:03d}" / "official").rglob("official-images.json"):
@@ -188,6 +198,11 @@ def _cleanup_batch_images(exp, output, paths, number):
                 project = re.sub(r"[^a-z0-9_-]", "", (trial_name + "__env").lower())
                 if snapshot.get("container", {}).get("project") == project:
                     trial_tags.setdefault(image, set()).add(project + "-main:latest")
+    return refs, trial_tags
+
+
+def _cleanup_batch_images(exp, output, paths, number, *, protected_images=frozenset()):
+    refs, trial_tags = batch_images(output, paths, number)
     operations = []
     failures = []
     before = shutil.disk_usage(output).free
@@ -204,6 +219,9 @@ def _cleanup_batch_images(exp, output, paths, number):
             operations.append({"image": ref, "status": "already_absent"})
             continue
         image = json.loads(inspect.stdout)[0]
+        if image["Id"] in protected_images:
+            operations.append({"image": ref, "status": "retained_consumer_reference"})
+            continue
         containers = subprocess.run(
             ["docker", "ps", "-aq", "--filter", "ancestor=" + image["Id"]],
             capture_output=True,
@@ -279,35 +297,21 @@ def _cleanup_batch_images(exp, output, paths, number):
         if still_owned:
             failures.append({"image": ref, "remaining_tags": sorted(still_owned)})
         operations.append({"image": ref, "status": status, "results": results})
-    # Unused build cache holds otherwise deleted SWE image layers. This removes
-    # cache only, never tagged images, running containers, networks or volumes.
-    cache = subprocess.run(
-        ["docker", "builder", "prune", "--force"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
     write(
         output / "batches" / f"{number:03d}" / "cleanup.json",
         {
             "started_free_bytes": before,
             "finished_free_bytes": shutil.disk_usage(output).free,
             "images": operations,
-            "cache_returncode": cache.returncode,
-            "cache_summary": cache.stdout[-500:],
-            "cache_error": cache.stderr[-1000:],
+            "cache_policy": "shared_host_cache_untouched",
             "failed_removals": failures,
         },
     )
-    if cache.returncode:
-        raise RuntimeError(
-            "Unused build cache cleanup failed; inspect batch cleanup.json"
-        )
     if failures:
         raise RuntimeError(
             "Current-batch image cleanup failed; inspect batch cleanup.json"
         )
-    return not any(op["status"] == "retained_container_reference" for op in operations)
+    return not any(op["status"] in {"retained_container_reference", "retained_consumer_reference"} for op in operations)
 
 
 async def run_batches(
@@ -340,6 +344,15 @@ async def run_batches(
         entry = next((b for b in state["batches"] if b["number"] == number), None)
         if entry and entry["phase"] == "completed":
             continue
+        from .operations.worker import checkpoint
+
+        await checkpoint()
+        pending = sum(b.get("official_regrade", {}).get("status") == "failed" for b in state["batches"])
+        if pending >= exp.batch.max_pending_grade_batches:
+            state.update(phase="failed", error="评分积压达到上限；先复评已完成批次，再恢复实验，不重新执行已完成尝试",
+                         updated_unix=time.time())
+            write(state_path, state)
+            raise ValueError(state["error"])
         from .image_lifecycle import retain
 
         await asyncio.to_thread(retain, output, paths, number)
@@ -370,6 +383,7 @@ async def run_batches(
             phase("preparing")
             await asyncio.to_thread(prepare_batch, exp, output, paths, number)
             record_tasks(output, paths)
+            await asyncio.to_thread(retain, output, paths, number, prepared=True)
             if shutil.disk_usage(output).free < exp.batch.min_free_gib * 1024**3:
                 raise RuntimeError("Insufficient disk headroom before Agent execution")
             for agent in exp.agents:
@@ -398,6 +412,7 @@ async def run_batches(
                 )
                 report(output)
             phase("regrading")
+            await asyncio.to_thread(retain, output, paths, number, prepared=True)
             try:
                 await asyncio.to_thread(regrade_batch, exp, output, paths, number)
             except Exception as error:  # noqa: BLE001 - persist scoring failures without aborting Agent execution

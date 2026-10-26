@@ -9,6 +9,7 @@ function comparisonScore(value, kind) {
 }
 function taskScore(cell, kind) {
   const assistance = cell.assisted ? ` · 含 ${cell.assisted} 次辅助` : "";
+  if (cell.errors) return `执行异常 ${cell.errors} 次 · ${cell.graded ?? cell.scored}/${cell.expected} 已评分` + assistance;
   if (cell.score != null) {
     if (kind === "resolved" && cell.expected === 1) return (cell.score === 1 ? "已解决" : "未解决") + assistance;
     return comparisonScore(cell.score, kind) + assistance;
@@ -18,7 +19,8 @@ function taskScore(cell, kind) {
 }
 function usageLabel(usage) {
   return usage.total != null ? number(usage.total) :
-    `未知${usage.known != null ? `（已知部分 ${number(usage.known)}；${usage.recorded}/${usage.expected} 次）` : ""}`;
+    `未知${usage.known != null ? `（已知部分 ${number(usage.known)}；${usage.recorded}/${usage.expected} 次）` : ""}` +
+    (usage.unknown_count != null ? ` · ${usage.unknown_count}/${usage.expected} 次费用未记录` : "");
 }
 function pairCategory(a, b, binary) {
   if (a.score == null || b.score == null) return "incomplete";
@@ -89,6 +91,15 @@ function drawExperimentComparison(data, body, active) {
   if (names.some(name => run.reviews[name]?.status === "diagnostic")) meta.append(el("p", "本实验含诊断记录，下表保留其原始观测，不作为有效评测成绩。", "callout warning"));
   meta.append(fold("查看各 Agent 的复核依据", names.map(name => `${name} · ${reviewNames[run.reviews[name]?.status] || "待复核"}：${run.reviews[name]?.reason || "暂无复核记录"}`).join("\n")));
   if (data.unexpected.length) meta.append(el("p", "存在不属于计划的任务或 Agent 记录，暂不生成综合成绩。", "callout warning"));
+  if (data.states) {
+    const scoring = {pending: "等待评分", running: "评分中", complete: "已完成", partial: "部分已评分", failed: "评分失败", not_requested: "未启动"};
+    const evidence = {complete: "完整", partial: "部分缺失", missing: "缺失"};
+    const resources = {active: "占用中", retained: "已保留", reclaim_pending: "待回收", reclaimed: "已回收", cleanup_failed: "清理失败"};
+    meta.append(el("p", `执行：${labels[data.states.execution] || data.states.execution} · 评分：${scoring[data.states.scoring] || data.states.scoring} · 证据：${evidence[data.states.evidence] || data.states.evidence} · 资源：${resources[data.states.resources] || data.states.resources}`));
+  }
+  if (data.denominators) meta.append(el("p", `计划 ${data.denominators.planned} 次 · 已执行 ${data.denominators.executed} 次 · 已评分 ${data.denominators.scored} 次`));
+  if (data.issues?.length) meta.append(fold("评分证据问题", data.issues.join("\n")));
+  if (data.harbor) meta.append(fold("Harbor 内置评分（独立参考）", JSON.stringify(data.harbor.agents, null, 2)));
   const summary = el("section", undefined, "panel comparison-panel");
   summary.append(el("h2", "整体表现 · 本次全部任务"),
     el("p", kind === "resolved" ? "主分 = 每题成功比例的等权平均。每题仅执行一次时，就是解决题数 ÷ 本次题数。" : `主分 = 每题 ${data.primary_metric} 的平均值，再对任务等权平均；保留原始单位，不转成解决率。`));
@@ -96,15 +107,15 @@ function drawExperimentComparison(data, body, active) {
     ["Agent", kind === "resolved" ? "解决率" : `主指标 ${data.primary_metric}`, attempts === 1 ? "解决题数" : "全次数通过题数", "评分覆盖", "缺失 / 异常 / 未评分 / 额外", "Agent 总秒数", "输入 Token", "输出 Token", "费用 USD"],
     names.map(name => {
       const a = agents[name];
-      const score = a.final ? comparisonScore(a.score, kind) : a.provisional_score != null ? `${comparisonScore(a.provisional_score, kind)}（暂定）` : "待完整评分";
+      const score = a.final ? comparisonScore(a.score, kind) : "待完整评分";
       const label = el("span", name);
       if (a.assisted) label.append(el("small", `${a.assisted} 次外部辅助；评分含辅助结果`, "run-sub"));
       label.append(el("small", reviewNames[run.reviews[name]?.status] || "待复核", "run-sub"));
       return [label, score + (run.reviews[name]?.status === "diagnostic" ? "（诊断）" : ""), kind === "resolved" ? `${a.solved_tasks} / ${data.task_count}` : "不适用",
-        `${a.scored} / ${a.expected}`, `${a.missing} / ${a.errors} / ${a.unscored} / ${a.extra}`,
+        `${a.graded ?? a.scored} / ${a.expected}`, `${a.missing} / ${a.errors} / ${a.unscored} / ${a.extra}`,
         ...["agent_seconds", "input_tokens", "output_tokens", "cost_usd"].map(k => usageLabel(a.usage[k]))];
     })));
-  summary.append(el("p", "暂定比例 = 已观测成功次数 ÷ 计划次数；未评分并未判失败，完成后才形成最终主分。异常包含在未评分中。用量来自运行器原始结果，轨迹页会独立核对请求完整性；未知总量保留未知。总耗时为各次 Agent 执行时间之和。筛选下方任务不会改变本表。", "muted"));
+  summary.append(el("p", "仅完整评分后显示最终主分；未评分不判失败。辅助尝试完整保留并单独标注，不能作为纯自主成绩。用量来自原始结果，未知总量保持未知。总耗时为各次 Agent 执行时间之和。筛选任务不会改变整体结果。", "muted"));
   body.append(meta, summary);
 
   const matrix = el("section", undefined, "panel comparison-panel"), controls = el("div", undefined, "comparison-controls");

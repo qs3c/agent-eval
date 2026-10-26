@@ -12,6 +12,13 @@ from .process import read_bounded, terminate
 
 
 async def run_driver(config, incident, backend, active, *, can_act=None):
+    from ..operations.resources import Request, async_reservation
+
+    async with asyncio.timeout(config.diagnostic_seconds), async_reservation(Request("platform-agent", 1, 512)):
+        return await _run_driver(config, incident, backend, active, can_act=can_act)
+
+
+async def _run_driver(config, incident, backend, active, *, can_act=None):
     can_act = can_act or active
     env = {
         k: v

@@ -394,6 +394,9 @@ async def run_guarded(
     if sys.platform != "linux":
         raise ValueError("Experiment guardian execution requires Linux and Docker")
     semaphore = asyncio.Semaphore(exp.concurrency)
+    from ..operations.worker import Admission
+
+    admission = Admission(cpus=exp.cpus, memory_mb=exp.memory_mb)
     completed = (
         resume_counts(output / "jobs" / agent_id, tasks, exp.attempts)
         if resume
@@ -402,6 +405,8 @@ async def run_guarded(
 
     async def one(task):
         async with semaphore:
+            admission_key = uuid4().hex
+            await admission.enter(admission_key)
             config = TrialConfig(
                 task=task,
                 agent=agent_config,
@@ -416,7 +421,10 @@ async def run_guarded(
                     else {},
                 },
             )
-            await supervise(config, exp.guardian, agent_id, retention=retention)
+            try:
+                await supervise(config, exp.guardian, agent_id, retention=retention)
+            finally:
+                await admission.finish_guarded(admission_key, config.trial_name)
 
     loop, owner = asyncio.get_running_loop(), asyncio.current_task()
     previous = signal.getsignal(signal.SIGTERM)

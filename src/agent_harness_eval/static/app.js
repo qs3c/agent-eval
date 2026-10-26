@@ -4,6 +4,11 @@ const view = $("#view");
 const labels = {
   queued: "排队中",
   running: "执行中",
+  pausing: "等待在途尝试结束",
+  paused: "已暂停",
+  held: "队列已暂停",
+  cancelling: "取消并清理中",
+  cancelled: "已取消",
   completed: "已完成",
   failed: "执行异常",
   interrupted: "已中断",

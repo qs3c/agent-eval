@@ -7,7 +7,8 @@ import pytest
 def isolated_regrading_state(tmp_path, monkeypatch, request):
     # Only service/queue tests need this isolation; don't initialize queue modules
     # or add filesystem entries to unrelated timing and log-contract tests.
-    names = {"Console", "create_app", "regrade_batch", "regrading", "batching", "image_lifecycle"}
+    names = {"Console", "create_app", "regrade_batch", "regrading", "batching", "image_lifecycle",
+             "run_driver", "Resources", "reservation", "improve", "perform", "regression", "checked", "evaluate", "run_experiment"}
     values = vars(request.module)
     if not (
         names.intersection(values)

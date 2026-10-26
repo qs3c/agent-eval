@@ -81,6 +81,9 @@ class DockerTarget:
             or labels.get("com.docker.compose.service") != "main"
         ):
             raise RuntimeError("Task container identity changed")
+        from ..operations.resources import record_container
+
+        record_container(cid, self.project)
         return {"id": cid, "state": state, "image": image, "project": self.project}
 
     async def observe(self):
@@ -163,7 +166,14 @@ class DockerTarget:
         for cid in found["stdout"].split():
             if not re.fullmatch(r"[0-9a-f]{64}", cid):
                 raise RuntimeError("Invalid Docker container identity")
-            results.append(await command(["docker", "rm", "-f", cid], self.timeout))
+            from ..operations.resources import begin_container_cleanup, finish_container_cleanup
+
+            if not begin_container_cleanup(cid, self.project):
+                results.append({"returncode": 1, "stderr": "Container still has consumers", "container": cid})
+                continue
+            result = await command(["docker", "rm", "-f", cid], self.timeout)
+            finish_container_cleanup(cid, self.project, result["returncode"] == 0)
+            results.append(result)
         networks = await command(
             [
                 "docker",

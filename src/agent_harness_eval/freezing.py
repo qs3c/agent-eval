@@ -7,6 +7,23 @@ from pathlib import Path
 from .provenance import digest
 
 
+def selection_record(tasks):
+    if not tasks:
+        return None
+    source = Path(tasks[0]).parent / "selection.json"
+    if source.is_symlink():
+        raise ValueError("Selection must not be a symlink")
+    if source.is_file():
+        return {"path": "selection.json", "sha256": digest(source)}
+    return None
+
+
+def freeze_selection(tasks, target):
+    if selection_record(tasks):
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(Path(tasks[0]).parent / "selection.json", target / "selection.json")
+
+
 def plan_from_manifest(manifest, *, evidence=()):
     """Index recorded inputs without inventing source revisions for legacy runs."""
     from .workspace.models import AgentRelease, BenchmarkRevision, ExperimentPlan

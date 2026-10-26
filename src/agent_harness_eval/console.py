@@ -290,6 +290,9 @@ class Console:
         frozen = self.state / "inputs" / run_id
         frozen.mkdir()
         try:
+            from .freezing import freeze_selection
+
+            freeze_selection(config["benchmark"]["tasks"], frozen / "tasks")
             for i, task in enumerate(config["benchmark"]["tasks"]):
                 source = Path(task)
                 validate_tree(
@@ -336,6 +339,9 @@ class Console:
         except Exception:
             shutil.rmtree(frozen)
             raise
+        from .operations.submission import submit_console
+
+        submit_console(self, self.row(run_id))
         return self.detail(run_id)
 
     def import_history(self):
@@ -407,6 +413,7 @@ class Console:
                             str(result.relative_to(path)).encode()
                         ).hexdigest()[:20],
                         "trial": result.parent.name,
+                        "result": str(result.relative_to(path)),
                         "agent": result.parent.parent.name,
                         "task": task_key(value),
                         "exception": value.get("exception_info"),
@@ -508,7 +515,7 @@ class Console:
             ),
         }
 
-        return decorate(
+        detail = decorate(
             self.root,
             {
                 "id": row["id"],
@@ -541,6 +548,14 @@ class Console:
                 "trajectory_note": "ATIF 为末次上下文与终态视图，原始事件为完整诊断依据",
             },
         )
+        from .measurement.results import results
+
+        detail["measurement"] = results(Path(row["path"]), exp, detail["trials"], row["status"],
+                                        exp["benchmark"].get("score_kind", "metric"))
+        if detail["measurement"]["source"] == "official_swe":
+            detail["grading"] = "官方 SWE 独立复评为主结果；Harbor 内置评分单独保留"
+        detail["states"] = detail["measurement"]["states"]
+        return detail
 
     def regrading_view(self, output, state):
         from .regrading import jobs
@@ -598,7 +613,7 @@ class Console:
                     {
                         k: v
                         for k, v in row.items()
-                        if k not in ("experiment", "report", "task_hashes", "trials")
+                        if k not in ("experiment", "report", "task_hashes", "trials", "measurement")
                     }
                 )
             except (ValueError, OSError):
@@ -647,12 +662,10 @@ class Console:
             and all(p and p.get("instance_id") for p in provenance)
         ):
             kind = "resolved"
-        data = summarize(
-            detail["experiment"],
-            detail["trials"],
-            kind,
-            detail["status"] in ("completed", "failed", "incomplete", "interrupted"),
-        )
+        data = detail["measurement"]
+        if data["source"] == "harbor":
+            # Keep the explicit legacy metric inference for non-official datasets.
+            data["score_kind"] = kind
         data.update(
             run={
                 k: detail[k]
@@ -669,7 +682,9 @@ class Console:
 
     def compare(self, left, right):
         a, b = self.detail(left), self.detail(right)
-        reasons = []
+        from .measurement.comparability import differences
+
+        reasons = differences(a["measurement"], b["measurement"])
         for field, label in [
             ("dataset", "数据集版本 / split"),
             ("evaluation", "评分器 / 环境版本"),
@@ -835,6 +850,7 @@ class Console:
         child_env = {
             **os.environ,
             **self.models.environment(model, (guardian or {}).get("model")),
+            **getattr(self, "operation_environment", {}),
         }
         # Allow the independent supervisor to persist evidence and clean Docker.
         self.shutdown_seconds = (
@@ -856,6 +872,10 @@ class Console:
         ):
             raise ValueError("当前服务未开启守护模型执行")
         with (self.state / "logs" / (run_id + ".log")).open("wb") as log:
+            if self.lock is None:
+                raise ValueError("Execution requires the manager ownership lock")
+            child_env.update(HARNESS_LEGACY_LOCK_FD=str(self.lock.fileno()),
+                             HARNESS_LEGACY_LOCK_PATH=str(self.state / "server.lock"))
             # Inherited flock prevents a restarted server launching alongside an orphan CLI.
             self.process = subprocess.Popen(
                 [
@@ -921,6 +941,9 @@ class Console:
                     stderr=subprocess.STDOUT,
                     cwd=self.root,
                     start_new_session=True,
+                    env={**os.environ, **getattr(self, "operation_environment", {}),
+                         "HARNESS_LEGACY_LOCK_FD": str(self.lock.fileno()),
+                         "HARNESS_LEGACY_LOCK_PATH": str(self.state / "server.lock")},
                     pass_fds=(self.lock.fileno(),),
                 )
                 while self.process.poll() is None:

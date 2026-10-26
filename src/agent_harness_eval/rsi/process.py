@@ -67,8 +67,14 @@ async def run(command, cwd, log=None, values=None, stdin=None, limit=1024 * 1024
     return result
 
 
-async def checked(command, cwd, log=None, values=None, stdin=None):
-    result = await run(command, cwd, log, values, stdin)
+async def checked(command, cwd, log=None, values=None, stdin=None, *, lane=None):
+    if lane:
+        from ..operations.resources import Request, async_reservation
+
+        async with asyncio.timeout(command.timeout_seconds), async_reservation(Request(lane, 2, 4096)):
+            result = await run(command, cwd, log, values, stdin)
+    else:
+        result = await run(command, cwd, log, values, stdin)
     if result["returncode"]:
         raise ValueError(
             f"Command exited with {result['returncode']}; inspect the local process record"

@@ -152,13 +152,16 @@ async def improve(store, record):
         + DIAGNOSIS_LANGUAGE_INSTRUCTIONS,
     }
     write(root / "adapter-context.json", context)
-    await checked(
-        profile.adapter,
-        workspace,
-        root / "adapter-process.json",
-        {"workspace": workspace, "evidence": evidence, "output": output},
-        context,
-    )
+    from ..operations.resources import Request, async_reservation
+
+    async with asyncio.timeout(profile.adapter.timeout_seconds), async_reservation(Request("platform-agent", 2, 4096)):
+        await checked(
+            profile.adapter,
+            workspace,
+            root / "adapter-process.json",
+            {"workspace": workspace, "evidence": evidence, "output": output},
+            context,
+        )
     verify_case(store, case)
     diagnosis = Diagnosis.model_validate(read(root / "diagnosis.json", {}))
     if diagnosis.limitations and not diagnosis.limitations_en.strip():
@@ -200,6 +203,7 @@ async def improve(store, record):
             workspace,
             root / f"check-{i}.json",
             {"workspace": workspace, "output": output, "evidence": evidence},
+            lane="build",
         )
         record["checks"].append(
             {

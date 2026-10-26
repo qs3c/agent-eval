@@ -342,6 +342,8 @@ async function renderRsiCandidate(token, identity, initial) {
   }
   shell.append(status);
   const panel = rsiPanel("下一步操作", "检查通过、评测改善和 PR 发布是三个独立状态。");
+  if (candidate.validation_stale) panel.append(el("p", candidate.validation_stale_reason, "error"));
+  if (candidate.pr_url) panel.append(link("配置合并后新版本准入与同条件复评 →", "#integrations", "button"));
   const active = actions.find(a => ["queued", "running"].includes(a.status));
   if (active) panel.append(el("p", `${rsiActionNames[active.kind]} · ${rsiPhases[active.status]}，页面会自动更新。`, "rsi-inline-note"));
   const error = el("p", candidate.last_error || "", "error"); error.setAttribute("role", "alert");

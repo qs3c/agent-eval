@@ -3,6 +3,7 @@
 import io
 import hashlib
 import json
+import threading
 from pathlib import Path
 from http.server import ThreadingHTTPServer
 
@@ -14,6 +15,25 @@ else:
 
 def handler(upstream, policy, digest, logs):
     counter = policy_runtime.Counter(logs / "policy-reservations.jsonl", policy["settings"]["budget"]["max_requests"])
+    credit = getattr(upstream, "_policy_open_context", None)
+    if credit is None:
+        credit = threading.local()
+        upstream._policy_open_context = credit
+    if hasattr(upstream, "urlopen") and not getattr(upstream, "_policy_open_wrapped", False):
+        original_open = upstream.urlopen
+        def budgeted_open(*args, **kwargs):
+            # Initial opening is already reserved at ingress. Transport retries
+            # must reserve again; a retry cannot bypass the role's request cap.
+            reservation = getattr(credit, "reservation", None)
+            if reservation is None:
+                raise RuntimeError("Upstream opening has no trusted policy reservation")
+            if reservation["initial"]:
+                reservation["initial"] = False
+            elif not reservation["counter"].reserve(reservation["role"], reservation["digest"]):
+                raise RuntimeError("Frozen role request budget exhausted before upstream retry")
+            return original_open(*args, **kwargs)
+        upstream.urlopen = budgeted_open
+        upstream._policy_open_wrapped = True
     class Handler(upstream.Handler):
         def do_POST(self):
             protocol = {"/v1/chat/completions": "openai-chat", "/v1/messages": "anthropic-messages"}.get(self.path)
@@ -42,7 +62,11 @@ def handler(upstream, policy, digest, logs):
             payload = json.dumps(effective).encode()
             self.rfile = io.BytesIO(payload)
             self.headers.replace_header("Content-Length", str(len(payload)))
-            return super().do_POST()
+            credit.reservation = {"initial": True, "counter": counter, "role": policy["role"], "digest": digest}
+            try:
+                return super().do_POST()
+            finally:
+                credit.reservation = None
     return Handler
 
 

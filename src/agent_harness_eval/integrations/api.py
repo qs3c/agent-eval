@@ -22,8 +22,63 @@ class CheckInput(BaseModel):
     run_id: str
 
 
+class SourceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    repository: str
+    ref: str = "main"
+    recipe: str | None = None
+
+
+class RepairInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    recipe: str
+
+
+class AssistInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm_paid: bool = False
+
+
+class MonitorInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+
+
 def router(console):
     routes = APIRouter(prefix="/api")
+    from .sources import Sources
+    from .tracking import queue_refresh, repair
+
+    @routes.get("/sources")
+    def sources():
+        store = Sources(console.root)
+        return {"sources": [{**row, "revisions": store.revisions(row["id"])} for row in store.list()]}
+
+    @routes.post("/sources", status_code=202)
+    def add_source(value: SourceInput):
+        row = Sources(console.root).add(value.repository, value.ref, value.recipe)
+        return {"source": row, "job": queue_refresh(console.root, row["id"])}
+
+    @routes.post("/sources/{source_id}/refresh", status_code=202)
+    def refresh_source(source_id: str):
+        return queue_refresh(console.root, source_id)
+
+    @routes.post("/sources/{source_id}/repair", status_code=202)
+    def repair_source(source_id: str, value: RepairInput):
+        repair(console.root, source_id, value.recipe)
+        return queue_refresh(console.root, source_id)
+
+    @routes.post("/sources/{source_id}/monitor")
+    def monitor_source(source_id: str, value: MonitorInput):
+        return Sources(console.root).enable(source_id, value.enabled)
+
+    @routes.post("/sources/{source_id}/assist", status_code=202)
+    def assist_source(source_id: str, value: AssistInput):
+        from .assistant import submit as assist
+
+        if not console.allow_live:
+            raise ValueError("请先以 --allow-live 开启平台模型调用")
+        return assist(console.root, source_id, confirm_paid=value.confirm_paid)
 
     @routes.get("/integrations")
     def overview():

@@ -25,8 +25,14 @@ class Manager:
         self.owner = uuid4().hex
         self.draining = False
         self.last_gc = 0
+        self.last_cycle_check = 0
 
     def maintenance(self):
+        if time.monotonic() - self.last_cycle_check >= 1:
+            self.last_cycle_check = time.monotonic()
+            from ..rsi.cycle import enforce_deadlines
+
+            enforce_deadlines(self.root)
         if time.monotonic() - self.last_gc < 60:
             return
         self.last_gc = time.monotonic()
@@ -60,6 +66,12 @@ class Manager:
 
     def adopt(self):
         """Idempotent compatibility inbox; legacy tables remain read projections."""
+        from ..integrations.tracking import tick
+
+        tick(self.root)
+        from ..rsi.cycle import tick as tick_cycles
+
+        tick_cycles(self.root)
         with self.console.connect() as db:
             rows = db.execute("SELECT * FROM runs WHERE status='queued' AND historical=0 ORDER BY created").fetchall()
         for row in rows:

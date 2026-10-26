@@ -9,6 +9,8 @@ from .process import checked
 
 def readiness(store, record):
     """Only promote a complete improvement measured at this exact parent/child."""
+    if record.get("validation_stale"):
+        return False, record.get("validation_stale_reason", "上游基线已漂移，需要重新验证。")
     if record.get("profile", {}).get("integration_recipe"):
         from .validation import current
 

@@ -62,7 +62,7 @@ def execute(manager, job):
             execute_experiment(manager, job)
         elif job["kind"] == "grade":
             execute_grade(manager, job)
-        elif job["kind"] == "integration":
+        elif job["kind"] in {"integration", "source-refresh", "integration-assist", "cycle-refresh"}:
             execute_integration(manager, job)
         else:
             raise ValueError("Executor not registered: " + job["kind"])
@@ -75,12 +75,14 @@ def execute_integration(manager, job):
     import sys
 
     console = manager.console
+    if job["kind"] == "integration-assist" and not console.allow_live:
+        raise ValueError("Integration Agent requires Manager --allow-live")
     logs = manager.commands.store.directory / "logs"
     logs.mkdir(exist_ok=True)
     console.shutdown_seconds = 40
     with (logs / (job["id"] + ".log")).open("ab") as log:
         console.process = subprocess.Popen([sys.executable, "-m", "agent_harness_eval.cli",
-            "integration-work", job["id"], "--root", str(manager.root)], cwd=manager.root,
+            {"source-refresh": "source-work", "integration-assist": "integration-assist-work", "cycle-refresh": "cycle-work"}.get(job["kind"], "integration-work"), job["id"], "--root", str(manager.root)], cwd=manager.root,
             env={**os.environ, **console.operation_environment}, stdout=log, stderr=subprocess.STDOUT,
             start_new_session=True, pass_fds=(console.lock.fileno(),))
         try:
@@ -90,7 +92,7 @@ def execute_integration(manager, job):
                     break
             code = console.process.wait()
             if code:
-                raise ValueError("Integration build failed; inspect " + str(logs / (job["id"] + ".log")))
+                raise ValueError(job["kind"] + " failed; inspect " + str(logs / (job["id"] + ".log")))
         finally:
             if console.process.poll() is None:
                 console.terminate()

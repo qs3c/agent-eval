@@ -7,8 +7,11 @@ from pathlib import Path
 
 
 def fetch_source(source, directory, log):
-    if not source.commit or not source.repository.startswith("https://github.com/"):
-        raise ValueError("Builtin fetch requires a pinned GitHub source")
+    from .sources import repository
+
+    if not source.commit:
+        raise ValueError("Source fetch requires a pinned commit")
+    repository(source.repository)
     directory = Path(directory)
     directory.parent.mkdir(parents=True, exist_ok=True)
     if directory.exists():

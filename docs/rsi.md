@@ -45,7 +45,9 @@ DGM 的参考点是利用执行反馈修改 Agent 自身实现、经验验证及
 
 执行器和时限保存在 `.rsi/executor-settings.json`；模型元数据、场景分配与版本化密钥统一保存在忽略目录 `.console`。新任务冻结接口、模型、参数与凭据引用；修改或移除模型条目不改变已有候选。详细规则见 [全局模型池](model-pool.md)。
 
-服务器运行包由部署流程准备：`python scripts/prepare-rsi-runtime.py --root <控制台目录> --artifacts-root <已有评测产物目录>`。它使用已有 `.cache/bkcrab-eval`、`.cache/dsh-bundle03/runtime.tar.gz` 构建共享镜像，并登记 `.cache/rsi-native.json`，无需终端用户操作。源码目标从服务器相邻的 `bkcrab` / `deepseek-harness` 仓库识别，仅使用固定 Git 提交。
+本机原生运行包通过 `python scripts/prepare-rsi-runtime.py --root <平台目录> --artifacts-root <已有评测产物目录>` 准备。它使用已有 `.cache/bkcrab-eval`、`.cache/dsh-bundle03/runtime.tar.gz` 构建共享 Docker 镜像，并登记 `.cache/rsi-native.json`；首次本地安装需要完成此准备，未就绪时页面明确提示。旧内置 profile 从平台相邻 `bkcrab` / `deepseek-harness` 仓库识别目标；通用 recipe profile 可使用明确指定的其他源码仓库。都固定 Git 提交，不能直接在用户 dirty checkout 中修改。
+
+已发布 PR 可关联 [源码跟踪闭环](source-tracking.md)：只读观察 merge/squash 的实际目标 SHA，重新构建、接入检查和同条件复评。PR base/head 漂移将旧验证标为过期但不覆盖原证据；页面显示原因。普通 push 同样经过准入，历史 Plan 不变。发布与合并不会因开启闭环而自动获准；复评退化/证据不足、预算耗尽、PR 关闭都会停止自动推进。
 
 若验证容器无法访问 Go 下载站，在依赖齐全的宿主机针对目标提交先运行 `go mod verify`，再运行 `python scripts/prepare-rsi-go-cache.py --root <控制台目录> --module-cache "$(go env GOMODCACHE)" --web-directory <已按锁文件安装依赖的BKCrab源码>/web`。BKCrab 完整检查需要此准备步骤：镜像还会包含前端依赖和 package/lockfile 哈希，验证时先核对哈希，再从候选源码构建实际前端产物供 `go:embed` 使用，然后执行 `go test ./...`。哈希不匹配时拒绝使用缓存，需按新锁文件安装依赖并重新准备。该步骤基于已登记的镜像加入模块缓存，设置 `GOPROXY=off` 和 `GOTOOLCHAIN=local`，构建成功后登记新的镜像 SHA。新候选会使用此镜像；旧候选的冻结配置不变。缺失模块或工具链会直接失败，而不是等待网络下载。依赖版本改变后需重新准备缓存及镜像。构建上下文保留在 `.cache/rsi-go-build-*`，其中不包含模型凭据。
 

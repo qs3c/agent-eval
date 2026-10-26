@@ -71,7 +71,8 @@ def test_deadline_is_supervisor_owned_and_failure_evidence_survives(tmp_path):
                              model_policy=freeze({"name": "fixed", "max_tokens": 32}, "guardian"))
 
 
-def test_native_container_relay_pins_role_and_stops_at_budget(tmp_path, monkeypatch):
+@pytest.mark.parametrize("role", ["improvement", "integration"])
+def test_native_container_relay_pins_role_and_stops_at_budget(tmp_path, monkeypatch, role):
     import os
     import subprocess
     from types import SimpleNamespace
@@ -97,6 +98,15 @@ assert codes==[200,200,429],codes
 Path("/output/diagnosis.json").write_text(json.dumps({"summary":"独立模型预算验证","codes":codes}))
 ''')
     executable.chmod(0o755)
+    if role == "integration":
+        executable.write_text(executable.read_text().replace('/output/diagnosis.json', '/output/integration.json') + '''
+try:
+ Path("/source/forbidden-write").write_text("must fail")
+except OSError:
+ pass
+else:
+ raise AssertionError("Integration modified upstream")
+''')
     image = json.loads(subprocess.check_output(["docker", "image", "inspect", "python:3.12.13-slim-bookworm", "--format", "{{json .RepoDigests}}"], text=True))[0]
     actual = native_adapter.run_container
     def container(image, mounts, command, timeout, **kwargs):
@@ -105,7 +115,12 @@ Path("/output/diagnosis.json").write_text(json.dumps({"summary":"独立模型预
     monkeypatch.setattr(native_adapter, "credential", lambda root: "fixture-only-key")
     profile = {"mode": "mock", "name": "fixed-model", "max_tokens": 32, "policy": {"parameters": {"temperature": 0}, "budget": {"max_requests": 2}}}
     args = SimpleNamespace(root=tmp_path, executor="bkcrab", model="unused", timeout=30, image=image, model_policy_json=json.dumps(profile))
-    native_adapter.execute(args, {"workspace": str(workspace), "evidence_directory": str(evidence), "result_path": str(output / "diagnosis.json")})
+    context = {"workspace": str(workspace), "evidence_directory": str(evidence), "result_path": str(output / "diagnosis.json")}
+    if role == "integration":
+        source = tmp_path / "readonly-source"
+        source.mkdir()
+        context.update(purpose="integration_recipe", instruction="fixture native loop", source_directory=str(source))
+    native_adapter.execute(args, context)
     assert json.loads((output / "diagnosis.json").read_text())["codes"] == [200, 200, 429]
     rows = [json.loads(line) for line in (output / "output/native/logs/policy-requests.jsonl").read_text().splitlines()]
-    assert len(rows) == 2 and all(row["role"] == "improvement" and row["body"]["model"] == "fixed-model" for row in rows)
+    assert len(rows) == 2 and all(row["role"] == role and row["body"]["model"] == "fixed-model" for row in rows)

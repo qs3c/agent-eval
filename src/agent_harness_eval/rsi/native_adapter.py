@@ -99,7 +99,10 @@ def execute(args, context):
         encoding="utf-8",
     )
     regression = context.get("purpose") == "targeted_regression_plan"
-    role = "diagnosis" if regression else "improvement"
+    integration = context.get("purpose") == "integration_recipe"
+    role = "integration" if integration else "diagnosis" if regression else "improvement"
+    if integration:
+        prompt.write_text(context["instruction"], encoding="utf-8")
     if regression:
         from agent_harness_eval.rsi.regression import planning_prompt
 
@@ -145,6 +148,8 @@ def execute(args, context):
             (secret, "/run/secrets/model-key", True),
             (relay, "/platform-relay", True),
         ]
+        if integration:
+            mounts.append((Path(context["source_directory"]).resolve(), "/source", True))
         if args.executor == "bkcrab":
             command = [
                 "sh",
@@ -226,7 +231,7 @@ else: raise RuntimeError("platform model relay did not start")'
     write_json(logs / "model-policy-report.json", verify_usage(policy, {
         "requests": [json.loads(line) for line in requests.read_text().splitlines() if line.strip()] if requests.exists() else [],
         "cost_usd": None}))
-    diagnosis = output / ("plan.json" if regression else "diagnosis.json")
+    diagnosis = output / ("integration.json" if integration else "plan.json" if regression else "diagnosis.json")
     if (
         diagnosis.is_symlink()
         or not diagnosis.is_file()

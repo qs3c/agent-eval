@@ -25,6 +25,16 @@ class ActionRequest(Strict):
     confirm_unbounded: bool = False
 
 
+class CycleRequest(Strict):
+    source_id: str
+    evaluation: str
+    candidate: str | None = None
+    max_rounds: int = 1
+    max_attempts: int = 20
+    max_seconds: int = 86400
+    confirm_paid: bool = False
+
+
 def public_candidate(record, store=None):
     # Do not expose administrator commands/env or raw adapter output.
     result = {
@@ -43,6 +53,9 @@ def public_candidate(record, store=None):
             "checks",
             "evaluations",
             "validation",
+            "validation_stale",
+            "validation_stale_reason",
+            "upstream_observation",
             "pr_url",
             "pr_state",
             "pr_sync_error",
@@ -98,6 +111,35 @@ def diagnosis_topics(candidates):
 def router(console):
     store = Store(console.root)
     routes = APIRouter(prefix="/api/rsi")
+
+    @routes.get("/cycles")
+    def cycles():
+        from .cycle import list_cycles
+
+        return {"cycles": list_cycles(console.root)}
+
+    @routes.post("/cycles", status_code=202)
+    def create_cycle(value: CycleRequest):
+        from .cycle import create, queue
+        from ..config import load
+        from pathlib import Path
+
+        if load(Path(value.evaluation), validate_agent_artifacts=False).model.mode == "live" and not console.allow_live:
+            raise ValueError("真实模型闭环需要 --allow-live")
+        record = create(console.root, **value.model_dump())
+        return {"cycle": record, "job": queue(console.root, record["id"])}
+
+    @routes.post("/cycles/{identity}/refresh", status_code=202)
+    def refresh_cycle(identity: str):
+        from .cycle import queue
+
+        return queue(console.root, identity)
+
+    @routes.post("/cycles/{identity}/stop")
+    def stop_cycle(identity: str):
+        from .cycle import stop
+
+        return stop(console.root, identity)
 
     @routes.get("")
     def overview():

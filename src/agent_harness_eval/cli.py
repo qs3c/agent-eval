@@ -96,7 +96,7 @@ def main():
 
         print(json.dumps(dispatch(args), ensure_ascii=False, indent=2))
         return
-    if args.command in {"integration", "integration-work"}:
+    if args.command in {"integration", "integration-work", "integration-assist-work", "source", "source-work", "cycle", "cycle-work"}:
         import json
         from .integrations.commands import dispatch
 

@@ -162,3 +162,14 @@ Linux 对应命令：`NODE_PATH="$PWD/.cache/rsi-ui/node_modules" node --test te
 原候选提交 `70714f5` 未修改；新镜像 `sha256:46a9c8336a92633aff0bd63f8e292e57af76a8f2ce8e7604e66816c1dbbdd146` 下，真实前端构建和完整 `go test ./...` 成功（54 个包返回 ok，另有无测试文件的包；约 382 秒）。三项新增 exec 回归在断网容器中通过。真实容器负例确认锁文件不匹配立即拒绝。平台执行器/API 回归 8 passed、2 个 opt-in Docker 测试跳过。
 
 原失败 action、冻结 profile 和 `check-0.json` 保留；补充记录在候选 `revalidation/`，含原 record 备份、原失败日志哈希、实际检查镜像与人工恢复说明。候选阶段更新为 validated，诊断限制和 PR 草稿正文明确标记 operator-assisted recovery。没有重新调用模型、发布 PR、部署 BKCrab 或运行配对效果复评；不能把本次恢复视为原自主运行成功。两个控制台的新候选均使用新镜像。
+# 通用 Recipe 候选与分层验证
+
+新的 RSI profile 可填写 `integration_recipe`，指向[标准 Agent 配方](agent-integration.md)。候选创建时复制配方和所有 patch 并记录哈希；后续更改原配方不影响该候选。支持源码构建的标准 Agent 共用此路径，已有 BKCrab 历史 profile 保留兼容构建。新标准 BKCrab 案例若匹配内置配方则自动采用冻结 recipe。DSH 当前 registry-package 基线不能验证源码候选，必须另提供 source 配方。
+
+profile 仍需指定源码 `repository`、诊断/改进 `adapter`、代码 `checks` 和 `evaluation` 模板；使用 recipe 时不再同时填写 `build` / `artifacts`。构建在独立 eval 副本应用接入 patch，产品 worktree 不应用这些 patch。父、子源码都使用同一冻结 recipe，因而包含“旧源码 + 新 recipe”的桥接比较；PR 拒绝包含新引入的适配文件和 `.harness-eval/`。
+
+分层验证包含 `build`、`targeted`、`benchmark-replay`、`holdout`，记录父子 SHA、recipe、模型策略与证据路径。默认 `required_validation` 为前三层。`targeted_reproducer` 和 `targeted_negative_control` 必须成对设置：命令使用 `{workspace}` 和 `{output}`，分别在两份源码上运行，在输出目录写 `assertion.json`（`status` 为 `passed` 或 `assertion_failed`，并提供具体 `assertion`），退出码须对应 0 或 1。复现断言要求父失败、子通过；负对照双方通过。缺结果、超时、编译错误或退出码不匹配都不能充当故障复现。
+
+可配置 `evaluation_holdout` 和在 `required_validation` 中加入 `holdout`；该模板必须与重放使用相同模型、不启用 assisted，任务名称和内容不得与重放重合。holdout 单独冻结、运行和报告；已执行 holdout 的退化会阻止提升判定。未配置或未运行的层明确记为缺失，不能因为 targeted pass 越过 replay fail。
+
+结果显示在候选卡片“检查与复评”，中英文 PR 草稿都说明验证层、策略身份及不足。分层验证未通过或 SHA 已变化时保持草稿。通过这些控制实验只说明工程链路；不自动推导真实模型能力或全 benchmark 改善。

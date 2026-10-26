@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import shutil
 from pathlib import Path
 from uuid import uuid4
 
@@ -98,10 +99,20 @@ def execute(args, context):
         encoding="utf-8",
     )
     regression = context.get("purpose") == "targeted_regression_plan"
+    role = "diagnosis" if regression else "improvement"
     if regression:
         from agent_harness_eval.rsi.regression import planning_prompt
 
         prompt.write_text(planning_prompt(context), encoding="utf-8")
+    selected_policy = getattr(args, "diagnosis_model_policy_json", None) if regression else None
+    selected_policy = selected_policy or getattr(args, "model_policy_json", None)
+    profile = json.loads(selected_policy) if selected_policy else {
+        "mode": "live", "name": args.model, "api_base": getattr(args, "api_base", "https://api.deepseek.com"), "messages_base": getattr(args, "messages_base", None),
+        "max_tokens": getattr(args, "max_tokens", 32768), "context_window": getattr(args, "context_window", 1000000),
+        "api_key_env": "EVAL_MODEL_API_KEY", "policy": {"protocols": ["anthropic-messages"] if args.executor == "dsh" else ["openai-chat"]}}
+    selected_key = profile.get("api_key_env", "")
+    if selected_key.startswith("EVAL_POOL_KEY_"):
+        args.key_ref = selected_key.removeprefix("EVAL_POOL_KEY_")
     key = (
         ModelPool(args.root).credential(args.key_ref)
         if getattr(args, "key_ref", None)
@@ -113,6 +124,18 @@ def execute(args, context):
         secret = Path(temporary) / "key"
         secret.touch(mode=0o600)
         secret.write_text(key)
+        from agent_harness_eval.policies.model import freeze
+        from agent_harness_eval.provenance import write_json
+
+        policy = freeze(profile, role)
+        relay = output / "relay"
+        relay.mkdir(exist_ok=True)
+        resources = Path(__file__).parents[1] / "resources"
+        for name in ("policy_model.py", "policy_runtime.py", "search_review.py"):
+            shutil.copy2(resources / name, relay / name)
+        shutil.copy2(resources / ("mock_model.py" if policy.model["mode"] == "mock" else "live_model.py"), relay / "policy_upstream.py")
+        write_json(relay / "model-policy.json", {"policy": policy.model_dump(mode="json"), "digest": policy.digest})
+        write_json(logs / "model-policy.json", {"policy": policy.model_dump(mode="json"), "digest": policy.digest})
         mounts = [
             (workspace, "/workspace", regression),
             (evidence, "/evidence", True),
@@ -120,12 +143,13 @@ def execute(args, context):
             (logs, "/logs/agent", False),
             (prompt, "/installed-agent/prompt.txt", True),
             (secret, "/run/secrets/model-key", True),
+            (relay, "/platform-relay", True),
         ]
         if args.executor == "bkcrab":
             command = [
                 "sh",
                 "-c",
-                'export EVAL_MODEL_API_KEY="$(cat /run/secrets/model-key)"; exec "$@"',
+                'export EVAL_MODEL_API_KEY=relay-only; exec "$@"',
                 "rsi",
                 "/installed-agent/bkcrab-eval",
                 "--workspace",
@@ -137,12 +161,9 @@ def execute(args, context):
                 "--prompt-file",
                 "/installed-agent/prompt.txt",
                 "--model",
-                args.model,
+                profile["name"],
                 "--api-base",
-                getattr(args, "api_base", "https://api.deepseek.com")
-                .rstrip("/")
-                .removesuffix("/v1")
-                + "/v1",
+                "http://127.0.0.1:18765/v1",
                 "--max-tokens",
                 str(getattr(args, "max_tokens", 32768)),
                 "--context-window",
@@ -154,7 +175,7 @@ def execute(args, context):
             command = [
                 "sh",
                 "-c",
-                'export DEEPSEEK_API_KEY="$(cat /run/secrets/model-key)"; exec "$@"',
+                'export DEEPSEEK_API_KEY=relay-only; exec "$@"',
                 "rsi",
                 "/installed-agent/dsh/node",
                 "/installed-agent/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js",
@@ -165,6 +186,21 @@ def execute(args, context):
                 "--patch",
                 "/installed-agent/dsh/standard.patch.yml",
             ]
+        command = ["sh", "-ec", """mkdir -p /tmp/rsi-policy
+cp /platform-relay/model-policy.json /tmp/rsi-policy/model-policy.json
+cp /run/secrets/model-key /tmp/rsi-policy/live.key
+chmod 600 /tmp/rsi-policy/live.key
+HARNESS_POLICY_DIRECTORY=/tmp/rsi-policy python3 /platform-relay/policy_model.py >/logs/agent/model-server.log 2>&1 &
+relay_pid=$!
+trap 'kill "$relay_pid" 2>/dev/null || true' EXIT
+python3 -c 'import socket,time
+for _ in range(100):
+ try:
+  socket.create_connection(("127.0.0.1",18765),.1).close(); break
+ except OSError: time.sleep(.05)
+else: raise RuntimeError("platform model relay did not start")'
+"$@"
+""", "platform-role", *command]
         run_container(
             args.image,
             mounts,
@@ -174,13 +210,8 @@ def execute(args, context):
                 "HOME": "/tmp/rsi-home",
                 "DSH_HOME": "/tmp/dsh-rsi-home",
                 "DSH_PERMISSION_MODE": "danger-full-access",
-                "DEEPSEEK_BASE_URL": (
-                    getattr(args, "messages_base", None)
-                    or "https://api.deepseek.com/anthropic"
-                )
-                .rstrip("/")
-                .removesuffix("/v1"),
-                "EVAL_MODEL": args.model,
+                "DEEPSEEK_BASE_URL": "http://127.0.0.1:18765",
+                "EVAL_MODEL": profile["name"],
                 "EVAL_MAX_TOKENS": str(getattr(args, "max_tokens", 32768)),
                 "DSH_PRIMARY_RUNTIME": "",
                 "DSH_TOOLS_MODE": "native",
@@ -189,6 +220,12 @@ def execute(args, context):
                 "GOPATH": "/tmp/go",
             },
         )
+    from agent_harness_eval.policies.model import verify_usage
+
+    requests = logs / "policy-requests.jsonl"
+    write_json(logs / "model-policy-report.json", verify_usage(policy, {
+        "requests": [json.loads(line) for line in requests.read_text().splitlines() if line.strip()] if requests.exists() else [],
+        "cost_usd": None}))
     diagnosis = output / ("plan.json" if regression else "diagnosis.json")
     if (
         diagnosis.is_symlink()
@@ -213,6 +250,8 @@ def main():
     parser.add_argument("--key-ref")
     parser.add_argument("--max-tokens", type=int, default=32768)
     parser.add_argument("--context-window", type=int, default=1000000)
+    parser.add_argument("--model-policy-json")
+    parser.add_argument("--diagnosis-model-policy-json")
     parser.add_argument("--check-target", choices=["bkcrab", "dsh", "dsh-standard"])
     parser.add_argument("--workspace", type=Path)
     args = parser.parse_args()

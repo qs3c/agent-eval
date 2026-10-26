@@ -9,6 +9,12 @@ from .process import checked
 
 def readiness(store, record):
     """Only promote a complete improvement measured at this exact parent/child."""
+    if record.get("profile", {}).get("integration_recipe"):
+        from .validation import current
+
+        value = record.get("validation", {})
+        if not current(record, value) or not value.get("promotable"):
+            return False, "分层验证未通过、已过期或没有 benchmark 改善证据，保留草稿。"
     evaluations = record.get("evaluations", [])
     if not evaluations:
         return False, "尚未完成父子复评，保留草稿。"

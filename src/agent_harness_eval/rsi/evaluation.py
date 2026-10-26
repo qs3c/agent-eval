@@ -153,7 +153,7 @@ async def replay_tasks(store, record, allow_live):
         raise ValueError("Evaluation template must contain the case Agent")
     exp.agents = agents
     required = set(agents[0].kwargs) & {"binary", "bundle", "provenance"}
-    if not required <= set(profile.artifacts):
+    if not profile.integration_recipe and not required <= set(profile.artifacts):
         raise ValueError(
             "Build must replace all existing source-dependent Agent artifacts"
         )
@@ -187,6 +187,8 @@ async def replay_tasks(store, record, allow_live):
     store.save("candidates", record)
     destination = root / "evaluations" / evaluation["id"]
     destination.mkdir(parents=True)
+    targeted, built, paired = {}, [], {}
+    holdout_result = None
     previous_env = {}
     try:
         if exp.model.mode == "live":
@@ -238,11 +240,24 @@ async def replay_tasks(store, record, allow_live):
                     "output": output,
                     "evidence": store.path("cases", record["case"]) / "evidence",
                 },
-                lane="build",
+                lane=None if profile.integration_recipe else "build",
             )
             await assert_clean(workspace, commit)
+            built.append(side)
+            if profile.integration_recipe:
+                from .validation import targeted_side
+
+                targeted[side] = await targeted_side(profile, workspace, destination / (side + "-targeted"))
+                await assert_clean(workspace, commit)
             config = exp.model_copy(deep=True)
             config.agents[0].version = commit
+            if profile.integration_recipe:
+                from ..config import Agent
+
+                receipt = read(output / "release/provenance.json")
+                config.agents[0] = Agent.model_validate({"id": agent_id,
+                    "implementation": "agent_harness_eval.agents.recipe:Recipe", "version": receipt["release_id"],
+                    "capabilities": receipt["recipe"]["capabilities"], "kwargs": {}})
             artifacts = {}
             for key, relative in profile.artifacts.items():
                 artifact = output / relative
@@ -255,8 +270,31 @@ async def replay_tasks(store, record, allow_live):
                 config.agents[0].kwargs[key] = str(artifact)
                 artifacts[key] = {"sha256": digest(artifact), "commit": commit}
             write(destination / (side + "-artifacts.json"), artifacts)
+            paired[side] = config.model_copy(deep=True)
             await run_experiment(config, destination / side, manage_signals=False)
         evaluation.update(compare(destination / "parent", destination / "candidate"))
+        if profile.integration_recipe and profile.evaluation_holdout:
+            holdout = load(profile.evaluation_holdout, validate_agent_artifacts=False)
+            if holdout.model != exp.model or (holdout.guardian and holdout.guardian.mode == "assist"):
+                raise ValueError("Holdout must use the same model and autonomous execution")
+            if {task.name for task in holdout.benchmark.tasks} & {task.name for task in exp.benchmark.tasks}:
+                raise ValueError("Holdout task names overlap replay inputs")
+            if {tree_manifest(task)["sha256"] for task in holdout.benchmark.tasks} & {tree_manifest(task)["sha256"] for task in exp.benchmark.tasks}:
+                raise ValueError("Holdout task contents overlap replay inputs")
+            from ..freezing import freeze_tree
+
+            tasks = []
+            for task in holdout.benchmark.tasks:
+                target = destination / "holdout-inputs" / task.name
+                freeze_tree(task, target, destination / "holdout-runtime")
+                tasks.append(target)
+            for side in ("parent", "candidate"):
+                config = holdout.model_copy(deep=True)
+                config.benchmark.tasks = tasks
+                config.agents = paired[side].agents
+                await run_experiment(config, destination / (side + "-holdout"), manage_signals=False)
+            holdout_result = compare(destination / "parent-holdout", destination / "candidate-holdout")
+            write(destination / "holdout-comparison.json", holdout_result)
     except BaseException as error:
         evaluation.update(assessment="failed", error=str(error) or type(error).__name__)
         raise
@@ -268,4 +306,20 @@ async def replay_tasks(store, record, allow_live):
                 os.environ[name] = value
         evaluation["finished_at"] = now()
         write(destination / "comparison.json", evaluation)
+        if profile.integration_recipe:
+            from .recipe_build import verify_recipe
+            from .validation import report, targeted_passed
+            from ..policies.model import freeze
+
+            inputs = {"parent_commit": record["parent_commit"], "candidate_commit": record["commit"]}
+            levels = {
+                    "build": {**inputs, "status": "passed" if len(built) == 2 else "failed", "evidence": [str(destination / (side + "-build.json")) for side in built]},
+                    "targeted": {**inputs, "status": "passed" if targeted_passed(targeted) else "inconclusive", "evidence": [str(destination / (side + "-targeted/results.json")) for side in targeted]},
+                    "benchmark-replay": {**inputs, "status": "passed" if evaluation["assessment"] in {"improved", "equal", "regressed"} else "failed", "assessment": evaluation["assessment"], "issues": evaluation.get("issues", []), "evidence": [str(destination / "comparison.json")]}}
+            if holdout_result:
+                levels["holdout"] = {**inputs, "status": "passed" if holdout_result["assessment"] in {"improved", "equal"} else "failed",
+                    "assessment": holdout_result["assessment"], "issues": holdout_result.get("issues", []), "evidence": [str(destination / "holdout-comparison.json")]}
+            record["validation"] = report(**inputs, recipe_digest=verify_recipe(profile.integration_recipe).digest,
+                model_policy_digest=freeze(exp.model).digest, required=profile.required_validation, levels=levels)
+            write(destination / "validation.json", record["validation"])
         store.save("candidates", record)

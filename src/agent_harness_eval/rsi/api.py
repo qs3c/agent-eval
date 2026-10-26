@@ -42,6 +42,7 @@ def public_candidate(record, store=None):
             "diagnosis",
             "checks",
             "evaluations",
+            "validation",
             "pr_url",
             "pr_state",
             "pr_sync_error",

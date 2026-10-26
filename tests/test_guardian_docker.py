@@ -121,12 +121,12 @@ def test_real_incremental_observer_is_independent_of_diagnostic_snapshots(target
     asyncio.run(check())
 
 
-def test_real_container_direct_recovery_and_recording(target, tmp_path):
+def test_real_container_readonly_inspection_and_recording(target, tmp_path):
     name, backend, logs, _ = target
     adapter = tmp_path / "adapter.py"
     adapter.write_text("""import json,sys
 json.loads(sys.stdin.readline())
-print(json.dumps({"id":"1","tool":"exec","arguments":{"command":"echo recovered >> /logs/agent/events.jsonl"}}),flush=True)
+print(json.dumps({"id":"1","tool":"exec","arguments":{"command":"pwd"}}),flush=True)
 json.loads(sys.stdin.readline())
 print(json.dumps({"id":"2","tool":"finish","arguments":{"summary":"Released fixture stall","assessment":"recovered"}}),flush=True)
 """)
@@ -141,8 +141,7 @@ print(json.dumps({"id":"2","tool":"finish","arguments":{"summary":"Released fixt
     worker.write_text(f"""import json,time,pathlib
 root=pathlib.Path({str(root)!r})
 (root/'guardian-state.json').write_text(json.dumps({{"phase":"agent-start","since":time.monotonic()}}))
-while not pathlib.Path({str(logs / "events.jsonl")!r}).stat().st_size: time.sleep(.1)
-time.sleep(2)
+time.sleep(4)
 (root/'result.json').write_text(json.dumps({{"task_name":"fixture","trial_name":{name!r},"exception_info":None}}))
 """)
     guardian = GuardianConfig(
@@ -173,7 +172,7 @@ time.sleep(2)
     }
     incident = next((root / "incidents").iterdir())
     assert read(incident / "initial.json")["container"]["id"]
-    assert "echo recovered" in (incident / "actions.jsonl").read_text()
+    assert '"command": "pwd"' in (incident / "actions.jsonl").read_text()
     assert read(root / "result.json")["exception_info"] is None
 
 

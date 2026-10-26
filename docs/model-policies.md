@@ -47,4 +47,4 @@ Messages 必须有对应接口；配方声明的协议与策略不匹配时预�
 
 Linux 隔离工作区的完整回归为 **477 passed, 7 skipped（325.46 秒）**，日志 `t10-full-fixed.log`。四个内置 Release 在实际 Docker 中启用固定参数策略、完成控制实验及取消清理，**4 passed（280.82 秒）**，日志 `t10-builtin-policy.log`。以上使用模拟模型，不涉及付费调用。
 
-角色入口的假 HTTP 上游测试覆盖主调用、子调用、压缩、回退与预算耗尽；请求体不能修改可信角色。完整真实 Agent 子模型/网络覆盖仍未认证，平台角色执行器接线将在 T12 完成；不能据这些结果声称获得 Comparable。原有未提交 `live_model.py` 未修改，策略使用独立包装入口。
+角色入口的假 HTTP 上游测试覆盖主调用、子调用、压缩、回退与预算耗尽；请求体不能修改可信角色。T12 已接入 Guardian、原生改进与回归规划入口，见[平台 Agent 边界](platform-agents.md)及 [P3 验证](p3-validation.md)。benchmark simulator/grader 的角色接口已区分，但现有 benchmark 不据此宣称新增了模型模拟器/评分器。完整真实 Agent 子模型/网络覆盖仍未认证，不能据这些结果声称获得 Comparable。原有未提交 `live_model.py` 未修改，策略使用独立包装入口。

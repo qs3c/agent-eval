@@ -396,6 +396,10 @@ async function renderRsiCandidate(token, identity, initial) {
   if (candidate.source_checkout_dirty_ignored) versions.append(el("p", "原工作区有未提交改动；本候选仅使用固定的 Git 提交。"));
   diagnosis.append(versions); shell.append(diagnosis);
   const validation = rsiPanel("检查与复评", "检查结果与配对评测分别记录，不将未验证的修改标为效果改善。");
+  if (candidate.validation) {
+    validation.append(table(["验证层", "结果", "证据"], Object.entries(candidate.validation.levels).map(([name, row]) => [name, row.status, (row.evidence || []).join(" · ")])));
+    validation.append(el("p", candidate.validation.promotable ? "已满足配置要求的验证层；仍需人工审阅 PR。" : "分层验证不足：" + candidate.validation.issues.join("；"), "rsi-inline-note"));
+  }
   if (rsiExecutorNames[candidate.profile_id]) validation.append(el("p", source.agent === "bkcrab" ? "内置代码检查：Go 测试（go test ./...）。" : "内置代码检查仅验证补丁格式，不代表功能测试或模型效果验证通过。", "rsi-inline-note"));
   if (candidate.checks?.length) validation.append(table(["代码检查", "结果", "完成时间"], candidate.checks.map(c => ["检查 " + (c.index + 1), c.returncode === 0 ? rsiBadge("通过", "success") : rsiBadge("退出码 " + c.returncode, "warning"), time(c.finished_at)])));
   else validation.append(el("p", "暂无代码检查记录。", "rsi-inline-note"));

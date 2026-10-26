@@ -35,11 +35,24 @@ class Profile(Strict):
     build: Command | None = None
     artifacts: dict[str, str] = Field(default_factory=dict)
     evaluation: Path | None = None
+    integration_recipe: Path | None = None
+    evaluation_holdout: Path | None = None
+    required_validation: list[str] = Field(default_factory=lambda: ["build", "targeted", "benchmark-replay"])
+    targeted_reproducer: Command | None = None
+    targeted_negative_control: Command | None = None
     github_repository: str | None = Field(default=None, pattern=r"^[\w.-]+/[\w.-]+$")
     pr_base: str = Field(default="main", pattern=r"^[\w][\w./-]*$")
 
     @model_validator(mode="after")
     def artifacts_contract(self):
+        from .validation import LEVELS
+
+        if not self.required_validation or set(self.required_validation) - set(LEVELS):
+            raise ValueError("Invalid required validation levels")
+        if bool(self.targeted_reproducer) != bool(self.targeted_negative_control):
+            raise ValueError("Targeted validation requires reproducer and negative control")
+        if self.integration_recipe and (self.build or self.artifacts):
+            raise ValueError("Integration recipe owns build and artifact contracts")
         if not set(self.artifacts) <= {"binary", "bundle", "provenance"}:
             raise ValueError("Unknown Agent build artifact key")
         for value in self.artifacts.values():
@@ -61,6 +74,10 @@ def load_profile(root, name):
     profile.repository = (path.parent / profile.repository).resolve()
     if profile.evaluation:
         profile.evaluation = (path.parent / profile.evaluation).resolve()
+    if profile.integration_recipe:
+        profile.integration_recipe = (path.parent / profile.integration_recipe).resolve()
+    if profile.evaluation_holdout:
+        profile.evaluation_holdout = (path.parent / profile.evaluation_holdout).resolve()
     return profile
 
 

@@ -12,13 +12,24 @@ from .process import read_bounded, terminate
 
 
 async def run_driver(config, incident, backend, active, *, can_act=None):
-    from ..operations.resources import Request, async_reservation
+    from ..platform_agents.executor import execute
+    from ..platform_agents.protocol import PlatformAgentRequest
+    from ..policies.model import freeze
+    from ..platform_agents.model import guardian_profile
 
-    async with asyncio.timeout(config.diagnostic_seconds), async_reservation(Request("platform-agent", 1, 512)):
-        return await _run_driver(config, incident, backend, active, can_act=can_act)
+    config = config.model_copy(deep=True)
+    config.model = guardian_profile(config.model)
+
+    request = PlatformAgentRequest(role="guardian", workspace=incident, output=incident,
+        timeout_seconds=config.diagnostic_seconds, max_actions=config.max_actions,
+        tools=("snapshot", "exec", "evidence", "final", "finish"),
+        model_policy=freeze(config.model, "guardian") if config.model else None)
+    async def driver(request, home):
+        return await _run_driver(config, incident, backend, active, can_act=can_act, home=home)
+    return await execute(request, driver)
 
 
-async def _run_driver(config, incident, backend, active, *, can_act=None):
+async def _run_driver(config, incident, backend, active, *, can_act=None, home=None):
     can_act = can_act or active
     env = {
         k: v
@@ -28,6 +39,8 @@ async def _run_driver(config, incident, backend, active, *, can_act=None):
         | set(config.pass_env)
     }
     command = config.command
+    if home:
+        env["HOME"] = str(home)
     if config.model:
         name = config.model["api_key_env"]
         if not os.environ.get(name):
@@ -114,6 +127,9 @@ async def _run_driver(config, incident, backend, active, *, can_act=None):
                             raise ValueError(
                                 "exec requires a command string, at most 16384 characters"
                             )
+                        from ..platform_agents.roles import guardian_command
+
+                        text = guardian_command(text)
                         # Mark before acting, including failed/unknown outcomes.
                         write(
                             incident / "assisted.json",

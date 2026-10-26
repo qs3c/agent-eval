@@ -193,7 +193,9 @@ def test_dsh_plan_is_frozen_and_executed_on_both_exact_commits(
     commands = []
 
     async def execute(command, cwd, log=None, values=None, stdin=None, *, lane=None):
-        assert lane == ("platform-agent" if stdin else "build")
+        assert lane == (None if stdin else "build")
+        if stdin:
+            assert read(log.parent / "platform-request.json")["role"] == "diagnosis"
         if stdin:
             assert stdin["purpose"] == "targeted_regression_plan"
             destination = Path(stdin["result_path"]).parent

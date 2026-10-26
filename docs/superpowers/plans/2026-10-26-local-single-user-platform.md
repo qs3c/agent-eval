@@ -193,10 +193,10 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 **文件：** 新增 `src/agent_harness_eval/platform_agents/{__init__,protocol,executor,roles}.py`、`tests/test_platform_agent_executor.py`；修改 `guardian/{driver,model_driver,supervisor}.py`、`rsi/executors.py`。
 
-- [ ] 定义 `execute(role, evidence_refs, workspace, model_policy, tool_policy, deadline) -> structured_result + raw_trace`，保留现有 driver 兼容。
-- [ ] 为一个已验收成熟 Agent 实现完整多轮执行适配；每个角色使用独立权限/状态，不共享被测 Agent 的用户 home。
-- [ ] 通过确定性层校验 exec/资源处置，超时/取消/清理不依赖模型配合；按资源 ID 核验作用对象。
-- [ ] 使用多轮 fake harness 测试调查→工具→观察→结论，并验证越权动作、预算耗尽与中断处理。
+- [x] 定义 `execute(role, evidence_refs, workspace, model_policy, tool_policy, deadline) -> structured_result + raw_trace`，保留现有 driver 兼容。
+- [x] 为一个已验收成熟 Agent 实现完整多轮执行适配；每个角色使用独立权限/状态，不共享被测 Agent 的用户 home。
+- [x] 通过确定性层校验 exec/资源处置，超时/取消/清理不依赖模型配合；按资源 ID 核验作用对象。
+- [x] 使用多轮 fake harness 测试调查→工具→观察→结论，并验证越权动作、预算耗尽与中断处理。
 
 **验收：** `uv run pytest -q tests/test_platform_agent_executor.py`；Guardian 不得直接写被测解题代码；assisted 动作使实验模式显式变化，无法混入 autonomous 指标。
 
@@ -204,13 +204,15 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 **文件：** 新增 `rsi/validation.py`、`tests/test_rsi_validation_levels.py`、`tests/test_rsi_release_isolation.py`；修改 `rsi/{models,native_build,native_evaluation,evaluation,regression,publication,runner}.py`、`static/rsi.js`、`docs/rsi.md`。
 
-- [ ] 将 BKCrab 特定构建转为 T07 recipe 调用，旧 profile 通过兼容适配器保留；不同 Agent 使用同一候选/验证模型。
-- [ ] 分开 upstream candidate worktree 与 eval 派生目录；PR diff 检查禁止不相关的 integration patch 混入。
-- [ ] 验证记录明确 build、targeted、benchmark-replay、holdout 各自结果、输入 SHA、recipe 与模型策略。
-- [ ] baseline/candidate 同测试和正负对照；编译失败/超时不能证明假设；必要时桥接旧源码+新 recipe。
-- [ ] 保持中文诊断主题、冻结原证据和双语 PR；验证不足的草稿明确局限，不自动声称提升或合并。
+- [x] 将 BKCrab 特定构建转为 T07 recipe 调用，旧 profile 通过兼容适配器保留；不同 Agent 使用同一候选/验证模型。
+- [x] 分开 upstream candidate worktree 与 eval 派生目录；PR diff 检查禁止不相关的 integration patch 混入。
+- [x] 验证记录明确 build、targeted、benchmark-replay、holdout 各自结果、输入 SHA、recipe 与模型策略。
+- [x] baseline/candidate 同测试和正负对照；编译失败/超时不能证明假设；必要时桥接旧源码+新 recipe。
+- [x] 保持中文诊断主题、冻结原证据和双语 PR；验证不足的草稿明确局限，不自动声称提升或合并。
 
 **验收：** `uv run pytest -q tests/test_rsi_validation_levels.py tests/test_rsi_release_isolation.py`；fixture 可复现一处 harness bug、验证修复、生成只含产品改动的双语 PR 草稿；测试有 targeted pass 但 replay fail 的拒绝提升结论路径。
+
+**验证与限制：** 见 [P3 验证记录](../../p3-validation.md)。实际 Docker 包含通用 recipe 父子构建、正负对照、Harbor 重放、holdout 退化拒绝以及平台 relay 预算耗尽。保留自定义可信命令兼容；完整第三方模型/网络覆盖不在此自动认证。
 
 ## P4：GitHub 驱动版本与闭环
 

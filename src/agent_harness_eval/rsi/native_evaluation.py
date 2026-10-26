@@ -11,15 +11,27 @@ from .executors import runtime
 from .models import Command, Profile
 
 
+def recipe_profile(profile):
+    from .recipe_build import verify_recipe
+
+    verify_recipe(profile.integration_recipe)
+    profile.build = Command(argv=["{python}", str(Path(__file__).with_name("recipe_build.py")),
+        "--recipe", str(profile.integration_recipe), "--workspace", "{workspace}", "--output", "{output}"], timeout_seconds=7200)
+    profile.artifacts = {"bundle": "release/agent.tar", "provenance": "release/provenance.json"}
+    return profile
+
+
 def configuration(store, record):
     """Read only: return effective profile, experiment and historical task hashes."""
     profile = Profile.model_validate(record["profile"])
     if profile.evaluation:
+        if profile.integration_recipe:
+            recipe_profile(profile)
         return profile, load(profile.evaluation, validate_agent_artifacts=False), {}
     if record["profile_id"] not in {"builtin-bkcrab", "builtin-dsh"}:
         raise ValueError("执行配置中未指定复评模板")
     case = store.get("cases", record["case"])
-    if case["agent"] != "bkcrab":
+    if case["agent"] != "bkcrab" and not profile.integration_recipe:
         raise ValueError("该目标 Agent 尚未配置源码构建方式，请使用自定义复评配置")
     evidence = store.path("cases", case["id"]) / "evidence"
     identity_path = evidence / "experiment.json"
@@ -34,7 +46,7 @@ def configuration(store, record):
     if len(exp.agents) != 1:
         raise ValueError("原测试配置中找不到案例 Agent")
     required = set(exp.agents[0].kwargs) & {"binary", "bundle", "provenance"}
-    if "bundle" in required:
+    if "bundle" in required and not profile.integration_recipe:
         raise ValueError("BKCrab 原测试包含不支持的 bundle 产物")
     # Select the case's recorded tasks, not every task in a larger source run.
     selected = set()
@@ -78,6 +90,9 @@ def configuration(store, record):
     guardian = exp.guardian.model_dump() if exp.guardian else {}
     guardian.update(mode="observe", command=[], version=None, pass_env=[], model=None)
     exp.guardian = GuardianConfig.model_validate(guardian)
+    if profile.integration_recipe:
+        profile.evaluation = store.path("candidates", record["id"]) / "evaluation-template.json"
+        return recipe_profile(profile), exp, hashes
     argv = profile.adapter.argv
     image = runtime(store.project).get("image") or (
         argv[argv.index("--image") + 1] if "--image" in argv else ""

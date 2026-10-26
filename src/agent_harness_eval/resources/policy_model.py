@@ -47,10 +47,12 @@ def handler(upstream, policy, digest, logs):
 
 
 def serve():
+    import os
     import policy_upstream as upstream
 
     logs = Path("/logs/agent")
-    record = json.loads(Path("/installed-agent/model-policy.json").read_text())
+    directory = Path(os.environ.get("HARNESS_POLICY_DIRECTORY", "/installed-agent"))
+    record = json.loads((directory / "model-policy.json").read_text())
     policy, digest = record["policy"], record["digest"]
     actual = hashlib.sha256(json.dumps(policy, sort_keys=True, ensure_ascii=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
     if actual != digest:
@@ -63,7 +65,7 @@ def serve():
     server.model_config = policy["model"]
     server.purpose = policy["role"]
     if policy["model"]["mode"] == "live":
-        key = Path("/installed-agent/live.key")
+        key = directory / "live.key"
         server.api_key = key.read_text().strip()
         key.unlink()
     server.serve_forever()

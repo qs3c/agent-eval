@@ -116,6 +116,12 @@ def request_message(model, messages, audit=None):
         == "https://api.deepseek.com"
     ):
         body["thinking"] = {"type": "disabled"}
+    if audit:
+        from ..platform_agents.model import prepare, guardian_profile
+
+        # Preserve the legacy driver's explicit thinking choice in its snapshot.
+        model = guardian_profile(model)
+        body = prepare(model, body, Path(audit).parent, "guardian")
     request = Request(
         upstream_url(model),
         json.dumps(body).encode(),

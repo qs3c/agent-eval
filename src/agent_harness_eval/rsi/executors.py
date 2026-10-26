@@ -1,6 +1,7 @@
 """Server-owned native executors; browser settings never contain commands or paths."""
 
 import os
+import json
 import re
 import subprocess
 import sys
@@ -187,7 +188,14 @@ def builtin_profile(root, executor, target):
     current, native = settings(root), runtime(root)
     if not current or executor not in native.get("executors", {}):
         raise ValueError("请先在页面保存执行 Agent 设置；服务器需安装原生运行环境")
-    model = ModelPool(root).resolve("executor_" + executor)
+    pool = ModelPool(root)
+    bindings = pool.public()["bindings"]
+    model = pool.resolve("improvement" if bindings.get("improvement") else "executor_" + executor)
+    diagnostic = pool.resolve("diagnosis") if bindings.get("diagnosis") else dict(model)
+    if not model.get("policy"):
+        model["policy"] = {"protocols": ["anthropic-messages"] if executor == "dsh" else ["openai-chat"]}
+    if not diagnostic.get("policy"):
+        diagnostic["policy"] = {"protocols": ["anthropic-messages"] if executor == "dsh" else ["openai-chat"]}
     repository = root.parent / TARGETS[target]
     if not (repository / ".git").exists():
         raise ValueError("服务器未找到该 Agent 的源码仓库")
@@ -234,6 +242,10 @@ def builtin_profile(root, executor, target):
                     str(model["max_tokens"]),
                     "--context-window",
                     str(model["context_window"]),
+                    "--model-policy-json",
+                    json.dumps(model, sort_keys=True),
+                    "--diagnosis-model-policy-json",
+                    json.dumps(diagnostic, sort_keys=True),
                 ],
                 "version": f"native-rsi/v2;{executor}={native['executors'][executor]};model={model['name']};pool={model['pool_id']}",
                 "timeout_seconds": current.timeout_seconds + 60,

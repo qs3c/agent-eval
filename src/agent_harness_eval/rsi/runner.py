@@ -92,6 +92,20 @@ async def create_candidate(store, case_id, profile_id, parent=None):
             and not item.get("truncated")
         ):
             provenance = read(evidence / item["file"], {})
+            release = provenance.get("release", {}) if isinstance(provenance, dict) else {}
+            if (release.get("source") or {}).get("commit"):
+                measured.append({"commit": release["source"]["commit"], "dirty": False, "evidence_ref": item["id"]})
+                if profile_id in {"builtin-bkcrab", "builtin-dsh"} and not profile.integration_recipe:
+                    from ..integrations.catalog import recipe_path
+                    from ..integrations.schema import load as load_recipe
+
+                    try:
+                        path = recipe_path(case["agent"])
+                        recipe = load_recipe(path)
+                    except ValueError:
+                        recipe = None
+                    if recipe and recipe.build.artifact_origin == "source" and recipe.digest == release.get("recipe_digest"):
+                        profile.integration_recipe = path
             if isinstance(provenance, dict) and provenance.get("commit"):
                 measured.append(
                     {
@@ -100,7 +114,7 @@ async def create_candidate(store, case_id, profile_id, parent=None):
                         "evidence_ref": item["id"],
                     }
                 )
-    return store.create(
+    record = store.create(
         "candidates",
         {
             "case": case_id,
@@ -120,6 +134,13 @@ async def create_candidate(store, case_id, profile_id, parent=None):
             "evaluations": [],
         },
     )
+    if profile.integration_recipe:
+        from .recipe_build import freeze_recipe
+
+        frozen = freeze_recipe(profile.integration_recipe, store.path("candidates", record["id"]) / "integration")
+        record["profile"]["integration_recipe"] = str(frozen)
+        store.save("candidates", record)
+    return record
 
 
 def phase(store, record, value):
@@ -152,16 +173,20 @@ async def improve(store, record):
         + DIAGNOSIS_LANGUAGE_INSTRUCTIONS,
     }
     write(root / "adapter-context.json", context)
-    from ..operations.resources import Request, async_reservation
+    from ..platform_agents.executor import execute
+    from ..platform_agents.protocol import PlatformAgentRequest
 
-    async with asyncio.timeout(profile.adapter.timeout_seconds), async_reservation(Request("platform-agent", 2, 4096)):
-        await checked(
+    async def driver(request, home):
+        return await checked(
             profile.adapter,
             workspace,
             root / "adapter-process.json",
             {"workspace": workspace, "evidence": evidence, "output": output},
             context,
         )
+    await execute(PlatformAgentRequest(role="improvement", workspace=workspace, output=output,
+        timeout_seconds=profile.adapter.timeout_seconds, cpus=2, memory_mb=4096,
+        tools=("read", "exec", "write", "check", "final"), evidence_refs=tuple(item["id"] for item in case["evidence"])), driver)
     verify_case(store, case)
     diagnosis = Diagnosis.model_validate(read(root / "diagnosis.json", {}))
     if diagnosis.limitations and not diagnosis.limitations_en.strip():
@@ -176,6 +201,10 @@ async def improve(store, record):
             "Adapter changed Git HEAD; platform must own the candidate commit"
         )
     await git(workspace, "add", "-A")
+    if profile.integration_recipe:
+        from .recipe_build import forbid_glue
+
+        forbid_glue(workspace, profile.integration_recipe, (await git(workspace, "diff", "--cached", "--name-only")).splitlines())
     await git(workspace, "diff", "--cached", "--check")
     patch = await git(workspace, "diff", "--cached", "--binary", "--full-index")
     if not patch:
@@ -353,6 +382,13 @@ def write_pr_body(store, record):
                 "Evidence references",
             )
         )
+        validation = record.get("validation")
+        if validation:
+            details.append("- " + ("分层验证" if zh else "Validation levels") + ": " + "; ".join(
+                name + "=" + row["status"] for name, row in validation["levels"].items()))
+            details.append("- " + ("配方 / 模型策略" if zh else "Recipe / model policy") + f": `{validation['recipe_digest']}` / `{validation['model_policy_digest']}`")
+            if not validation["promotable"]:
+                details.append("- " + ("未满足全部验证要求，不能宣称整体提升。" if zh else "Not all validation requirements passed; no overall improvement claim is supported."))
         sections.append(f"""## {language}
 
 {summary}

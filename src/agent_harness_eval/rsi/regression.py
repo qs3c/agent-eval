@@ -18,7 +18,7 @@ from .process import checked
 def enabled(record):
     return record.get("profile_id") in {"builtin-bkcrab", "builtin-dsh"} and not record[
         "profile"
-    ].get("evaluation")
+    ].get("evaluation") and not record["profile"].get("integration_recipe")
 
 
 def configuration(store, record):
@@ -232,13 +232,14 @@ async def evaluate(store, record, allow_live):
             "diagnosis": record.get("diagnosis", {}),
         }
         write(destination / "planner.json", profile.adapter.model_dump(mode="json"))
-        await checked(
-            profile.adapter,
-            workspace,
-            destination / "planner-process.json",
-            stdin=context,
-            lane="platform-agent",
-        )
+        from ..platform_agents.executor import execute
+        from ..platform_agents.protocol import PlatformAgentRequest
+
+        async def driver(request, home):
+            return await checked(profile.adapter, workspace, destination / "planner-process.json", stdin=context)
+        await execute(PlatformAgentRequest(role="diagnosis", workspace=workspace, output=destination,
+            timeout_seconds=profile.adapter.timeout_seconds, cpus=2, memory_mb=4096,
+            tools=("read", "exec", "final")), driver)
         verify_case(store, case)
         await assert_clean(workspace, record["commit"])
         plan = read(destination / "plan.json")

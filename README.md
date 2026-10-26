@@ -2,6 +2,15 @@
 
 重点测试、比较和研究 Agent Harness 层差异的独立评测仓库。调度、容器隔离和 verifier 复用 Harbor 0.24.0；Agent 保留原生执行循环。Agent 适配器与 benchmark 任务相互独立。
 
+## 架构与演进方向
+
+项目按**本地部署、单用户使用的 Agent Harness 实验工作台**演进。最新规划以 `328baf8` 源码为基线，整合标准 Agent 接入、内置基线与 benchmark、统一模型、公平比较、资源管理和 GitHub 驱动 RSI 闭环：
+
+- [完整架构设计：现状、保留/重构/新增、领域边界与版本策略](docs/superpowers/specs/2026-10-26-local-single-user-platform-design.md)
+- [分阶段实施方案：依赖、文件范围、迁移与验收标准](docs/superpowers/plans/2026-10-26-local-single-user-platform.md)
+
+以上是目标设计，不代表规划功能已经实现。下文及各专题文档描述现有使用流程；历史试跑的模型选择和费用授权仅适用于对应记录，不自动适用于新实验。
+
 ## 本机 Web 控制台
 
 ```bash

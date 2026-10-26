@@ -54,7 +54,8 @@ def check(release_directory, experiment_directory):
         wire = contained(path.parent / "agent/wire_requests.jsonl")
         native = [json.loads(line) for line in events.read_text().splitlines() if line.strip()] if events.is_file() else []
         types = {event.get("type") for event in native if isinstance(event, dict)}
-        traces.append({"model_request", "tool_call", "tool_result"} <= types)
+        traces.append({"tool_call", "tool_result"} <= types and (
+            "model_request" in types or wire.is_file() and bool(wire.read_text().strip())))
         calls.append(wire.is_file() and bool(wire.read_text().strip()))
         for file in (events, wire):
             if file.is_file():
@@ -63,11 +64,12 @@ def check(release_directory, experiment_directory):
         issues.append("任务与重复次数不匹配，不允许用重复题目补足记录数")
     runnable = not issues
     result = {"schema_version": 1, "release_id": release_id, "evidence": evidence,
+        "evidence_root": str(experiment_directory.resolve()),
         "levels": {
             "runnable": {"passed": runnable, "reasons": sorted(set(issues))},
             "comparable": {"passed": False, "reasons": ["尚缺完整模型角色和网络策略覆盖验证；已记录调用不代表没有旁路调用"]},
             "diagnosable": {"passed": runnable and bool(traces) and all(traces),
-                            "reasons": [] if runnable and traces and all(traces) else ["缺少 model_request/tool_call/tool_result 原生事件或运行证据"]}},
+                            "reasons": [] if runnable and traces and all(traces) else ["缺少模型请求、原生工具调用/结果或运行证据"]}},
         "observed_model_calls": bool(calls) and all(calls),
         "limitations": ["Runnable 仅证明本次任务和运行环境的协议执行；不保证任意 benchmark 可用",
                         "取消、超时和资源清理由平台契约控制，单次 smoke 不替代这些专项验收"]}

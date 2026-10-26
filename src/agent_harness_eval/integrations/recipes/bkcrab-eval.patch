@@ -1,0 +1,31 @@
+diff --git a/.harness-eval/build.sh b/.harness-eval/build.sh
+new file mode 100644
+--- /dev/null
++++ b/.harness-eval/build.sh
+@@ -0,0 +1,9 @@
++set -eu
++mkdir -p .harness-eval-dist .harness-build-cache/tmp
++export GOCACHE=/source/.harness-build-cache/go-build
++export GOMODCACHE=/source/.harness-build-cache/mod
++export GOTMPDIR=/source/.harness-build-cache/tmp
++export CGO_ENABLED=0
++export GOPROXY=https://goproxy.cn
++go build -mod=readonly -trimpath -o .harness-eval-dist/bkcrab-eval ./cmd/bkcrab-eval
++cp .harness-eval/entry.py .harness-eval-dist/entry.py
+diff --git a/.harness-eval/entry.py b/.harness-eval/entry.py
+new file mode 100644
+--- /dev/null
++++ b/.harness-eval/entry.py
+@@ -0,0 +1,12 @@
++import json, os, subprocess, sys, time
++from pathlib import Path
++r = json.loads(Path(sys.argv[1]).read_text())
++m = r['model']
++home = Path(os.environ['HOME'])
++home.mkdir(parents=True,exist_ok=True)
++prompt = home/'prompt.txt'
++prompt.write_text(r['instruction'])
++argv = [str(Path(__file__).with_name('bkcrab-eval')), '--workspace', r['workspace'], '--home', str(home/'bkcrab'), '--output', r['output_dir'], '--prompt-file', str(prompt), '--model', m['id'], '--api-base', m['api_base'], '--max-tokens', str(m['max_tokens']), '--context-window', str(m['context_window']), '--timeout', str(max(1,int(r['deadline_unix']-time.time())))+'s']
++result = subprocess.run(argv,cwd=r['workspace'])
++Path(r['output_dir'],'agent-result.json').write_text(json.dumps({'schema_version':1,'status':'completed' if result.returncode==0 else 'failed','native_exit_code':result.returncode}))
++sys.exit(result.returncode)

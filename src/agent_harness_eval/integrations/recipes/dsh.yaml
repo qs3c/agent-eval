@@ -1,0 +1,26 @@
+schema_version: 1
+id: dsh
+source:
+  repository: https://github.com/deepseek-ai/deepseek-harness.git
+  ref: dsh-v0.2.1-alpha.2
+  commit: d743267388641bc76f17c45ce8b4c231aed1d32c
+profile: standard-published-package
+materialize_internal_links: true
+patches: [dsh-eval.patch]
+build:
+  artifact_origin: registry-package
+  image: node@sha256:ea11b74b986d520137cdef9a5346e447a00f275ecc4abc0055b7151226231e09
+  argv: [node, .harness-eval/build.mjs]
+  output: .harness-eval-dist
+  network: bridge
+  timeout_seconds: 1800
+entrypoint:
+  argv: ['{agent_dir}/node', '{agent_dir}/entry.mjs', '{request_file}']
+model_key_env: [DEEPSEEK_API_KEY]
+model_modes: [mock, live]
+model_protocol: anthropic-messages
+capabilities: [filesystem, shell]
+limitations:
+  - 使用锁定 npm 发布包，保留现有 0.2.1-alpha.2 Standard 基线；源码 tag 仅作版本关联，两者 preset 提示存在差异，不声称发布包由该源码精确编译。
+  - 此 profile 不支持 RSI 产品源码候选验证；源码候选必须使用 source 构建配方。
+  - 保留 Standard 原生循环、工具、压缩和子 Agent；容器中不启动浏览器 UI，关闭 office extras。

@@ -1,6 +1,6 @@
 # P2 实施与验证记录
 
-日期：2026-10-26。T07 标准配方/Release 与 T09 benchmark 生命周期已经实现；T08 内置四种 Agent、T10 模型策略、T11 完整产品流程仍在实施，不能将 P2 标记为整体完成。
+日期：2026-10-26。T07 标准配方/Release、T08 四种内置 Agent 与 T09 benchmark 生命周期已经实现；T10 模型策略、T11 完整产品流程仍在实施，不能将 P2 标记为整体完成。
 
 ## T07 标准接入
 
@@ -12,7 +12,7 @@
 
 测试发现并修复了启动附近取消时 Harbor 网络侧车遗留的问题。原生执行现在在尝试结束和 Job finally 中按精确项目回收，并在确认后释放预留；Manager 为原生清理保留最多 120 秒等待。首次失败记录 `t07c-tests.log` 保留；核对对应测试 Worker 已退出后，仅清理该次测试的容器与网络并释放其预留，记录 `t07-cancel-reconciliation.log`。修复专项回归 **13 passed，106.61 秒**（`t07d-tests.log`）。
 
-Conformance 独立保存证据 hash，Runnable 不等于 Comparable。缺模型角色/网络完整覆盖时 Comparable 明确不通过，后续由 T10 接线；Diagnosable 要求原生模型请求、工具调用及工具结果。fixture 不因能解 controls 就被认定为真实模型能力提升。
+Conformance 独立保存证据 hash，Runnable 不等于 Comparable。缺模型角色/网络完整覆盖时 Comparable 明确不通过，后续由 T10 接线；Diagnosable 要求模型请求（原生 hook 或中继）以及原生工具调用和结果。fixture 不因能解 controls 就被认定为真实模型能力提升。
 
 ## T09 Benchmark 生命周期
 
@@ -37,4 +37,20 @@ Conformance 独立保存证据 hash，Runnable 不等于 Comparable。缺模型�
 
 依据：[OpenCode 固定源码](https://github.com/anomalyco/opencode/tree/ed74ec82ce1fe3a36da6c0815a935473ef4bb0fb)、[Hermes 依赖与 Python 约束](https://github.com/NousResearch/hermes-agent/blob/9b904dcc22c23fe8b82834339bbdd96495072e59/pyproject.toml)、[DSH 固定源码](https://github.com/deepseek-ai/deepseek-harness/tree/22ddee3792402c3e70ec5f86a63c3e3e895a2f60)。这些是来源核对，不是四种内置 Agent 已通过接入验收的证明。
 
-收尾检查：来源根目录约束、嵌套 Git 仓库内 patch 隔离、同输入不同产物、离线镜像 config digest 校验及 conformance 重复题目拒绝已覆盖。真实 CLI/Python 构建与取消复验 **6 passed，106.05 秒**（`t07-final-tests.log`）；最后配方/构建/证据定向 **9 passed，0.28 秒**（`t07-closure-tests.log`）。这些是后续修正的定向验证，不改写前述全量快照数量。
+收尾检查：来源根目录约束、嵌套 Git 仓库内 patch 隔离、同输入不同产物、离线镜像 Docker 身份校验及 conformance 重复题目拒绝已覆盖。真实 CLI/Python 构建与取消复验 **6 passed，106.05 秒**（`t07-final-tests.log`）；最后配方/构建/证据定向 **9 passed，0.28 秒**（`t07-closure-tests.log`）。这些是后续修正的定向验证，不改写前述全量快照数量。
+
+## T08 执行记录
+
+Hermes 固定源码构建成功，依赖由 `uv.lock` 导出并逐项 hash 校验，产物携带 Python 3.14。首次构建发现 `/tmp` 禁止执行，将构建工具留在独立构建副本中；首次运行发现配方的 `PYTHONHOME` 污染平台模型中继，修复为仅对子 Agent 命令应用配方环境。两次失败原始日志均保留，未改写成成功记录。
+
+OpenCode 固定源码以 Bun 1.4.4 和冻结 lock 构建 CLI 2.1.4，关闭浏览器 UI 打包，保留原生 standalone loop。Hermes/OpenCode 均完成两个文件 controls，零错误、各两个评分 1.0。固定 mock 响应驱动真实原生工具，不调用付费模型，因此这些仅是协议/执行证据。
+
+Hermes/OpenCode 共用真实验收 `tests/test_builtin_docker.py`：各自再运行两个 controls、验证来源/标准响应/模型请求/原生工具证据，再等待实际容器建立后取消 20 次尝试的实验；终态 cancelled，自有容器为零，资源预留全部释放。**2 passed，156.50 秒**（`t08-hermes-opencode-acceptance.log`）。对应 Runnable 与 Diagnosable 通过，Comparable 仍不通过。定向配方/环境/事件/Release/证据测试 **13 passed，0.44 秒**（`t08-contracts2.log`）。
+
+BKCrab 当前源码已包含 eval 入口；新的配方仅添加构建/协议包装，不重复叠加旧 eval patch。默认 Go 代理在验证服务器不可达，构建经 Manager 取消后改用配方中显式记录的 `https://goproxy.cn`，依赖版本及 `go.sum` 校验保持不变。随后发现编译临时输出超过 `/tmp` 限额，将 `GOTMPDIR` 放入受控构建副本后构建通过。实际运行/证据/取消验收 **1 passed，58.21 秒**（`t08-bkcrab-acceptance.log`）。
+
+DSH 保留现有 npm `0.2.1-alpha.2` 基线，并查到对应官方 tag 的真实 commit `d743267388641bc76f17c45ce8b4c231aed1d32c`。实际发现 tag 与包的 preset 提示不同；两份 hash 与不一致结果保留于审计，不覆盖发布包提示。配方明确 `registry-package` 来源，不把 npm 发布包伪装成本次源码编译。打包时将包内 CLI 链接物化为普通文件，拒绝逃逸链接。实际运行/模型协议/取消验收 **1 passed，86.08 秒**（`t08-dsh-acceptance.log`）。DSH 保留原生 session events 与请求上下文，但当前严格工具事件判定不授予 Diagnosable；不能把已有原始轨迹等同于完整规范事件覆盖。
+
+迁移前后行为对照：使用已有 DSH Native bundle，以及同一新 BKCrab 二进制的旧 Native 入口，与各自 Recipe 入口组成四 Agent、两 controls 的同模型 fixture 实验。**8/8 结果通过、零错误**（`t08-legacy-comparison.log`；原始实验 `artifacts/t08-legacy-comparison`）。这证明控制任务与入口迁移行为一致，不证明所有任务或真实模型性能等价。
+
+T08 最终定向回归 **19 passed，0.59 秒**（`t08-final-contracts.log`）；完整离线及既有 Docker 开关回归 **464 passed、7 skipped，329.50 秒**（`t08-full-tests.log`）。其中四个内置 Docker 案例默认跳过，已在上述独立指定 Release 的真实验收中分别通过，不能把默认跳过误算为验收通过。四基线均独立完成真实构建、协议运行与取消回收；Comparable 完整覆盖仍待 T10，P2 整体未完成。

@@ -24,7 +24,7 @@ def fixture(body):
     args = {}
     if not done:
         name = next(
-            (n for n in ("write_file", "write", "bash", "exec") if n in tools), None
+            (n for n in ("write_file", "write", "bash", "exec", "terminal") if n in tools), None
         )
         if name is None:
             raise ValueError("fixture requires a supported write or shell tool")

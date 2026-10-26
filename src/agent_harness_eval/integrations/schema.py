@@ -24,6 +24,7 @@ def expand(argv, values):
 
 
 class Build(Frozen):
+    artifact_origin: Literal["source", "registry-package"] = Field(default="source", exclude_if=lambda value: value == "source")
     image: str = Field(pattern=r"^(?:.+@)?sha256:[0-9a-f]{64}$")
     image_id: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$", exclude_if=lambda value: value is None)
     argv: tuple[str, ...] = Field(min_length=1)

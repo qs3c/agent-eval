@@ -1,0 +1,24 @@
+schema_version: 1
+id: opencode
+source:
+  repository: https://github.com/anomalyco/opencode.git
+  ref: dev
+  commit: ed74ec82ce1fe3a36da6c0815a935473ef4bb0fb
+profile: cli-standalone
+materialize_internal_links: true
+patches: [opencode-eval.patch]
+build:
+  image: oven/bun@sha256:3f23864d3e8c923975c61971cabe67ee3d5a728f1e25a559256b95af719a3478
+  argv: [bun, .harness-eval/build.js]
+  output: .harness-eval-dist
+  network: bridge
+  timeout_seconds: 1800
+entrypoint:
+  argv: ['{agent_dir}/bun', '{agent_dir}/entry.js', '{request_file}']
+model_key_env: [EVAL_MODEL_API_KEY]
+model_modes: [mock, live]
+model_protocol: openai-chat
+capabilities: [filesystem, shell]
+limitations:
+  - 此配方使用固定源码的原生 CLI；构建、协议和模型覆盖状态以实际检查记录为准。
+  - 不提供浏览器界面资源；保留 CLI 原生 harness 循环。

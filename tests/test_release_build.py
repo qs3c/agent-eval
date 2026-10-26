@@ -120,7 +120,7 @@ def test_explicit_internal_source_links_materialize_without_host_links(tmp_path)
     assert not (tmp_path / "docs/a.txt").is_symlink()
 
 
-def test_offline_image_fallback_requires_the_exact_pinned_config_digest(monkeypatch):
+def test_offline_image_fallback_requires_the_exact_pinned_image_identity(monkeypatch):
     from types import SimpleNamespace
     from agent_harness_eval.integrations.builder import resolve_image
 
@@ -133,3 +133,15 @@ def test_offline_image_fallback_requires_the_exact_pinned_config_digest(monkeypa
     monkeypatch.setattr(subprocess, "run", lambda *a, **kw: SimpleNamespace(returncode=0, stdout="sha256:" + "c" * 64))
     with pytest.raises(ValueError, match="digest mismatch"):
         resolve_image(spec)
+
+
+def test_release_records_executed_runtime_identity(tmp_path):
+    source = repository(tmp_path)
+    recipe = Recipe.model_validate(fixture_recipe())
+    runtime = {"requested": recipe.build.image, "executed": recipe.build.image, "image_id": "sha256:" + "c" * 64}
+    def executor(*args):
+        fake_build(*args)
+        return runtime
+    receipt = build(recipe, source, tmp_path / "built", recipe_directory=tmp_path, executor=executor)
+    assert receipt["release"]["runtime_digest"] == runtime["image_id"]
+    assert receipt["build_runtime"] == runtime

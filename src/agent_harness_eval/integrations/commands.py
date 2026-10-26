@@ -71,9 +71,10 @@ def perform(root, job_id):
 
 def register(sub):
     p = sub.add_parser("integration", help="标准 Agent 配方检查、隔离构建与版本目录")
-    p.add_argument("action", choices=["validate", "build", "list", "agent", "check"])
+    p.add_argument("action", choices=["validate", "build", "list", "agent", "check", "builtins", "disable", "enable"])
     p.add_argument("--root", type=Path, default=Path.cwd())
     p.add_argument("--recipe", type=Path)
+    p.add_argument("--builtin", help="内置 Agent 配方 ID；构建时仍明确指定干净的源码 checkout")
     p.add_argument("--source", type=Path)
     p.add_argument("--release")
     p.add_argument("--run", type=Path)
@@ -89,6 +90,16 @@ def dispatch(args):
 
     if args.command == "integration-work":
         return perform(args.root, args.job)
+    from .catalog import disable, list_builtins, recipe_path
+
+    if args.builtin:
+        if args.recipe:
+            raise ValueError("Choose --builtin or --recipe")
+        args.recipe = recipe_path(args.builtin)
+    if args.action == "builtins":
+        return list_builtins(args.root)
+    if args.action in {"disable", "enable"}:
+        return disable(args.root, args.release or "", disabled=args.action == "disable")
     if args.action == "validate":
         if not args.recipe:
             raise ValueError("--recipe is required")

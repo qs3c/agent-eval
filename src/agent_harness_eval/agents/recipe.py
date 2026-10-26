@@ -51,19 +51,25 @@ class Recipe(Native):
         request = {"schema_version": 1, "instruction": instruction, "workspace": work,
                    "output_dir": values["output_dir"], "deadline_unix": time.time() + self.timeout_seconds,
                    "model": {"mode": self.model_config["mode"], "id": values["model_id"], "api_base": values["api_base"],
-                             "api_key_env": list(self.recipe.model_key_env), "max_tokens": self.model_config["max_tokens"]}}
+                             "api_key_env": list(self.recipe.model_key_env), "max_tokens": self.model_config["max_tokens"],
+                             "context_window": self.model_config["context_window"]}}
         path = self.logs_dir / "request.json"
         path.write_text(json.dumps(request))
         await environment.upload_file(path, values["request_file"])
         argv = expand(self.recipe.entrypoint.argv, values) if self.recipe.entrypoint.argv else [
             "python3", "/installed-agent/recipe_entry.py", self.recipe.entrypoint.python, values["request_file"]]
-        command = "mkdir -p /tmp/recipe-agent-home && " + shlex.join(argv) + " >/logs/agent/stdout.log 2>/logs/agent/stderr.log"
-        if self.model_config["mode"] != "offline":
-            command = self.wrap_model(command)
         env = {key: expand([value], values)[0] for key, value in self.recipe.environment.items()}
         env.update({key: "relay-only" for key in self.recipe.model_key_env})
-        env.update(HOME=values["home"], PYTHONPATH=values["agent_dir"])
-        result = await self.exec_as_agent(environment, command, env=env, cwd=work)
+        env["HOME"] = values["home"]
+        env.setdefault("PYTHONPATH", values["agent_dir"])
+        # A bundled interpreter's PYTHONHOME/LD_LIBRARY_PATH must not contaminate
+        # the platform relay or its readiness probe, which use the task runtime.
+        command = "mkdir -p /tmp/recipe-agent-home && " + shlex.join(
+            ["env", *[f"{key}={value}" for key, value in env.items()], *argv]
+        ) + " >/logs/agent/stdout.log 2>/logs/agent/stderr.log"
+        if self.model_config["mode"] != "offline":
+            command = self.wrap_model(command)
+        result = await self.exec_as_agent(environment, command, cwd=work)
         if result.return_code != 0:
             raise RuntimeError("Recipe agent exited with code " + str(result.return_code))
         for source, target in ((self.recipe.trace, "events.jsonl"), (self.recipe.usage, "declared-usage.json")):
@@ -73,6 +79,9 @@ class Recipe(Native):
                     raise ValueError("Declared evidence output is missing: " + source)
 
     def populate_context_post_run(self, context):
+        from ..integrations.evidence import normalize
+
+        normalize(self.logs_dir, self.recipe)
         super().populate_context_post_run(context)
         path = self.logs_dir / "agent-result.json"
         if not path.is_file():

@@ -1,0 +1,40 @@
+diff --git a/.harness-eval/build.js b/.harness-eval/build.js
+new file mode 100644
+--- /dev/null
++++ b/.harness-eval/build.js
+@@ -0,0 +1,15 @@
++import { mkdir, copyFile, chmod } from 'node:fs/promises';
++import path from 'node:path';
++const root = process.cwd();
++const out = path.join(root, '.harness-eval-dist');
++await mkdir(out);
++const env = {...process.env, BUN_INSTALL_CACHE_DIR: path.join(root,'.harness-build-cache'), OPENCODE_CHANNEL:'harness-eval', OPENCODE_VERSION:'2.1.4'};
++for (const cmd of [['bun','install','--frozen-lockfile'], ['bun','run','packages/cli/script/build.ts','--target=opencode-linux-x64','--skip-install','--skip-web-ui']]) {
++  const result = Bun.spawnSync(cmd, {cwd:root,env,stdout:'inherit',stderr:'inherit'});
++  if(result.exitCode) process.exit(result.exitCode);
++}
++await copyFile('packages/cli/dist/cli-linux-x64/bin/opencode',path.join(out,'opencode'));
++await chmod(path.join(out,'opencode'),0o755);
++await copyFile(process.execPath,path.join(out,'bun'));
++await chmod(path.join(out,'bun'),0o755);
++await copyFile('.harness-eval/entry.js',path.join(out,'entry.js'));
+diff --git a/.harness-eval/entry.js b/.harness-eval/entry.js
+new file mode 100644
+--- /dev/null
++++ b/.harness-eval/entry.js
+@@ -0,0 +1,15 @@
++import {readFile,writeFile,mkdir} from 'node:fs/promises';
++import path from 'node:path';
++const request = JSON.parse(await readFile(process.argv[2],'utf8'));
++const model = request.model;
++const home = process.env.HOME;
++await mkdir(path.join(home,'config'),{recursive:true});
++const config = {providers:{eval:{name:'Evaluation relay',env:['EVAL_MODEL_API_KEY'],package:'@opencode/ai/providers/openai-compatible',settings:{baseURL:model.api_base},models:{[model.id]:{name:model.id}}}},model:'eval/'+model.id,small_model:'eval/'+model.id,enabled_providers:['eval']};
++const file = path.join(home,'config','opencode.json');
++await writeFile(file,JSON.stringify(config));
++await writeFile(path.join(request.output_dir,'effective-config.json'),JSON.stringify(config,null,2));
++const env = {...process.env,OPENCODE_CONFIG:file,OPENCODE_CONFIG_DIR:path.join(home,'config'),OPENCODE_DISABLE_PROJECT_CONFIG:'1'};
++const proc = Bun.spawn([path.join(import.meta.dir,'opencode'),'run','--standalone','--model','eval/'+model.id,'--format','json','--auto',request.instruction],{cwd:request.workspace,env,stdout:Bun.file(path.join(request.output_dir,'opencode-stream.jsonl')),stderr:'inherit'});
++const code = await proc.exited;
++await writeFile(path.join(request.output_dir,'agent-result.json'),JSON.stringify({schema_version:1,status:code===0?'completed':'failed',native_exit_code:code}));
++process.exit(code);

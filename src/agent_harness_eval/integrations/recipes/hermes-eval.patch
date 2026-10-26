@@ -1,0 +1,48 @@
+diff --git a/.harness-eval/build.py b/.harness-eval/build.py
+new file mode 100644
+--- /dev/null
++++ b/.harness-eval/build.py
+@@ -0,0 +1,17 @@
++import os, shutil, subprocess, sys
++from pathlib import Path
++
++root = Path.cwd()
++out = root / ".harness-eval-dist"
++out.mkdir()
++requirements = Path("/tmp/uv-requirements.txt")
++requirements.write_text("uv @ https://files.pythonhosted.org/packages/c3/75/1901383808ba0d421f32060ba0e9884169b685a722e1af5d87fdd4225ba6/uv-0.13.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl --hash=sha256:52c7da0fd9056d9551124777ec77de53f0df7017daf8f98a19e947b7837416ed\n")
++subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--no-deps", "--require-hashes", "--target", "/source/.harness-build-tools", "-r", str(requirements)], check=True)
++env = {**os.environ, "PYTHONPATH": "/source/.harness-build-tools", "UV_CACHE_DIR": "/tmp/uv-cache", "UV_PYTHON_DOWNLOADS": "never"}
++subprocess.run([sys.executable, "-m", "uv", "export", "--locked", "--no-dev", "--no-emit-project", "--format", "requirements-txt", "--output-file", "/tmp/hermes-requirements.txt"], env=env, check=True)
++shutil.copytree("/usr/local", out / "python", symlinks=False, ignore=shutil.ignore_patterns("__pycache__"))
++site = out / "python/lib/python3.14/site-packages"
++subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--no-deps", "--no-compile", "--require-hashes", "--upgrade", "--target", str(site), "-r", "/tmp/hermes-requirements.txt"], check=True)
++shutil.copytree(root, out / "source", symlinks=False, ignore=shutil.ignore_patterns(".harness-eval-dist", ".harness-build-tools", ".git", "__pycache__", ".venv"))
++shutil.copy2(root / ".harness-eval/entry.py", out / "entry.py")
++shutil.copy2("/tmp/hermes-requirements.txt", out / "requirements.lock.txt")
+diff --git a/.harness-eval/entry.py b/.harness-eval/entry.py
+new file mode 100644
+--- /dev/null
++++ b/.harness-eval/entry.py
+@@ -0,0 +1,21 @@
++import json, os, subprocess, sys
++from pathlib import Path
++
++request = json.loads(Path(sys.argv[1]).read_text())
++home = Path(os.environ["HERMES_HOME"])
++home.mkdir(parents=True, exist_ok=True)
++model = request["model"]
++route = {"provider": "main", "model": model["id"], "base_url": model["api_base"], "api_key": "relay-only"}
++config = {"model": {"default": model["id"], "provider": "custom", "base_url": model["api_base"], "api_key": "relay-only", "context_length": model["context_window"]},
++          "terminal": {"backend": "local", "cwd": request["workspace"], "home_mode": "profile"},
++          "auxiliary": {role: dict(route) for role in ("compression", "vision", "title_generation", "approval", "background_review", "curator")}}
++(home / "config.yaml").write_text(json.dumps(config))
++output = Path(request["output_dir"])
++(output / "effective-config.json").write_text(json.dumps(config, indent=2))
++prompt = home / "eval-prompt.txt"
++prompt.write_text(request["instruction"])
++argv = [sys.executable, "-m", "hermes_cli.main", "chat", "--oneshot", "--query-file", str(prompt), "--provider", "custom", "--base-url", model["api_base"], "--api-key", "relay-only", "--model", model["id"], "--format", "stream-json", "--yolo"]
++with (output / "hermes-stream.jsonl").open("w") as stream:
++    result = subprocess.run(argv, cwd=request["workspace"], stdout=stream)
++(output / "agent-result.json").write_text(json.dumps({"schema_version": 1, "status": "completed" if result.returncode == 0 else "failed", "native_exit_code": result.returncode}))
++sys.exit(result.returncode)

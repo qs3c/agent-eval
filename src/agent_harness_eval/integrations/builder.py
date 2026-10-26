@@ -86,10 +86,10 @@ def resolve_image(spec):
     if spec.image_id:
         inspected = subprocess.run(["docker", "image", "inspect", "--format", "{{.Id}}", image], capture_output=True, text=True, timeout=20)
         if inspected.returncode:
-            image = spec.image_id  # Offline docker-load preserves image IDs, not always RepoDigests.
+            image = spec.image_id  # Offline imports may lack the original RepoDigests.
             inspected = subprocess.run(["docker", "image", "inspect", "--format", "{{.Id}}", image], capture_output=True, text=True, timeout=20)
         if inspected.returncode or inspected.stdout.strip() != spec.image_id:
-            raise ValueError("Build image config digest mismatch or missing pinned image")
+            raise ValueError("Build image digest mismatch or missing pinned image")
     return image
 
 
@@ -99,6 +99,9 @@ def docker_build(recipe, directory, log):
 
     spec = recipe.build
     image = resolve_image(spec)
+    actual_id = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", image], text=True, timeout=20).strip()
+    runtime = {"requested": spec.image, "executed": image, "image_id": actual_id}
+    write_json(Path(log).parent / "build-runtime.json", runtime)
     name = "harness-build-" + uuid4().hex
     argv = ["docker", "run", "--name", name, "--pull", "never", "--network", spec.network,
             "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
@@ -133,6 +136,7 @@ def docker_build(recipe, directory, log):
     except BaseException:
         # An unconfirmed cleanup intentionally leaves capacity for reconciliation.
         raise
+    return runtime
 
 
 def build(recipe: Recipe, source, output, *, recipe_directory, executor=docker_build):
@@ -180,7 +184,7 @@ def build(recipe: Recipe, source, output, *, recipe_directory, executor=docker_b
             path.write_bytes(data)
             subprocess.run(["git", "apply", "--check", str(path)], cwd=evaluation, check=True, capture_output=True, timeout=60, env=patch_environment)
             subprocess.run(["git", "apply", str(path)], cwd=evaluation, check=True, capture_output=True, timeout=60, env=patch_environment)
-        executor(recipe, evaluation, output / "build.log")
+        runtime = executor(recipe, evaluation, output / "build.log")
         artifacts = evaluation / recipe.build.output
         if not artifacts.is_dir() or artifacts.is_symlink() or not artifacts.resolve().is_relative_to(evaluation):
             raise ValueError("Builder did not produce the declared artifact directory")
@@ -190,9 +194,10 @@ def build(recipe: Recipe, source, output, *, recipe_directory, executor=docker_b
             source=SourceRevision(repository=recipe.source.repository, ref=recipe.source.ref, commit=commit),
             recipe_digest=recipe.digest, patch_digest=identity([{ "path": name, "sha256": digest(output / f"patch-{i}.diff")}
                 for i, (name, _) in enumerate(patches)]), artifact_digests={"bundle": digest(bundle)},
-            runtime_digest=recipe.build.image, profile=recipe.profile, provenance="recorded")
+            runtime_digest=runtime["image_id"] if runtime else recipe.build.image, profile=recipe.profile, provenance="recorded")
         receipt = {"release_id": identity(release), "release": release.model_dump(mode="json"),
-                   "recipe": recipe.model_dump(mode="json"), "bundle_sha256": digest(bundle), "source_archive_sha256": digest(output / "source.tar")}
+                   "recipe": recipe.model_dump(mode="json"), "bundle_sha256": digest(bundle), "source_archive_sha256": digest(output / "source.tar"),
+                   "build_runtime": runtime}
         write_json(output / "provenance.json", receipt)
         write_json(output / "status.json", {"state": "built", "release_id": receipt["release_id"]})
         return receipt

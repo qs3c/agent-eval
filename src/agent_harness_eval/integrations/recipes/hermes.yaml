@@ -1,0 +1,30 @@
+schema_version: 1
+id: hermes
+source:
+  repository: https://github.com/NousResearch/hermes-agent.git
+  ref: main
+  commit: 9b904dcc22c23fe8b82834339bbdd96495072e59
+profile: cli-local-one-shot
+patches: [hermes-eval.patch]
+build:
+  image: python@sha256:7dff173021016c8829ae58d5ce112ffc388073ebe67f351aeb6ba2909e35f847
+  argv: [python3, .harness-eval/build.py]
+  output: .harness-eval-dist
+  network: bridge
+  timeout_seconds: 1800
+entrypoint:
+  argv: ["{agent_dir}/python/bin/python3.14", "{agent_dir}/entry.py", "{request_file}"]
+environment:
+  PYTHONHOME: "{agent_dir}/python"
+  PYTHONPATH: "{agent_dir}/source:{agent_dir}/python/lib/python3.14/site-packages"
+  LD_LIBRARY_PATH: "{agent_dir}/python/lib"
+  HERMES_HOME: "{home}/hermes"
+  OPENAI_BASE_URL: "{api_base}"
+  HERMES_INFERENCE_MODEL: "{model_id}"
+model_key_env: [OPENAI_API_KEY]
+model_modes: [mock, live]
+model_protocol: openai-chat
+limitations:
+  - Linux amd64；运行时随产物携带 Python 3.14，依赖由固定源码的 uv.lock 导出。
+  - 使用原生 chat oneshot 和容器内 local terminal；允许工具执行而不等待人工确认。
+  - 本配方尚在验收；完整子模型与回退覆盖通过前不授予 Comparable。

@@ -70,6 +70,6 @@ CLI Agent 使用 `entrypoint.argv` 替代 `entrypoint.python`，例如 `[python3
 
 - Runnable：至少两次独立尝试均有完整结果、来源和协议响应。
 - Comparable：还需要完整模型角色、参数和网络覆盖证明；仅观察到部分中继调用不会授予该级别。T10 完成前保持不通过并说明原因。
-- Diagnosable：在 Runnable 之外检查原生模型请求、工具调用及工具结果事件；缺失时保持不通过。
+- Diagnosable：在 Runnable 之外检查模型请求（原生 hook 或中继记录）、原生工具调用及工具结果；缺失时保持不通过。派生事件应指向原始输出，不冒充原生 provider hook。
 
 该检查只对所验证的配方、Release、任务与环境负责，不表示任意 benchmark 通用。取消、超时、资源回收需通过专项集成验收。新 Release 不自动替换已经冻结的实验；源码跟踪与 RSI 准入指针由后续流程维护。

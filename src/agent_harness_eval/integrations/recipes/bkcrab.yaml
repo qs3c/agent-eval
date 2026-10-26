@@ -1,0 +1,23 @@
+schema_version: 1
+id: bkcrab
+source:
+  repository: https://github.com/qs3c/bkcrab.git
+  ref: main
+  commit: 06cd21b8b1589036da00c78d5f8b447b63d0930a
+profile: native-eval
+patches: [bkcrab-eval.patch]
+build:
+  image: golang@sha256:56961d79ea8129efddcc0b8643fd8a5416b4e6228cfd477e3fd61deb2672c587
+  argv: [sh, .harness-eval/build.sh]
+  output: .harness-eval-dist
+  network: bridge
+  timeout_seconds: 1800
+entrypoint:
+  argv: [python3, '{agent_dir}/entry.py', '{request_file}']
+model_key_env: [EVAL_MODEL_API_KEY]
+model_modes: [mock, live]
+model_protocol: openai-chat
+capabilities: [filesystem, shell]
+limitations:
+  - 固定源码已包含 cmd/bkcrab-eval；保留该入口和生产 Agent 循环，不重复应用旧版本 eval patch。
+  - 当前配方关闭外部搜索；完整模型与网络策略覆盖以检查记录为准。

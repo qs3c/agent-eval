@@ -125,7 +125,7 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 ## P2：标准接入与可比较实验
 
-**状态：T07、T09 已交付，T08/T10/T11 进行中。** 验证与限制见 [P2 记录](../../p2-validation.md)。Comparable 的完整模型/网络覆盖仍由 T10 验收，配方声明不自动授予认证。
+**状态：T07、T08、T09 已交付，T10/T11 进行中。** 验证与限制见 [P2 记录](../../p2-validation.md)。Comparable 的完整模型/网络覆盖仍由 T10 验收，配方声明不自动授予认证。
 
 ### T07 — Recipe、Release 与 conformance（R02、R08）
 
@@ -143,10 +143,10 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 **文件：** 新增 `integrations/recipes/{dsh,bkcrab,opencode,hermes}.yaml`、`tests/test_builtin_recipes.py`、`docs/builtin-agents.md`；修改 `agents/{dsh,bkcrab}.py`、`dsh_bundle.py`、`scripts/prepare-native.sh`，按需要新增专用构建脚本。
 
-- [ ] 先迁移 DSH/BKCrab，保留 native loop、DSH Standard 的真实 preset 和 BKCrab eval patch；做迁移前后控制任务行为对照。
-- [ ] 实施时查阅各上游官方仓库，锁定当时可验证的版本/依赖/许可证与实际入口；本计划不猜测 OpenCode/Hermes 的启动参数。
-- [ ] 分别接入 OpenCode/Hermes，记录 profile 差异和子模型覆盖情况；未通过的条目显示 unavailable 与原因。
-- [ ] 每种 Agent 单独完成 mock/隔离/取消/证据/模型协议检查，独立安装和卸载不破坏其他条目。
+- [x] 先迁移 DSH/BKCrab，保留 native loop、DSH Standard 的真实 preset 和 BKCrab eval patch；做迁移前后控制任务行为对照。
+- [x] 实施时查阅各上游官方仓库，锁定当时可验证的版本/依赖/许可证与实际入口；本计划不猜测 OpenCode/Hermes 的启动参数。
+- [x] 分别接入 OpenCode/Hermes，记录 profile 差异和子模型覆盖情况；未通过的条目显示 unavailable 与原因。
+- [x] 每种 Agent 单独完成 mock/隔离/取消/证据/模型协议检查，独立安装和卸载不破坏其他条目。
 
 **验收：** `uv run pytest -q tests/test_builtin_recipes.py`；四种各有真实运行证据与兼容矩阵。某一种失败不阻止其他已验收 Agent 发布，但不得把 P2 四基线目标标成全部完成。
 

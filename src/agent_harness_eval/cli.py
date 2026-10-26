@@ -12,6 +12,12 @@ def main():
     from .doctor import register as register_doctor
 
     register_doctor(sub)
+    from .integrations.commands import register as register_integrations
+
+    register_integrations(sub)
+    from .benchmarks.commands import register as register_benchmarks
+
+    register_benchmarks(sub)
     q = sub.add_parser("resources", help="查看或配置本用户所有工作区共享的主机预算")
     q.add_argument("action", choices=["status", "configure", "release"])
     q.add_argument("--config", type=Path, help="预算 JSON 文件；只能在全部资源预留释放后修改")
@@ -84,6 +90,21 @@ def main():
     q.add_argument("--run-id", required=True)
     q.add_argument("--execute", action="store_true")
     args = p.parse_args()
+    if args.command == "benchmark":
+        import json
+        from .benchmarks.commands import dispatch
+
+        print(json.dumps(dispatch(args), ensure_ascii=False, indent=2))
+        return
+    if args.command in {"integration", "integration-work"}:
+        import json
+        from .integrations.commands import dispatch
+
+        result = dispatch(args)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if isinstance(result, dict) and result.get("status") in {"failed", "interrupted", "cancelled"}:
+            raise SystemExit(1)
+        return
     if args.command == "resources":
         import json
         from .operations.resources import Resources

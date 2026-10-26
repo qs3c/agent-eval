@@ -125,15 +125,17 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 ## P2：标准接入与可比较实验
 
+**状态：T07、T09 已交付，T08/T10/T11 进行中。** 验证与限制见 [P2 记录](../../p2-validation.md)。Comparable 的完整模型/网络覆盖仍由 T10 验收，配方声明不自动授予认证。
+
 ### T07 — Recipe、Release 与 conformance（R02、R08）
 
 **文件：** 新增 `src/agent_harness_eval/integrations/{__init__,schema,builder,conformance,store}.py`、`agents/recipe.py`、`tests/test_integration_recipe.py`、`tests/test_release_build.py`、`docs/agent-integration.md`；修改 `runtime_bundle.py`、`provenance.py`。
 
-- [ ] 定义版本化 recipe schema 与 CLI/Python 共同输入输出契约；文档提供完整小型示例，使用 argv 和 secret reference。
-- [ ] 实现 clean source → eval copy → patch → build → artifact digest；原始源码保持不变，patch 冲突停止，不自动跳过。
-- [ ] Runnable/Comparable/Diagnosable 检查独立存证，能力缺失不能凭声明升级认证。
-- [ ] 构建隔离不挂宿主凭据或 Docker socket；受信构建器在隔离边界外管理 Docker。
-- [ ] 测试同 SHA 不同 patch/profile 产生不同 Release，dirty upstream 拒绝被当作 clean SHA，构建输出差异保留不同身份。
+- [x] 定义版本化 recipe schema 与 CLI/Python 共同输入输出契约；文档提供完整小型示例，使用 argv 和 secret reference。
+- [x] 实现 clean source → eval copy → patch → build → artifact digest；原始源码保持不变，patch 冲突停止，不自动跳过。
+- [x] Runnable/Comparable/Diagnosable 检查独立存证，能力缺失不能凭声明升级认证。
+- [x] 构建隔离不挂宿主凭据或 Docker socket；受信构建器在隔离边界外管理 Docker。
+- [x] 测试同 SHA 不同 patch/profile 产生不同 Release，dirty upstream 拒绝被当作 clean SHA，构建输出差异保留不同身份。
 
 **验收：** `uv run pytest -q tests/test_integration_recipe.py tests/test_release_build.py`；接入一个 fixture CLI Agent，无需改核心分发便能完成 controls。
 
@@ -152,11 +154,11 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 **文件：** 新增 `benchmarks/{base,registry,harbor_tasks,selection}.py`、`tests/test_benchmark_registry.py`、`tests/test_task_selection.py`、`docs/benchmark-integration.md`；修改 `benchmarks/swe.py`、`config.py`、`batching.py`。
 
-- [ ] 定义 resolve/materialize/prepare/collect/grade/release 契约，返回可被 ResourceLease 管理的依赖。
-- [ ] SWE 插件封装现有 export/official regrade；一般 resolved 指标不再隐式触发 SWE。
-- [ ] controls 与标准 Harbor 自定义任务走同接口；多步骤/独立 verifier/模拟用户能力不足则提交前拒绝。
-- [ ] 实现 dataset/version/split、seed 抽样、历史任务排除；冻结最终任务列表和内容 hash。
-- [ ] 检查隐藏答案与 verifier 不进入 Agent 可读 workspace/prompt；导出全部重复尝试，不挑 best-of。
+- [x] 定义 resolve/materialize/prepare/collect/grade/release 契约，返回可被 ResourceLease 管理的依赖。
+- [x] SWE 插件封装现有 export/official regrade；一般 resolved 指标不再隐式触发 SWE。
+- [x] controls 与标准 Harbor 自定义任务走同接口；多步骤/独立 verifier/模拟用户能力不足则提交前拒绝。
+- [x] 实现 dataset/version/split、seed 抽样、历史任务排除；冻结最终任务列表和内容 hash。
+- [x] 检查隐藏答案与 verifier 不进入 Agent 可读 workspace/prompt；导出全部重复尝试，不挑 best-of。
 
 **验收：** `uv run pytest -q tests/test_benchmark_registry.py tests/test_task_selection.py`；seed 重放、排除交集、数据内容改变、能力不支持有明确断言；保留已有 SWE export/评分测试。
 

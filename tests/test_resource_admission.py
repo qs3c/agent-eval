@@ -68,7 +68,11 @@ def test_500_tasks_stop_preparation_when_grading_backlog_is_full(tmp_path, monke
         {"number": 2, "phase": "completed", "official_regrade": {"status": "failed"}}]})
     prepared = []
     monkeypatch.setattr(batching, "prepare_batch", lambda *args: prepared.append(args))
-    exp = SimpleNamespace(batch=BatchConfig(size=1, max_pending_grade_batches=2), agents=[])
+    from agent_harness_eval.config import load
+    from pathlib import Path
+
+    exp = SimpleNamespace(batch=BatchConfig(size=1, max_pending_grade_batches=2), agents=[],
+                          benchmark=load(Path("experiments/controls.json")).benchmark)
     tasks = [SimpleNamespace(path=tmp_path / str(i)) for i in range(500)]
     with pytest.raises(ValueError, match="评分积压"):
         asyncio.run(batching.run_batches(exp, tmp_path, tasks, {}, resume=True))

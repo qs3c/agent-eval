@@ -318,6 +318,10 @@ async def run_batches(
     exp, output, tasks, agent_configs, *, resume=False, manage_signals=True
 ):
     from .guardian.supervisor import run_guarded
+    from .benchmarks.registry import resolve
+
+    benchmark = resolve(exp.benchmark, batch=exp.batch)
+    benchmark.validate(exp.benchmark)
 
     state_path = output / "batch-state.json"
     state = read(
@@ -381,7 +385,11 @@ async def run_batches(
                     "Insufficient disk headroom before next batch; no trials started"
                 )
             phase("preparing")
-            await asyncio.to_thread(prepare_batch, exp, output, paths, number)
+            prepared = await asyncio.to_thread(benchmark.prepare, exp, output, paths, number)
+            from dataclasses import asdict
+
+            write(output / "batches" / f"{number:03d}" / "dependencies.json",
+                  {"plugin": benchmark.id, "dependencies": [asdict(item) for item in prepared.dependencies]})
             record_tasks(output, paths)
             await asyncio.to_thread(retain, output, paths, number, prepared=True)
             if shutil.disk_usage(output).free < exp.batch.min_free_gib * 1024**3:
@@ -414,7 +422,7 @@ async def run_batches(
             phase("regrading")
             await asyncio.to_thread(retain, output, paths, number, prepared=True)
             try:
-                await asyncio.to_thread(regrade_batch, exp, output, paths, number)
+                await asyncio.to_thread(benchmark.grade, exp, output, paths, number)
             except Exception as error:  # noqa: BLE001 - persist scoring failures without aborting Agent execution
                 # Official scoring is independent of Agent execution. Retain
                 # its failure evidence while allowing the next batch to run.
@@ -431,7 +439,7 @@ async def run_batches(
             entry.pop("error", None)
             if entry["official_regrade"]["status"] != "failed":
                 phase("cleaning")
-                await asyncio.to_thread(cleanup_batch, exp, output, paths, number)
+                await asyncio.to_thread(benchmark.release, exp, output, paths, number)
             else:
                 write(output / "batches" / f"{number:03d}" / "cleanup.json", {
                     "status": "retained_pending_regrade",

@@ -33,6 +33,7 @@ def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch, re
     from agent_harness_eval.run import run_experiment
 
     exp = load(Path("experiments/controls.json"))
+    exp.benchmark.plugin = "swe"  # This fixture explicitly exercises official grading lifecycle.
     exp.batch = BatchConfig(size=1, min_free_gib=0)
     from agent_harness_eval.guardian.config import GuardianConfig
 

@@ -856,7 +856,7 @@ class Console:
         self.shutdown_seconds = (
             4 * guardian["command_seconds"] + guardian["cleanup_seconds"] + 30
             if guardian
-            else 8
+            else 120
         )
         if model["mode"] == "live" and (
             not self.allow_live or not child_env.get(model["api_key_env"])

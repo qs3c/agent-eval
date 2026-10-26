@@ -62,10 +62,39 @@ def execute(manager, job):
             execute_experiment(manager, job)
         elif job["kind"] == "grade":
             execute_grade(manager, job)
+        elif job["kind"] == "integration":
+            execute_integration(manager, job)
         else:
             raise ValueError("Executor not registered: " + job["kind"])
     finally:
         console.operation_environment = {}
+
+
+def execute_integration(manager, job):
+    import subprocess
+    import sys
+
+    console = manager.console
+    logs = manager.commands.store.directory / "logs"
+    logs.mkdir(exist_ok=True)
+    console.shutdown_seconds = 40
+    with (logs / (job["id"] + ".log")).open("ab") as log:
+        console.process = subprocess.Popen([sys.executable, "-m", "agent_harness_eval.cli",
+            "integration-work", job["id"], "--root", str(manager.root)], cwd=manager.root,
+            env={**os.environ, **console.operation_environment}, stdout=log, stderr=subprocess.STDOUT,
+            start_new_session=True, pass_fds=(console.lock.fileno(),))
+        try:
+            while console.process.poll() is None:
+                if console.stop.wait(.2):
+                    console.terminate()
+                    break
+            code = console.process.wait()
+            if code:
+                raise ValueError("Integration build failed; inspect " + str(logs / (job["id"] + ".log")))
+        finally:
+            if console.process.poll() is None:
+                console.terminate()
+            console.process = None
 
 
 def execute_grade(manager, job):
@@ -117,7 +146,7 @@ def execute_experiment(manager, job):
     model, guardian = config["model"], config.get("guardian") or {}
     if (model["mode"] == "live" or guardian.get("model")) and not console.allow_live:
         raise ValueError("Manager has not enabled live models")
-    console.shutdown_seconds = (4 * guardian["command_seconds"] + guardian["cleanup_seconds"] + 30) if guardian else 8
+    console.shutdown_seconds = (4 * guardian["command_seconds"] + guardian["cleanup_seconds"] + 30) if guardian else 120
     argv = [sys.executable, "-u", "-m", "agent_harness_eval.cli", "run", str(config_path), "--output", payload["output"]]
     if payload["resume"]:
         argv.append("--resume")
@@ -173,6 +202,7 @@ class Admission:
 
     def __init__(self, *, cpus=None, memory_mb=None):
         self.active = set()
+        self.started_trials = set()
         self.cpus, self.memory_mb = cpus, memory_mb
         self.leases = {}
 
@@ -200,9 +230,24 @@ class Admission:
             self.cpus = event.config.environment.override_cpus
             self.memory_mb = event.config.environment.override_memory_mb
         await self.enter(event.trial_name)
+        self.started_trials.add(event.trial_name)
 
     async def ended(self, event):
-        self.leave(event.trial_name)
+        await self.cleanup_trial(event.trial_name)
+
+    async def cleanup_trial(self, trial_name):
+        from ..guardian.docker import DockerTarget
+
+        result = await DockerTarget(trial_name, timeout=15).stop()
+        if not result["resources_released"]:
+            raise RuntimeError("Native trial cleanup is unconfirmed: " + trial_name)
+        await self.finish_guarded(trial_name, trial_name)
+
+    async def cleanup_native(self):
+        results = await asyncio.gather(*(self.cleanup_trial(name) for name in self.started_trials), return_exceptions=True)
+        errors = [value for value in results if isinstance(value, BaseException)]
+        if errors:
+            raise RuntimeError("Native container cleanup failed; resource reservations retained") from errors[0]
 
     async def reserve(self, key):
         if not os.environ.get("HARNESS_OPERATION_ID") or self.cpus is None or self.memory_mb is None:

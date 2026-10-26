@@ -15,7 +15,7 @@ class Commands:
         self.store = Store(root)
 
     def submit(self, kind, payload, *, key):
-        if kind not in {"console", "rsi", "experiment", "grade"}:
+        if kind not in {"console", "rsi", "experiment", "grade", "integration"}:
             raise ValueError("Unknown operation kind")
         if not key or len(key) > 512:
             raise ValueError("A bounded idempotency key is required")

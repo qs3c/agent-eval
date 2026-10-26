@@ -27,6 +27,8 @@ def safe(output, name):
 
 def uses_official_swe(experiment, output):
     benchmark = experiment["benchmark"]
+    if benchmark.get("plugin"):
+        return benchmark["plugin"] == "swe"
     dataset = (benchmark.get("dataset") or {}).get("name", "")
     if isinstance(dataset, str) and "swe-bench" in dataset.lower():
         return True

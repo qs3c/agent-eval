@@ -73,6 +73,7 @@ class EvaluationIdentity(Strict):
 
 class Benchmark(Strict):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    plugin: Literal["harbor-tasks", "controls", "swe"] | None = Field(default=None, exclude_if=lambda value: value is None)
     tasks: list[Path] = Field(min_length=1)
     requires: set[str] = Field(default_factory=lambda: {"filesystem", "shell"})
     primary_metric: str = "reward"
@@ -172,6 +173,9 @@ def canonical_configuration(value):
 def load(path: Path, *, validate_agent_artifacts=True) -> Experiment:
     exp = Experiment.model_validate_json(path.read_text())
     exp.benchmark.tasks = [(path.parent / t).resolve() for t in exp.benchmark.tasks]
+    from .benchmarks.registry import resolve
+
+    resolve(exp.benchmark, batch=exp.batch).validate(exp.benchmark)
     names = [t.name for t in exp.benchmark.tasks]
     if len(set(names)) != len(names):
         raise ValueError("task directory names must be unique in an experiment")

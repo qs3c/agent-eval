@@ -55,6 +55,9 @@ async def run_experiment(
     workbench_repair: Path | None = None,
 ):
     from .search import validate_search_credentials
+    from .benchmarks.registry import resolve
+
+    resolve(exp.benchmark, batch=exp.batch).validate(exp.benchmark)
 
     if workbench_repair is not None and not resume:
         raise ValueError("Workbench repair requires --resume")
@@ -301,13 +304,18 @@ async def run_experiment(
                 )
                 continue
             job = await Job.create(cfg)
+            admission = None
             if os.environ.get("HARNESS_OPERATION_ID"):
                 from .operations.worker import Admission
 
                 admission = Admission()
                 job.on_trial_started(admission.started)
                 job.on_trial_ended(admission.ended)
-            await job.run()
+            try:
+                await job.run()
+            finally:
+                if admission is not None:
+                    await admission.cleanup_native()
         if exp.batch is not None:
             from .batching import run_batches
 

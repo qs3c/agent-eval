@@ -9,6 +9,23 @@ from pathlib import Path
 from ..manifests import load_manifest
 from ..provenance import digest, write_json
 from ..report import task_key
+from .harbor_tasks import HarborTasks
+
+
+class SWE(HarborTasks):
+    id = "swe"
+
+    def collect(self, output):
+        # The standard result view keeps official and Harbor metrics separate.
+        return super().collect(output)
+
+    def export(self, run, output):
+        return export(Path(run), Path(output))
+
+    def grade(self, experiment, output, paths, number):
+        from ..batching import regrade_batch
+
+        return regrade_batch(experiment, output, paths, number)
 
 
 def instrument(task: Path):

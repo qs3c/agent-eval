@@ -32,10 +32,7 @@ def plan_from_manifest(manifest, *, evidence=()):
     benchmark = exp["benchmark"]
     return ExperimentPlan(
         experiment=exp,
-        agents=tuple(AgentRelease(
-            agent_id=agent["id"],
-            artifact_digests=manifest.get("agent_artifacts", {}).get(agent["id"], {}),
-        ) for agent in exp["agents"]),
+        agents=tuple(release_from_manifest(agent, manifest) for agent in exp["agents"]),
         benchmark=BenchmarkRevision(
             benchmark_id=benchmark["id"],
             task_ids=tuple(Path(p).name for p in benchmark["tasks"]),
@@ -46,6 +43,23 @@ def plan_from_manifest(manifest, *, evidence=()):
         ),
         workbench=manifest.get("workbench", {}), evidence=tuple(evidence),
     )
+
+
+def release_from_manifest(agent, manifest):
+    import json
+    from .workspace.models import AgentRelease, identity
+
+    artifacts = manifest.get("agent_artifacts", {}).get(agent["id"], {})
+    if agent["implementation"] == "agent_harness_eval.agents.recipe:Recipe":
+        path = Path(agent["kwargs"]["provenance"])
+        if digest(path) != artifacts.get("provenance"):
+            raise ValueError("Recipe provenance digest mismatch")
+        receipt = json.loads(path.read_text())
+        release = AgentRelease.model_validate(receipt["release"])
+        if identity(release) != receipt["release_id"] or artifacts.get("bundle") != release.artifact_digests.get("bundle"):
+            raise ValueError("Recipe release identity mismatch")
+        return release.model_copy(update={"agent_id": agent["id"], "artifact_digests": artifacts})
+    return AgentRelease(agent_id=agent["id"], artifact_digests=artifacts)
 
 
 def own_archive(path: Path, shared: Path):

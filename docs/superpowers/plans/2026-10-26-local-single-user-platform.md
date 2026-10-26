@@ -12,10 +12,10 @@
 
 ## Global Constraints
 
-- 本文件是持续更新的分阶段实施路线。P0 已完成；P1 按可独立验证的任务推进，复选框仅反映已经取得验证证据的交付。
+- 本文件是持续更新的分阶段实施记录。P0–P4 与 T16 已完成对应交付和验收；复选框只反映已经取得的证据，实际范围与限制见 [整体验收记录](../../local-platform-validation.md)。
 - 执行技能以实际环境可用性为准；按用户授权推进实现，不委派代理、不部署服务、不运行付费模型实验。
 - 保留工作区原有未提交修改，尤其 `resources/live_model.py`、`tests/test_relay_roles.py` 与 `docs/interview/`；将来实现角色策略时先核对这些改动是否已经合并。
-- 新路径均相对仓库根目录。下面的新接口、文件和命令是计划，不表示当前已经存在。
+- 新路径均相对仓库根目录。各任务的文件列表与末尾接口表是设计时的接口草案，实际模块名和已验证行为以实现及专题使用文档为准。
 - 默认测试用假模型、本地临时 Git 仓库和 fake executor；Docker 集成验收单独执行，真实 API/公开 GitHub 写操作须有对应授权与预算。
 - 不改变原生 harness 循环来追求接口一致。所有测量条件、适配 patch 和角色策略版本化；缺失证据标 unknown。
 - 同一作业只允许一个调度 owner；迁移不改写历史原始证据；新旧 schema 不并发写。
@@ -167,10 +167,10 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 **文件：** 新增 `src/agent_harness_eval/policies/{__init__,model,network,budget}.py`、`tests/test_model_policy.py`、`tests/test_model_role_routing.py`；修改 `model_pool.py`、`resources/live_model.py`、`config.py`、`search.py`、`resources/search_review.py`、`static/models.js`。
 
 - [x] 合并前核对现有未提交 role 改动，避免覆盖；将可信角色绑定到服务入口，禁止请求体选择高权限角色。
-- [ ] 固定模型池快照；统一被测主/子/压缩/回退模型配置，平台模型与 benchmark simulator/grader 分开路由和计费。
+- [x] 固定模型池快照；经过可信入口的主/子/压缩/回退调用统一配置，平台与 benchmark 角色独立路由和记账；未覆盖路径不授予 Comparable。
 - [x] 验证协议、参数兼容与真实使用证据；不支持的 Agent 无法取得 Comparable，不静默回退其他模型。
 - [x] 把网络/搜索/JEV 版本与阈值纳入指纹；保留 deny/unavailable/provider-failure 区别及审查覆盖限制。
-- [ ] 预算独立限制平台和被测调用；缺价格或 usage 时费用未知，硬上限无法保证时明确拒绝“保证不超额”模式。
+- [x] 预算独立限制平台和被测调用；缺价格或 usage 时费用未知，硬上限无法保证时明确拒绝“保证不超额”模式。
 
 **验收：** `uv run pytest -q tests/test_model_policy.py tests/test_model_role_routing.py`；假服务记录子调用/压缩/回退实际模型；恶意 purpose 字段不能改变角色；模型池修改不影响已冻结计划。
 
@@ -220,11 +220,11 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 **文件：** 新增 `integrations/{sources,tracking,assistant}.py`、`tests/test_source_tracking.py`、`tests/test_integration_repair.py`；修改 `operations/manager.py`、`web.py`、`cli.py`；新增 `docs/source-tracking.md`。
 
-- [ ] 接受 URL/ref，固定 SHA；优先标准 recipe，缺失时调用 T12 Integration 角色生成候选并执行 conformance。
-- [ ] 本机轮询/手动刷新、退避、连续更新合并与 repo/ref/SHA 幂等；离线恢复只查询当前状态。
-- [ ] 维护 latest observed / latest admitted / recommended 三指针，默认在轮次边界采用新准入版本。
-- [ ] patch 冲突保留失败状态并生成 repair recipe 候选；旧 Release 可用但不冒充最新。
-- [ ] 使用本地 Git 仓库模拟普通 push、force-push、ref 删除、连续三次更新、patch 失配及重启。
+- [x] 接受 URL/ref，固定 SHA；优先标准 recipe，缺失时调用 T12 Integration 角色生成候选并执行 conformance。
+- [x] 本机轮询/手动刷新、退避、连续更新合并与 repo/ref/SHA 幂等；离线恢复只查询当前状态。
+- [x] 维护 latest observed / latest admitted / recommended 三指针，默认在轮次边界采用新准入版本。
+- [x] patch 冲突保留失败状态并生成 repair recipe 候选；旧 Release 可用但不冒充最新。
+- [x] 使用本地 Git 仓库模拟普通 push、force-push、ref 删除、连续三次更新、patch 失配及重启。
 
 **验收：** `uv run pytest -q tests/test_source_tracking.py tests/test_integration_repair.py`；当前运行 plan digest 不变，新 SHA 只进入下一轮；同一 SHA 不重复创建来源事件/Release 准入作业。
 
@@ -232,26 +232,30 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 **文件：** 新增 `rsi/{merge_tracking,cycle}.py`、`tests/test_rsi_merge_cycle.py`；修改 `rsi/{git,publication,runner}.py`、`operations/manager.py`、`static/rsi.js`。
 
-- [ ] PR 状态查询抽象成只读/发布接口；使用 case/candidate/base 幂等 key，未知发布结果先查询，不直接再创建。
-- [ ] base 漂移使验证过期；更新 candidate 后重新运行配置要求的验证，保留旧证据。
-- [ ] merge/squash 后解析真实目标 SHA，走与普通 push 同一来源准入流程；禁止复用 merge 前产物冒充新 Release。
-- [ ] 下一轮绑定新 Release 与同条件基线，记录质量结果；退化不更新 recommended，latest admitted 仍如实显示。
-- [ ] 用户预算/轮次上限/等待 merge/接入失败均可停止循环并给出原因；默认不自动 merge。
+- [x] PR 状态查询抽象成只读/发布接口；使用 case/candidate/base 幂等 key，未知发布结果先查询，不直接再创建。
+- [x] base 漂移使验证过期；更新 candidate 后重新运行配置要求的验证，保留旧证据。
+- [x] merge/squash 后解析真实目标 SHA，走与普通 push 同一来源准入流程；禁止复用 merge 前产物冒充新 Release。
+- [x] 下一轮绑定新 Release 与同条件基线，记录质量结果；退化不更新 recommended，latest admitted 仍如实显示。
+- [x] 用户预算/轮次上限/等待 merge/接入失败均可停止循环并给出原因；默认不自动 merge。
 
 **验收：** `uv run pytest -q tests/test_rsi_merge_cycle.py`；fake GitHub 覆盖 merge commit、squash、外部 push、关闭未合并、base drift、响应丢失和预算耗尽。无公开仓库写入即可验收状态机。
+
+**P4 验证：** 来源/合并状态与真实 Docker 准入 19 passed；扩展后的真实下一轮配对、Integration readonly/预算和合并状态 22 passed。见 [源码跟踪使用说明](../../source-tracking.md)和[整体验收记录](../../local-platform-validation.md)。未知仓库的接入生成需要先配置原生平台执行器与 integration 模型；生成/repair 需明确发起，不无限付费重试。PR 发布与合并仍为显式操作；真实模型实验没有在本轮执行。
 
 ## T16：迁移、故障演练与发布（R01–R12）
 
 **文件：** 新增 `tests/test_platform_lifecycle.py`、`docs/local-platform-validation.md`；更新 `README.md`、`docs/{workspace-migration,local-deployment,agent-integration,benchmark-integration,source-tracking,rsi}.md`。
 
-- [ ] 对照需求表逐项链接实际测试、日志和限制，不把计划勾选当测试证据。
-- [ ] Linux Docker 上实际完成 controls、一个标准 Agent pair、SWE 小样本导出/复评、取消恢复和资源清理；真实模型实验另按授权进行，不是无模型单测的隐含步骤。
-- [ ] 对 20/80/500 任务分别做 fake 大批次调度测试，并以小规模实际镜像/容器测试核验资源预算假设；不宣称 fake 结果证明 500 题真实容量。
-- [ ] 做低磁盘、评分器故障、模型故障、Manager crash、遗留容器、recipe 冲突、GitHub 断网、备份恢复演练。
-- [ ] dry-run 导入旧工作区、正式导入、重复导入与回滚；旧 evidence hash 不变，不能有双重执行 owner。
-- [ ] 更新能力矩阵、已知限制、配置迁移与升级步骤；移除不再使用的旧调度仅在所有入口验收通过后进行。
+- [x] 对照需求表逐项链接实际测试、日志和限制，不把计划勾选当测试证据。
+- [x] Linux Docker 上实际完成 controls、一个标准 Agent pair、SWE 小样本导出/复评、取消恢复和资源清理；真实模型实验另按授权进行，不是无模型单测的隐含步骤。
+- [x] 对 20/80/500 任务分别做 fake 大批次调度测试，并以小规模实际镜像/容器测试核验资源预算假设；不宣称 fake 结果证明 500 题真实容量。
+- [x] 做低磁盘、评分器故障、模型故障、Manager crash、遗留容器、recipe 冲突、GitHub 断网、备份恢复演练。
+- [x] dry-run 导入旧工作区、正式导入、重复导入与回滚；旧 evidence hash 不变，不能有双重执行 owner。
+- [x] 更新能力矩阵、已知限制、配置迁移与升级步骤；移除不再使用的旧调度仅在所有入口验收通过后进行。
 
 **最终门槛：** 文档能让新用户独立完成“本地安装→自己的 Agent→同模型基线→benchmark→结果诊断”；自动化闭环还能完成“普通 push 或 RSI merge→新 Release→下一轮对比”，中途故障不丢失原始证据、不无界消耗资源、不伪造已验证结论。
+
+**最终验收：** 独立 Linux Docker 全量 540 passed、3 skipped、0 failed（1023.58 秒）；Node UI 30 passed。SWE 小样本完成导出及 Manager 官方复评：oracle resolved=1，nop empty_patch=1/resolved=0，两者 errors=0。20/80/500 为模拟调度测试，不代表真实容量。跳过原因、首次失败、修复过程和各需求证据见 [整体验收记录](../../local-platform-validation.md)。保留原有三个未提交文件；未推送、部署、发布公开 PR 或调用付费模型。
 
 ## 跨任务接口约定
 
@@ -303,7 +307,7 @@ assert fixture.source_status("B") == "integration_failed"
 
 ## 每个任务的提交与验证约定
 
-- [ ] 先运行该任务目标测试与直接受影响的现有测试；出现失败先确认基线，再修复，不反复跑无关全量测试。
-- [ ] 模块边界或 schema 变化完成时执行完整 `uv run pytest -q`；Docker/真实 API 验收单独记录环境和范围。
-- [ ] `git diff --check` 通过，检查无凭据、无 artifacts、无其他人的工作区改动进入提交。
-- [ ] 提交说明写清行为、迁移、验证事实与局限；未执行的测试明确标注。每个阶段保留可回退点，不推送或部署未经授权的外部变更。
+- [x] 先运行该任务目标测试与直接受影响的现有测试；出现失败先确认基线，再修复，不反复跑无关全量测试。
+- [x] 模块边界或 schema 变化完成时执行完整 `uv run pytest -q`；Docker/真实 API 验收单独记录环境和范围。
+- [x] `git diff --check` 通过，检查无凭据、无 artifacts、无其他人的工作区改动进入提交。
+- [x] 提交说明写清行为、迁移、验证事实与局限；未执行的测试明确标注。每个阶段保留可回退点，不推送或部署未经授权的外部变更。

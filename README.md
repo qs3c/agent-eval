@@ -11,7 +11,18 @@
 
 以上是目标设计，不代表规划功能已经实现。下文及各专题文档描述现有使用流程；历史试跑的模型选择和费用授权仅适用于对应记录，不自动适用于新实验。
 
-实施进度：P0、P1/T03 状态库与 T04 独立 Manager 已完成。`workspace-import` 默认只预览；Web 与 CLI 通过 Manager 调度，暂停/恢复/取消见 [Manager 使用说明](docs/local-manager.md)。资源协调与统一评分视图继续实施、验证，P1 尚未整体完成。见 [P1 验证记录](docs/p1-validation.md)与[迁移说明](docs/workspace-migration.md)。
+现有实现包括统一 Manager/资源协调、不可变 Plan/Release、标准 Agent 配方、四个内置基线、模型策略、逐题对比、RSI 分层验证、源码跟踪和合并后复评。`workspace-import` 默认只预览，旧 evidence 保持不变。各阶段实际测试与局限见 [P1](docs/p1-validation.md)、[P2](docs/p2-validation.md)、[P3](docs/p3-validation.md)和[完整验收记录](docs/local-platform-validation.md)。
+
+从“配置模型 → 接入自己的 Agent → 选择基线与 benchmark → 预检 → 对比结果”开始，见[本地使用流程](docs/local-deployment.md)。GitHub URL/ref、接入修复与合并闭环见[源码跟踪](docs/source-tracking.md)。
+
+| 能力 | 当前边界 |
+| --- | --- |
+| 自有 Agent | CLI/Python 配方、固定 SHA、Docker 构建、独立接入检查；未知仓库可生成接入候选，不能保证任意仓库零配置成功 |
+| 内置基线 | BKCrab、DSH、OpenCode、Hermes；各自独立安装、固定版本、保留原生循环；DSH 当前发布包基线不冒充源码构建 |
+| Benchmark | Harbor 标准任务与 SWE 插件、冻结抽样、完整重复导出及官方复评；自定义任务保持独立于 Agent |
+| 统一模型 | 固定模型/协议/参数、角色隔离、请求数预算和调用证据；未覆盖内部路径或旁路网络则不授予完整 Comparable |
+| RSI | 中文诊断、产品与接入 patch 分离、正负对照/重放/holdout、双语 PR；发布/合并仍为显式操作 |
+| 源码闭环 | 普通 push 与真实 merge/squash SHA 经构建和运行准入；下一轮采用新 Release，历史 Plan 不变；模拟分数不更新质量推荐 |
 
 ## 本机 Web 控制台
 
@@ -32,12 +43,12 @@ uv sync --locked --python 3.12
 - 历史 `artifacts/` 只读登记。`completed` 表示结果完整且无运行异常，不表示全部任务得满分；缺失报告显示结果不完整。控制台读取的是 Harbor 内置评分，官方 SWE 复评仍用 `swe-regrade` 并单独核对产物。
 - 列表默认显示「全部真实评测」，未复核的实验也可见。终态记录与报告齐全、但含运行异常的实验显示「已结束 · 部分异常」及异常／未评分次数；全部异常、缺少评分和结果缺失分别提示。计数单位为尝试（题目 × Agent × 重复次数），复核状态单独保留。
 - 配对比较检查 benchmark、任务内容哈希、模型配置、重复次数、资源和超时等条件。不兼容时展示差异，不输出配对结论；未知费用保持未知。
-- 浏览器刷新不影响执行。服务关闭会终止自己启动的评测进程组；意外重启将未完成运行标为中断，不自动重跑。存在中断运行时暂停队列。检查对应输出中的 trial 名称和遗留进程、Docker 容器并完成清理后，用 `.venv/bin/agent-harness-eval serve --recover` 确认恢复；中断记录保留为失败，不重新执行。若旧进程仍持有锁，新服务拒绝启动。
+- 浏览器刷新、关闭 Web 都不影响独立 Manager。停止、取消与中断确认使用 `manager` / `operation` 命令；中断的未知结果不自动重放，原 owner 仍存活时不能强行接管。详见 [Manager 生命周期](docs/local-manager.md)。
 - 默认禁止创建真实模型运行。需要时使用模型设置或模板指定的环境变量配置凭据，启动 `serve --allow-live`，并在页面明确确认本次费用策略；历史授权不自动沿用到新任务。重启后执行旧队列仍检查本次启动策略。不要把密钥写入实验模板、日志或 Git；配置方式见 [模型池](docs/model-pool.md)。
 
-当前不提供账号系统；支持显式可信私网地址。Web 生命周期已与执行分离，关闭 Web 不停止实验；通过 `operation` 命令或 `/api/operations` API 控制作业，页面按钮在后续产品流程任务中补齐。批次 CLI 保留 `run --resume` 及冻结校验。模板准备依赖下述安装步骤；新生命周期验收见 [P1 验证记录](docs/p1-validation.md)，既有页面验收见 [WEB_VALIDATION.md](WEB_VALIDATION.md)。
+当前不提供账号系统；支持显式可信私网地址。通过页面、`operation` 命令或 `/api/operations` 控制作业。批次 CLI 保留 `run --resume` 及冻结校验。首次安装仍需准备 Docker 镜像和相应源码/依赖，内置目录会显示当前不可用原因。
 
-当前可以运行：确定性正负对照、两个原生 Agent 的模拟/真实模型接入、SWE 补丁导出和官方 harness 复评。历史 DeepSeek 单题试跑使用 `deepseek-flash`，当时的不限费用授权仅属于那次实验，不适用于新用户或新运行。
+实际验证包括确定性对照、四个内置 Agent 的 Docker 控制接入、SWE 补丁导出及官方复评。真实模型能力效果仍需用户按自己的题目与费用授权运行；历史实验不构成新实验授权。
 
 ## 结构
 

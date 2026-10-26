@@ -76,3 +76,11 @@ canonical JSON 仅对声明为集合的 capabilities/requires 及实际集合排
 4. 使用 schema transaction 与幂等旧身份映射导入；已存在同身份但内容不同报冲突，不覆盖。
 5. 失败恢复匹配版本的数据库备份，并保留失败日志；不让旧程序写入新版 schema。新格式实验不能保证能在旧版恢复运行。
 6. 再次导入不增加相同记录；故障注入后旧 evidence hash 完全不变。通过后才能切换入口，不能先删旧目录。
+
+## 来源跟踪与闭环状态备份
+
+新增 `.workspace/sources.sqlite` 保存来源观察、准入记录和指针，`.workspace/source-inputs` / `integration-inputs` / `integration-assistant` 保存冻结配方、patch 与生成证据；`.workspace/releases` 保存不可变产物。`.rsi/cycles` 保存冻结复评条件和逐轮证据。一起备份整个 `.workspace`、`.rsi`、`.console`、关联 `artifacts`、模型配置和必要源码，不能只备份 `state.sqlite`。
+
+先暂停来源自动跟踪、停止新闭环，等待或显式取消工作，再停止 Manager/Web。确认所有写入方已退出后，可复制静止目录或用 SQLite backup API 逐库备份；多个数据库的快照必须属于同一静止时刻。还需协调同用户其他 checkout 使用的资源账本/官方复评状态。恢复到原路径并使用匹配代码版本，先只读校验 Release、Plan、来源与证据 hash，再启动 Manager。不要在旧 Manager 仍存活时恢复新副本；不要在两个路径同时启动同一份恢复工作区。
+
+恢复不等于重跑。已完成作业保持完成，中断/外部结果未知作业仍需核查并确认；合并观察可只读重查，PR 发布未知结果先查询已有 PR。来源失败时保留前一已准入版本，质量推荐与最新来源分别显示。测试覆盖静止双库备份恢复、导入回滚和旧 evidence hash 保持，不能代替用户自己的真实备份演练。

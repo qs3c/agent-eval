@@ -1,6 +1,6 @@
 # 本地单用户部署与环境诊断
 
-本页描述本地安装入口；P1/T03 已提供显式 `workspace-import`，T04 已提供独立后台 Manager 与作业控制 CLI/API，详见[迁移说明](workspace-migration.md)和[Manager 使用说明](local-manager.md)。通用 GitHub 接入与自动升级闭环仍在后续阶段，不应按目标架构假定已经实现。
+本页描述本地安装与完整使用入口：显式 `workspace-import`、独立后台 Manager、标准 Agent 接入、同模型对比，以及 GitHub 来源准入和合并后复评。详见[迁移说明](workspace-migration.md)、[Manager 使用说明](local-manager.md)和[源码跟踪](source-tracking.md)。未知仓库自动接入仍需配置平台 Agent，并通过确定性构建/运行检查，不能保证任意项目只填 URL 就成功。
 
 ## 支持范围
 
@@ -8,8 +8,8 @@
 | --- | --- |
 | 平台执行 | Linux x86_64、Python 3.12、可访问的 Linux Docker daemon、Git、uv 0.13.0 或更新版本 |
 | controls | 只需平台依赖；不需要 API key、Go、Node 或 BKCrab checkout |
-| DSH 构建 | 额外需要 Node 22 或更新版本、npm、锁文件；不需要 Go 或 BKCrab |
-| BKCrab 构建 | 额外需要 Go 1.25 或更新版本、含 eval 入口的 BKCrab checkout；不需要 Node/npm |
+| DSH 旧原生构建 | 额外需要 Node 22 或更新版本、npm、锁文件；标准 Release 的工具链在容器中 |
+| BKCrab 旧原生构建 | 额外需要 Go 1.25 或更新版本、含 eval 入口的 BKCrab checkout；标准 Release 的工具链在容器中 |
 | SWE 准备 | 额外需要 uv 管理的 Python 3.13、数据与镜像下载空间；评分运行时另按固定构建准备 |
 | Windows 原生 | 可运行只依赖标准库的 doctor 获取诊断；不支持执行实验 |
 | WSL2 | 能检测并提示；尚未完成支持认证，不能用 doctor 通过代替完整验收 |
@@ -26,7 +26,7 @@
 
 真实模型实验先在 **模型设置** 填写 API URL、模型 ID 和 Key，服务使用 `--allow-live` 启动；创建对比时切换真实模型并选择同一个模型条目。预检后确认费用才会入队。模型、任务或 Agent 产物在预检后改变会使提交失效。题目抽样清单随实验冻结，后续更改源码、模型池或模板不会回写已有实验。
 
-结果页区分成绩、执行错误、评分等待、未知费用与模型策略覆盖。模拟模型成绩仅证明执行链路；当前内置版本不因运行成功自动取得完整 Comparable。GitHub URL 的通用接入和持续版本闭环仍由后续阶段交付。
+结果页区分成绩、执行错误、评分等待、未知费用与模型策略覆盖。模拟模型成绩仅证明执行链路；当前内置版本不因运行成功自动取得完整 Comparable。GitHub URL 接入和持续版本闭环见 [源码跟踪](source-tracking.md)，未知仓库需要配方或配置好的 Integration Agent。
 
 先通过官方安装方式准备 Git、Docker 和 uv，让当前用户可访问 Docker。然后在用户自己的平台 checkout 中运行：
 
@@ -70,7 +70,7 @@ bash scripts/prepare-native.sh bkcrab
 bash scripts/prepare-native.sh all
 ```
 
-BKCrab checkout 必须已经具有 `cmd/bkcrab-eval`。首次应用平台补丁前先执行 `git apply --check`，已具入口不要重复应用。独立构建不等于自动生成单 Agent 实验：使用现有模板时仍需只选择已准备的 Agent，`native-mock.json` 默认含两个 Agent。DSH 已存在的 bundle 继续拒绝覆盖，重建请选择新的产物位置并修改实验引用；通用 Release 管理属于 P2。
+以上为保留的原生构建入口。新的通用 Release 管理已提供“接入 Agent”页面与 `integration` CLI，支持四个固定基线和自定义配方。已有 BKCrab eval 入口无需重复应用旧 patch。DSH 已存在的旧 bundle 仍拒绝覆盖，新的 Release 使用内容身份独立保存。
 
 平台主程序目前使用 Python 环境启动；Agent/任务执行使用 Docker。部署 BKCrab 服务到项目约定服务器时，仍须 Docker 部署并遵守既有端口与源码流程；本页不要求为运行 controls 停止 BKCrab 服务。
 
@@ -84,7 +84,7 @@ BKCrab checkout 必须已经具有 `cmd/bkcrab-eval`。首次应用平台补丁�
 
 ## 升级、备份与卸载
 
-升级前停止新任务派发，等待当前作业结束；记录版本、未提交代码、实验目录和自有容器。不要用强制 reset/clean 覆盖自己的修改。退出使用该工作区的服务后，备份 `.console/`、`.rsi/`、`artifacts/`、实验配置、依赖锁、必要 Agent 源码/构建产物，以及用户级复评状态。模型凭据另外安全备份，不放进 Git 或分享包。
+升级前停止新任务派发，等待当前作业结束；记录版本、未提交代码、实验目录和自有容器。不要用强制 reset/clean 覆盖自己的修改。退出使用该工作区的服务后，备份 `.workspace/`、`.console/`、`.rsi/`、`artifacts/`、实验配置、依赖锁、必要 Agent 源码/构建产物，以及用户级复评状态。`.workspace` 包括源码跟踪库、冻结配方和 Release；`.rsi/cycles` 包括闭环条件与逐轮证据。模型凭据另外安全备份，不放进 Git 或分享包。
 
 SQLite 在所有相关写入进程停止后复制；不能仅复制运行中的主数据库文件而忽略 WAL。用户级复评状态可能被其他 checkout 使用，必须一并协调。详细路径、锁与回滚见 [迁移兼容基线](workspace-migration.md)。
 
@@ -92,4 +92,4 @@ SQLite 在所有相关写入进程停止后复制；不能仅复制运行中的�
 
 卸载先停止该工作区自有进程，按明确所有权清理实验容器。代码、可重建缓存和持久证据分别处理；保留备份再由用户选择删除哪些目录。禁止 `docker system prune` 或按模糊名称清理其他服务。回滚先停止新版所有写入方，再恢复匹配版本与备份；使用过 T03 导入时还需备份 `.workspace/`，旧程序不要读写新索引。导入不修改旧状态 schema。
 
-实际测试范围与环境见 [P0 验证记录](p0-validation.md)。
+来源 URL/ref、接入修复及有界合并后复评见 [源码跟踪](source-tracking.md)。原生平台 Agent 是可选能力，首次使用 Integration Agent/RSI 前需按 [平台执行器](platform-agents.md) 准备运行时和独立模型绑定。无需模型的常规配方构建和控制检查可先独立使用。实际测试范围与环境见 [完整验收记录](local-platform-validation.md)。

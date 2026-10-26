@@ -2,6 +2,8 @@
 
 平台面向本地单用户。Agent 的原生循环在任务容器里运行；平台提供任务、工作区、模型中继和截止时间，Harbor 继续负责容器、验证器与原始结果。不要把验证器或标准答案打包进 Agent。
 
+开发者只提供 GitHub URL/ref 时，先固定 SHA、匹配已知配方；未知仓库可以通过 Integration Agent 生成候选，再走本页同一构建与检查契约。后续普通 push 与 RSI merge 均重新准入，运行中的实验不变。接入/repair 入口和前提见 [源码跟踪](source-tracking.md)。模型生成配方不能自行授予可运行或可比较等级。
+
 ## Recipe 与 Release
 
 `integration validate --recipe recipe.yaml` 检查版本化配方。`integration build --recipe recipe.yaml --source /path/to/clean/checkout --root /path/to/platform` 将构建提交给 Manager，并等待结果。检查当前 checkout、记录确切 SHA、冻结配方及 patch，执行前再次核对 SHA；提交后源码变化会拒绝构建，不会悄悄改用新版本。

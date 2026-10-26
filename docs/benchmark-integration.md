@@ -10,6 +10,10 @@ SWE 插件沿用锁定版本的任务准备、补丁捕获、全部重复尝试�
 
 当前运行时只承诺 filesystem/shell 能力；需要模拟用户、持续多步骤交互等能力的任务在预检时拒绝，不靠 Agent 自报 capabilities 放行。
 
+RSI 下一轮复评也使用本契约冻结任务、模型、评分条件与基线 Release。接入检查的 controls 分数只说明链路；模型能力比较必须使用合适的真实任务和真实模型。SWE 的一次官方评分失败仍是评分失败，不允许退回内置结果伪造官方通过；整体验收的命令、失败和限制见 [验收记录](local-platform-validation.md)。
+
+独立 `swe-regrade --execute --root /path/to/platform` 与批次官方评分同样由 Manager 管理。先冻结完整 predictions 和本机 dataset，再执行固定版本 scorer，保留输入 hash 和 operation ID；重新评分不重新调用 Agent。预览模式不写作业。官方 harness 可能读取固定源码依赖，即使提供本机 records JSON 也不代表完全离线可运行；需要准备镜像、Python 依赖与相应网络连通性。
+
 ## 冻结子集
 
 ```bash

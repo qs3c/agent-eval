@@ -12,6 +12,10 @@ def main():
     from .doctor import register as register_doctor
 
     register_doctor(sub)
+    q = sub.add_parser("workspace-import", help="预览旧格式导入；--apply 才写新索引，不调度旧作业")
+    q.add_argument("--root", type=Path, default=Path.cwd())
+    q.add_argument("--regrading-root", type=Path)
+    q.add_argument("--apply", action="store_true")
     q = sub.add_parser("serve", help="启动本机评测控制台")
     q.add_argument("--root", type=Path, default=Path.cwd())
     q.add_argument("--port", type=int, default=8765)
@@ -65,6 +69,13 @@ def main():
         from .doctor import execute as execute_doctor
 
         execute_doctor(args)
+        return
+    if args.command == "workspace-import":
+        import json
+        from .workspace.legacy import import_legacy
+
+        print(json.dumps(import_legacy(args.root, regrading_root=args.regrading_root,
+                                      dry_run=not args.apply), ensure_ascii=False, indent=2))
         return
 
     from .config import load

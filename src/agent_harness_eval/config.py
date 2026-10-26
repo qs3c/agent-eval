@@ -160,6 +160,13 @@ def reject_credentials(value):
             reject_credentials(child)
 
 
+def canonical_configuration(value):
+    """Stable input representation; ordered task/agent selections stay ordered."""
+    from .workspace.models import normalize
+
+    return normalize(value)
+
+
 def load(path: Path, *, validate_agent_artifacts=True) -> Experiment:
     exp = Experiment.model_validate_json(path.read_text())
     exp.benchmark.tasks = [(path.parent / t).resolve() for t in exp.benchmark.tasks]

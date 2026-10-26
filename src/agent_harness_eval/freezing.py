@@ -7,6 +7,30 @@ from pathlib import Path
 from .provenance import digest
 
 
+def plan_from_manifest(manifest, *, evidence=()):
+    """Index recorded inputs without inventing source revisions for legacy runs."""
+    from .workspace.models import AgentRelease, BenchmarkRevision, ExperimentPlan
+
+    exp = manifest["experiment"]
+    benchmark = exp["benchmark"]
+    return ExperimentPlan(
+        experiment=exp,
+        agents=tuple(AgentRelease(
+            agent_id=agent["id"],
+            artifact_digests=manifest.get("agent_artifacts", {}).get(agent["id"], {}),
+        ) for agent in exp["agents"]),
+        benchmark=BenchmarkRevision(
+            benchmark_id=benchmark["id"],
+            task_ids=tuple(Path(p).name for p in benchmark["tasks"]),
+            task_hashes={name: entry["sha256"] for name, entry in manifest.get("tasks", {}).items()
+                         if entry.get("sha256")},
+            dataset=benchmark.get("dataset"), scorer=benchmark.get("evaluation"),
+            selection=manifest.get("selection"),
+        ),
+        workbench=manifest.get("workbench", {}), evidence=tuple(evidence),
+    )
+
+
 def own_archive(path: Path, shared: Path):
     shared.mkdir(parents=True, exist_ok=True)
     sha = digest(path)

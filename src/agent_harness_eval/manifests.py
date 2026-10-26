@@ -121,6 +121,14 @@ def load_manifest(root):
     return value
 
 
+def index_plan(root, store, *, idempotency_key):
+    from .freezing import plan_from_manifest
+
+    path = Path(root) / "manifest.json"
+    plan = plan_from_manifest(load_manifest(root), evidence=(str(path.resolve()),))
+    return store.create_plan(plan, idempotency_key)
+
+
 def verify_manifest(root):
     """Explicit audit: check the legacy source, attachments and v1 task digests."""
     root = Path(root)

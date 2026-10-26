@@ -11,6 +11,8 @@
 
 以上是目标设计，不代表规划功能已经实现。下文及各专题文档描述现有使用流程；历史试跑的模型选择和费用授权仅适用于对应记录，不自动适用于新实验。
 
+实施进度：P0 已完成，P1/T03 已提供版本化状态库与 `workspace-import` 旧数据索引导入（默认只预览）。见 [迁移使用说明](docs/workspace-migration.md)；统一管理进程、暂停/取消与资源协调仍在后续任务，不把 T03 视为 P1 整体完成。
+
 ## 本机 Web 控制台
 
 首次安装请先阅读 [本地部署与 doctor](docs/local-deployment.md)；升级与历史数据边界见 [迁移兼容基线](docs/workspace-migration.md)。P0 预检可运行 `uv run agent-harness-eval doctor --agent dsh --json`，不会安装依赖或调用模型。

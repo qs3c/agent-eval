@@ -13,5 +13,6 @@ logs/
 .ruff_cache/
 .console/
 .rsi/
+.workspace/
 dist/
 *.mock-negative.json

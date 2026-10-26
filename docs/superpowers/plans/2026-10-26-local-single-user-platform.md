@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- 本文件是持续更新的分阶段实施路线。P0 已按用户授权实施，后续阶段仍未开始；复选框仅反映已经取得验证证据的交付。
-- 执行技能以实际环境可用性为准；本轮仅实施 P0，不委派代理、不部署服务、不运行付费模型实验。
+- 本文件是持续更新的分阶段实施路线。P0 已完成；P1 按可独立验证的任务推进，复选框仅反映已经取得验证证据的交付。
+- 执行技能以实际环境可用性为准；按用户授权推进实现，不委派代理、不部署服务、不运行付费模型实验。
 - 保留工作区原有未提交修改，尤其 `resources/live_model.py`、`tests/test_relay_roles.py` 与 `docs/interview/`；将来实现角色策略时先核对这些改动是否已经合并。
 - 新路径均相对仓库根目录。下面的新接口、文件和命令是计划，不表示当前已经存在。
 - 默认测试用假模型、本地临时 Git 仓库和 fake executor；Docker 集成验收单独执行，真实 API/公开 GitHub 写操作须有对应授权与预算。
@@ -68,12 +68,16 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 ### T03 — 领域对象与本地状态库（R06、R12）
 
+**状态：已完成。** 验证与边界见 [P1/T03 验证记录](../../p1-validation.md)。新增状态放在项目根下 `.workspace/`，避免污染源码根和覆盖既有 `.console/`；逻辑数据归属与设计一致。T04–T06 尚未完成，P1 不能标记为整体完成。
+
 **文件：** 新增 `src/agent_harness_eval/workspace/{__init__,models,store,migrations,legacy}.py`、`tests/test_workspace_store.py`、`tests/test_workspace_migration.py`；修改 `config.py`、`freezing.py`、`manifests.py`。
 
-- [ ] 按设计定义 schema-versioned SourceRevision、AgentRelease 引用、BenchmarkRevision、ExperimentPlan、Attempt、GradeRun、ResourceLease、Incident；明确不可变输入与可变状态表。
-- [ ] 定义 canonical JSON/hash 规则：集合排序、任务与 Agent 顺序保留、排除 secret 值；用相等/不同输入测试冻结身份，覆盖已有 set 规范化问题。
-- [ ] 实现 SQLite 事务、唯一幂等 key、事件 outbox、schema migrations 和 dry-run；记录 raw artifact 引用，不复制大日志入库。
-- [ ] 导入 T02 fixture，备份后迁移；模拟迁移失败还原备份，再重复导入。
+- [x] 按设计定义 schema-versioned SourceRevision、AgentRelease 引用、BenchmarkRevision、ExperimentPlan、Attempt、GradeRun、ResourceLease、Incident；明确不可变输入与可变状态表。
+- [x] 定义 canonical JSON/hash 规则：集合排序、任务与 Agent 顺序保留、排除 secret 值；用相等/不同输入测试冻结身份，覆盖已有 set 规范化问题。
+- [x] 实现 SQLite 事务、唯一幂等 key、事件 outbox、schema migrations 和 dry-run；记录 raw artifact 引用，不复制大日志入库。
+- [x] 导入 T02 fixture，备份后迁移；模拟失败并验证事务回滚与备份可恢复，再重复导入。失败时优先 SQLite rollback 保留原数据库，不替换活动 DB 文件；独立备份验证保存原 schema 与数据。
+
+实现补充：`workspace-import` 默认 dry-run；旧格式导入和 schema 升级分别原子化。实际测试覆盖活动 owner 锁、旧 WAL、新版 schema、符号链接索引、失配幂等 key、丢失引用、未知来源，以及导入前后原 SQLite/JSON/SQL 哈希。`config.py`、`freezing.py`、`manifests.py` 提供兼容辅助接口；没有自动切换现有运行器。
 
 **核心契约示例：** `store.create_plan(frozen_plan, idempotency_key) -> plan_id`；重复相同输入返回原 ID，相同 key 不同输入报冲突，不覆盖。
 

@@ -11,13 +11,14 @@ from ..workspace.models import identity
 
 def inventory(paths):
     result = {}
+    hash_cache = {}
     for value in paths:
         path = Path(value)
         if path.name in result:
             raise ValueError("Duplicate task directory name")
         if path.is_symlink() or not (path / "task.toml").is_file():
             raise ValueError("Expected a regular Harbor task directory")
-        result[path.name] = tree_manifest(path)["sha256"]
+        result[path.name] = tree_manifest(path, hash_cache=hash_cache)["sha256"]
     return result
 
 

@@ -30,7 +30,7 @@ function pairCategory(a, b, binary) {
 async function renderExperimentCompare(token, requestedRun) {
   await refreshRuns();
   if (epoch !== token) return;
-  const experiments = runs.filter(run => run.mode === "live");
+  const experiments = runs;
   view.replaceChildren();
   const head = el("section", undefined, "page-head"), heading = el("div");
   heading.append(el("div", "AGENT COMPARISON", "eyebrow"), el("h1", "先看整体，再看每一道题。"),
@@ -49,12 +49,12 @@ async function renderExperimentCompare(token, requestedRun) {
   body.setAttribute("aria-live", "polite");
   view.append(head, selector, body);
   if (!experiments.length) {
-    body.append(el("p", "尚无真实模型实验记录。完成真实实验后，可在这里查看任务表现。", "empty"));
+    body.append(el("p", "尚无实验记录。创建一次对比后可查看逐题表现。", "empty"));
     select.disabled = true;
     return;
   }
   const preferred = experiments.find(r => r.id === requestedRun) || experiments[0];
-  if (requestedRun && !experiments.some(r => r.id === requestedRun)) notice("指定实验不是真实模型实验或不存在，已选择最新真实实验。");
+  if (requestedRun && !experiments.some(r => r.id === requestedRun)) notice("指定实验不存在，已选择最新实验。");
   select.value = preferred.id;
   let version = 0;
   async function load() {
@@ -83,6 +83,7 @@ function drawExperimentComparison(data, body, active) {
   const {run, benchmark, agents, tasks, attempts, score_kind: kind} = data;
   const names = Object.keys(agents), taskNames = Object.keys(tasks);
   const meta = el("section", undefined, "panel comparison-panel");
+  if (run.mode !== "live") meta.append(el("p", "这是离线或模拟模型控制实验，仅用于接入检查，不能代表真实模型能力。", "error"));
   meta.append(el("h2", `${run.name} · ${modes[run.mode]} · ${labels[run.status]}`), el("p", benchmark.id),
     el("p", datasetLabel(benchmark.dataset)),
     el("p", `本次选取 ${data.task_count} 题 · 每题 ${attempts} 次 · ${names.length} 个 Agent。成绩仅覆盖本次选题，不代表完整数据集成绩。`),

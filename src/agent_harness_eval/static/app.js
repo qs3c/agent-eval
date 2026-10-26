@@ -758,7 +758,7 @@ async function route() {
   const { page, id } = routeInfo();
   notice();
   $("#breadcrumb").textContent =
-    page === "models" ? "模型设置" : ["rsi", "rsi-case"].includes(page) ? "RSI 改进" : page === "create"
+    page === "setup" ? "创建对比" : page === "integrations" ? "Agent 接入" : page === "models" ? "模型设置" : ["rsi", "rsi-case"].includes(page) ? "RSI 改进" : page === "create"
       ? "创建实验"
       : ["compare", "batch-compare", "trace-compare"].includes(page)
         ? "结果对比"
@@ -779,7 +779,9 @@ async function route() {
     view.replaceChildren(loading);
   }
   try {
-    if (page === "create") await renderCreate(token);
+    if (page === "setup") await renderLocalSetup(token);
+    else if (page === "integrations") await renderIntegrations(token);
+    else if (page === "create") await renderCreate(token);
     else if (page === "models") await renderModels(token);
     else if (page === "rsi") await renderRsi(token, id);
     else if (page === "rsi-case") await renderRsiCase(token, id);

@@ -50,6 +50,7 @@ def list_builtins(root):
             entries.append({"release_id": row["release_id"], "checks": checks, "invalid_checks": invalid_checks})
         runnable = any(check["levels"]["runnable"]["passed"] for row in entries for check in row["checks"])
         result.append({"id": recipe.id, "source": recipe.source.model_dump(mode="json"),
+                       "build_image": recipe.build.image,
                        "profile": recipe.profile, "recipe_digest": recipe.digest,
                        "artifact_origin": recipe.build.artifact_origin,
                        "availability": "runnable" if runnable else "unchecked" if entries else "unavailable",

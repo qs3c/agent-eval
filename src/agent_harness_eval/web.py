@@ -56,6 +56,9 @@ def create_app(root: Path, allow_live=False, recover=False, *, bind_host="127.0.
     from .model_pool import router as model_router
 
     app.include_router(model_router(console.root))
+    from .integrations.api import router as integration_router
+
+    app.include_router(integration_router(console))
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, exc):

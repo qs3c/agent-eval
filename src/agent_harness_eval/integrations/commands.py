@@ -8,25 +8,36 @@ from uuid import uuid4
 from ..provenance import digest, write_json
 
 
-def submit(root, recipe_path, source):
+def submit(root, recipe_path, source=None):
     from ..operations.commands import Commands
     from .builder import git
     from .schema import load
 
-    recipe_path, source = Path(recipe_path).resolve(), Path(source).resolve()
+    recipe_path = Path(recipe_path).resolve()
     recipe = load(recipe_path)
-    if git(source, "status", "--porcelain", "--untracked-files=all").strip():
-        raise ValueError("Dirty upstream cannot be admitted")
-    sha = git(source, "rev-parse", "HEAD^{commit}").decode().strip()
-    if recipe.source.ref and not recipe.source.commit:
-        selected = git(source, "rev-parse", "--verify", recipe.source.ref + "^{commit}").decode().strip()
-        if selected != sha:
-            raise ValueError("Checkout differs from selected ref")
-    if recipe.source.commit and recipe.source.commit != sha:
-        raise ValueError("Checkout differs from pinned recipe")
+    fetch = source is None
+    if fetch:
+        from .catalog import RECIPES
+
+        if recipe_path.parent != RECIPES.resolve() or not recipe.source.commit:
+            raise ValueError("Automatic source fetch currently requires a pinned builtin recipe")
+        sha = recipe.source.commit
+    else:
+        source = Path(source).resolve()
+        if git(source, "status", "--porcelain", "--untracked-files=all").strip():
+            raise ValueError("Dirty upstream cannot be admitted")
+        sha = git(source, "rev-parse", "HEAD^{commit}").decode().strip()
+        if recipe.source.ref and not recipe.source.commit:
+            selected = git(source, "rev-parse", "--verify", recipe.source.ref + "^{commit}").decode().strip()
+            if selected != sha:
+                raise ValueError("Checkout differs from selected ref")
+        if recipe.source.commit and recipe.source.commit != sha:
+            raise ValueError("Checkout differs from pinned recipe")
     recipe = recipe.model_copy(update={"source": recipe.source.model_copy(update={"commit": sha})})
     commands = Commands(root)
     key = uuid4().hex
+    if fetch:
+        source = commands.store.directory / "upstreams" / key
     inputs = commands.store.directory / "integration-inputs" / key
     inputs.mkdir(parents=True)
     hashes = {}
@@ -40,7 +51,7 @@ def submit(root, recipe_path, source):
         hashes[name] = digest(target)
     write_json(inputs / "recipe.json", recipe.model_dump(mode="json"))
     hashes["recipe.json"] = digest(inputs / "recipe.json")
-    return commands.submit("integration", {"source": str(source), "inputs": str(inputs), "hashes": hashes,
+    return commands.submit("integration", {"source": str(source), "fetch": fetch, "inputs": str(inputs), "hashes": hashes,
         "output": str(commands.store.directory / "builds" / key)}, key="build:" + key)
 
 
@@ -64,6 +75,10 @@ def perform(root, job_id):
         raise KeyboardInterrupt("Build cancelled")
     signal.signal(signal.SIGTERM, cancelled)
     recipe = Recipe.model_validate(json.loads((inputs / "recipe.json").read_text()))
+    if payload.get("fetch"):
+        from .checkout import fetch_source
+
+        fetch_source(recipe.source, Path(payload["source"]), inputs / "fetch.log")
     receipt = build(recipe, payload["source"], payload["output"], recipe_directory=inputs)
     Releases(root).add(payload["output"])
     return receipt
@@ -74,7 +89,7 @@ def register(sub):
     p.add_argument("action", choices=["validate", "build", "list", "agent", "check", "builtins", "disable", "enable"])
     p.add_argument("--root", type=Path, default=Path.cwd())
     p.add_argument("--recipe", type=Path)
-    p.add_argument("--builtin", help="内置 Agent 配方 ID；构建时仍明确指定干净的源码 checkout")
+    p.add_argument("--builtin", help="内置 Agent 配方 ID；未指定源码时由 Manager 拉取固定版本")
     p.add_argument("--source", type=Path)
     p.add_argument("--release")
     p.add_argument("--run", type=Path)
@@ -117,8 +132,8 @@ def dispatch(args):
         if not args.run:
             raise ValueError("--run is required")
         return check(catalog.directory / args.release, args.run)
-    if not args.recipe or not args.source:
-        raise ValueError("--recipe and --source are required")
+    if not args.recipe or not args.source and not args.builtin:
+        raise ValueError("Use --builtin, or provide --recipe and --source")
     from ..operations.manager import ensure, status
     from ..operations.submission import wait
 

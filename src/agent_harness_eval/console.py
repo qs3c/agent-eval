@@ -16,6 +16,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 
@@ -44,6 +45,11 @@ class Submission(Strict):
     confirm_unbounded: bool = False
     model_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     guardian_model_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    releases: list[str] | None = Field(default=None, min_length=1, max_length=8)
+    sample_count: int | None = Field(default=None, ge=1, le=500)
+    sample_seed: int = 0
+    preflight_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    model_mode: Literal["mock", "live"] | None = None
 
 
 def safe_file(root, path):
@@ -205,7 +211,7 @@ class Console:
             )
         return rows
 
-    def submit(self, data):
+    def prepare(self, data, *, authorization=True):
         request = Submission.model_validate(data)
         if self.blocked:
             raise ValueError(self.blocked)
@@ -213,7 +219,22 @@ class Console:
             self.root / "experiments",
             self.root / "experiments" / (request.template + ".json"),
         )
-        exp = load(path)
+        exp = load(path, validate_agent_artifacts=False) if request.releases else load(path)
+        if request.model_mode:
+            if not request.releases:
+                raise ValueError("显式切换模型模式需要选择已构建 Release")
+            exp.model.mode = request.model_mode
+        if request.releases:
+            from .integrations.store import Releases
+            from .config import Agent
+
+            if len(set(request.releases)) != len(request.releases):
+                raise ValueError("不能重复选择同一 Release")
+            catalog = Releases(self.root)
+            exp.agents = [Agent.model_validate(catalog.agent(release)) for release in request.releases]
+            for release in request.releases:
+                if (catalog.directory / release / "disabled.json").exists():
+                    raise ValueError("所选 Release 已停用")
         if exp.model.mode != "live" and request.model_id:
             raise ValueError("离线和模拟实验不能切换为真实模型")
         if exp.model.mode == "live" and (
@@ -244,11 +265,11 @@ class Console:
             exp.guardian
             and exp.guardian.model
             and exp.guardian.mode == "assist"
-            and (not self.allow_live or not request.confirm_unbounded)
+            and (not self.allow_live or authorization and not request.confirm_unbounded)
         ):
             raise ValueError("守护模型运行需要开启 --allow-live 并确认费用")
         if exp.model.mode == "live":
-            if not self.allow_live or not request.confirm_unbounded:
+            if not self.allow_live or authorization and not request.confirm_unbounded:
                 raise ValueError(
                     "真实运行需要服务开启 --allow-live，并明确确认不设费用上限"
                 )
@@ -285,7 +306,35 @@ class Console:
                     config[field] = values
                 else:
                     config["benchmark"]["tasks"] = values
+        selection = None
+        if request.sample_count:
+            from .benchmarks.selection import select
+
+            selection = select(config["benchmark"]["tasks"], count=request.sample_count, seed=request.sample_seed,
+                               dataset=config["benchmark"].get("dataset"))
+            paths = {Path(path).name: path for path in config["benchmark"]["tasks"]}
+            config["benchmark"]["tasks"] = [paths[name] for name in selection["task_ids"]]
         Experiment.model_validate(config)
+        if request.releases:
+            from .local_flow import validate_agents
+
+            validate_agents(config)
+        return config, selection
+
+    def preflight(self, data):
+        from .local_flow import preflight
+
+        config, selection = self.prepare(data, authorization=False)
+        return preflight(self, config, selection)
+
+    def submit(self, data):
+        config, selection = self.prepare(data)
+        request = Submission.model_validate(data)
+        if request.preflight_digest:
+            from .local_flow import preflight
+
+            if preflight(self, config, selection)["digest"] != request.preflight_digest:
+                raise ValueError("预检后模型、任务或 Agent 产物已改变，请重新预检")
         run_id = uuid.uuid4().hex
         frozen = self.state / "inputs" / run_id
         frozen.mkdir()
@@ -293,6 +342,8 @@ class Console:
             from .freezing import freeze_selection
 
             freeze_selection(config["benchmark"]["tasks"], frozen / "tasks")
+            if selection:
+                write_json(frozen / "tasks/selection.json", selection)
             for i, task in enumerate(config["benchmark"]["tasks"]):
                 source = Path(task)
                 validate_tree(

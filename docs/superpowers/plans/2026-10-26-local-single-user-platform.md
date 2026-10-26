@@ -125,7 +125,7 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 ## P2：标准接入与可比较实验
 
-**状态：T07、T08、T09 已交付，T10/T11 进行中。** 验证与限制见 [P2 记录](../../p2-validation.md)。Comparable 的完整模型/网络覆盖仍由 T10 验收，配方声明不自动授予认证。
+**状态：T07、T08、T09、T11 已交付；T10 核心策略已交付，平台角色接线在 T12 继续验收。** 验证与限制见 [P2 记录](../../p2-validation.md)。当前完整模型/网络覆盖未认证，配方声明不自动授予 Comparable。
 
 ### T07 — Recipe、Release 与 conformance（R02、R08）
 
@@ -166,10 +166,10 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 **文件：** 新增 `src/agent_harness_eval/policies/{__init__,model,network,budget}.py`、`tests/test_model_policy.py`、`tests/test_model_role_routing.py`；修改 `model_pool.py`、`resources/live_model.py`、`config.py`、`search.py`、`resources/search_review.py`、`static/models.js`。
 
-- [ ] 合并前核对现有未提交 role 改动，避免覆盖；将可信角色绑定到服务入口，禁止请求体选择高权限角色。
+- [x] 合并前核对现有未提交 role 改动，避免覆盖；将可信角色绑定到服务入口，禁止请求体选择高权限角色。
 - [ ] 固定模型池快照；统一被测主/子/压缩/回退模型配置，平台模型与 benchmark simulator/grader 分开路由和计费。
-- [ ] 验证协议、参数兼容与真实使用证据；不支持的 Agent 无法取得 Comparable，不静默回退其他模型。
-- [ ] 把网络/搜索/JEV 版本与阈值纳入指纹；保留 deny/unavailable/provider-failure 区别及审查覆盖限制。
+- [x] 验证协议、参数兼容与真实使用证据；不支持的 Agent 无法取得 Comparable，不静默回退其他模型。
+- [x] 把网络/搜索/JEV 版本与阈值纳入指纹；保留 deny/unavailable/provider-failure 区别及审查覆盖限制。
 - [ ] 预算独立限制平台和被测调用；缺价格或 usage 时费用未知，硬上限无法保证时明确拒绝“保证不超额”模式。
 
 **验收：** `uv run pytest -q tests/test_model_policy.py tests/test_model_role_routing.py`；假服务记录子调用/压缩/回退实际模型；恶意 purpose 字段不能改变角色；模型池修改不影响已冻结计划。
@@ -178,10 +178,12 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 **文件：** 新增 `tests/test_local_comparison_flow.py`；修改 `web.py`、`console.py`、`static/app.js`、`static/comparison.js`、`README.md`、`docs/local-deployment.md`。
 
-- [ ] UI 连成模型配置→选择/导入 Agent→接入检查→benchmark/子集→实验预检→运行→逐题对比。
-- [ ] 预检显示构建、下载、磁盘、付费和模型覆盖缺口；密码字段提交后仅显示引用状态。
-- [ ] 用户能定位不可比较原因、未知费用和官方评分等待，无需读服务日志猜状态。
-- [ ] 做自己的 fixture Agent 与已验收内置 Agent 的同模型端到端回归，保留完整 evidence 链。
+- [x] UI 连成模型配置→选择/导入 Agent→接入检查→benchmark/子集→实验预检→运行→逐题对比。
+- [x] 预检显示构建、下载、磁盘、付费和模型覆盖缺口；密码字段提交后仅显示引用状态。
+- [x] 用户能定位不可比较原因、未知费用和官方评分等待，无需读服务日志猜状态。
+- [x] 做自己的 fixture Agent 与已验收内置 Agent 的同模型端到端回归，保留完整 evidence 链。
+
+**实际验证：** `t11-full.log` 为 486 passed、3 skipped（648.99 秒），包括实际 Docker 构建、自定义 fixture + BKCrab 的四次同模型尝试及 conformance。浏览器核对预检展示和条件变更失效。使用已有固定镜像缓存；全新主机镜像下载与完整迁移仍在 T16 验证，不把缓存命中当成全新安装证据。
 
 **验收：** `uv run pytest -q tests/test_local_comparison_flow.py`；Linux 干净安装按文档完成一次实际控制实验。P2 产品可以独立发布，不等待 RSI 自动化。
 

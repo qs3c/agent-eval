@@ -54,3 +54,10 @@ DSH 保留现有 npm `0.2.1-alpha.2` 基线，并查到对应官方 tag 的真�
 迁移前后行为对照：使用已有 DSH Native bundle，以及同一新 BKCrab 二进制的旧 Native 入口，与各自 Recipe 入口组成四 Agent、两 controls 的同模型 fixture 实验。**8/8 结果通过、零错误**（`t08-legacy-comparison.log`；原始实验 `artifacts/t08-legacy-comparison`）。这证明控制任务与入口迁移行为一致，不证明所有任务或真实模型性能等价。
 
 T08 最终定向回归 **19 passed，0.59 秒**（`t08-final-contracts.log`）；完整离线及既有 Docker 开关回归 **464 passed、7 skipped，329.50 秒**（`t08-full-tests.log`）。其中四个内置 Docker 案例默认跳过，已在上述独立指定 Release 的真实验收中分别通过，不能把默认跳过误算为验收通过。四基线均独立完成真实构建、协议运行与取消回收；Comparable 完整覆盖仍待 T10，P2 整体未完成。
+# T10 / T11 补充记录
+
+模型策略：`t10-full-fixed.log` 477 passed、7 skipped；四内置 Agent 实际策略控制实验 `t10-builtin-policy.log` 4 passed。入口固定可信角色、模型与参数，记录请求预算与未知费用，原有未提交 relay 文件保持原哈希。
+
+本地产品流程：`t11-full.log` **486 passed、3 skipped / 648.99 秒**。自定义 fixture 通过实际 Docker 构建，再由 Web API 与内置 BKCrab 共同选择两道控制题、预检、冻结与运行；四次尝试零错误且均通过评分，两版本通过运行检查，保留策略证据。fixture 最初缺少工具声明被模拟端拒绝，修正后完整复验通过，失败日志未删除。
+
+浏览器另核验 Agent 选择、四次尝试预检、未知费用/覆盖说明，以及修改题目数后禁止直接提交。测试未配置真实 API Key、未调用付费模型、未公开发布 PR、未部署生产服务。四内置源构建的固定镜像已缓存，本次不证明新主机网络下载可用；通用 GitHub URL 修复和 RSI 闭环仍按后续阶段推进。

@@ -1,1 +1,2 @@
 *.sh text eol=lf
+tests/fixtures/legacy_workspace/** text eol=lf

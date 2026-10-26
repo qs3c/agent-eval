@@ -13,6 +13,8 @@
 
 ## 本机 Web 控制台
 
+首次安装请先阅读 [本地部署与 doctor](docs/local-deployment.md)；升级与历史数据边界见 [迁移兼容基线](docs/workspace-migration.md)。P0 预检可运行 `uv run agent-harness-eval doctor --agent dsh --json`，不会安装依赖或调用模型。
+
 ```bash
 export PATH="$PWD/.tools:$PATH"
 uv sync --locked --python 3.12
@@ -29,11 +31,11 @@ uv sync --locked --python 3.12
 - 列表默认显示「全部真实评测」，未复核的实验也可见。终态记录与报告齐全、但含运行异常的实验显示「已结束 · 部分异常」及异常／未评分次数；全部异常、缺少评分和结果缺失分别提示。计数单位为尝试（题目 × Agent × 重复次数），复核状态单独保留。
 - 配对比较检查 benchmark、任务内容哈希、模型配置、重复次数、资源和超时等条件。不兼容时展示差异，不输出配对结论；未知费用保持未知。
 - 浏览器刷新不影响执行。服务关闭会终止自己启动的评测进程组；意外重启将未完成运行标为中断，不自动重跑。存在中断运行时暂停队列。检查对应输出中的 trial 名称和遗留进程、Docker 容器并完成清理后，用 `.venv/bin/agent-harness-eval serve --recover` 确认恢复；中断记录保留为失败，不重新执行。若旧进程仍持有锁，新服务拒绝启动。
-- 默认禁止创建真实模型运行。需要时由调用环境注入 `DEEPSEEK_API_KEY`，使用 `serve --allow-live`，并在页面明确确认本次不设费用上限；历史授权不自动沿用到新任务。重启后执行旧队列仍检查本次启动策略。不要将密钥填入模板或页面。
+- 默认禁止创建真实模型运行。需要时使用模型设置或模板指定的环境变量配置凭据，启动 `serve --allow-live`，并在页面明确确认本次费用策略；历史授权不自动沿用到新任务。重启后执行旧队列仍检查本次启动策略。不要把密钥写入实验模板、日志或 Git；配置方式见 [模型池](docs/model-pool.md)。
 
-首版不提供远程访问、账号系统、取消按钮或断点续跑。页面轮询读取文件，适合本地少量实验；数据增长后再引入结果索引。模板准备依赖原有安装步骤。验收见 [WEB_VALIDATION.md](WEB_VALIDATION.md)。
+当前不提供账号系统或 Web 取消/断点续跑按钮；支持显式可信私网地址，批次 CLI 保留 `run --resume`。Web 生命周期与执行尚未分离，统一 Manager 属于 P1。模板准备依赖下述安装步骤。验收见 [WEB_VALIDATION.md](WEB_VALIDATION.md)。
 
-当前可以运行：确定性正负对照、两个原生 Agent 的模拟/真实 DeepSeek 接入、SWE 补丁导出和官方 harness 复评。真实试跑固定为 **DeepSeek V4.1 Flash (`deepseek-flash`)**；用户已授权本轮不设费用上限，仅运行 `django__django-13741` 一题，每个 Agent 一次。
+当前可以运行：确定性正负对照、两个原生 Agent 的模拟/真实模型接入、SWE 补丁导出和官方 harness 复评。历史 DeepSeek 单题试跑使用 `deepseek-flash`，当时的不限费用授权仅属于那次实验，不适用于新用户或新运行。
 
 ## 结构
 
@@ -64,6 +66,8 @@ bash scripts/prepare-native.sh
 .venv/bin/agent-harness-eval validate experiments/native-mock.json
 .venv/bin/agent-harness-eval run experiments/native-mock.json --output artifacts/native-new
 ```
+
+只准备一种 Agent 时使用 `bash scripts/prepare-native.sh dsh` 或 `bash scripts/prepare-native.sh bkcrab`。DSH 不要求 `BKCRAB_SOURCE`/Go，BKCrab 不要求 Node/npm；省略参数保持两者都准备的旧行为。现有双 Agent 模板仍需要两种产物，独立准备后应只选择已准备的 Agent。
 
 已有 `.cache/dsh-bundle03` 时，构建命令会拒绝覆盖；重建应选新的输出目录并更新实验引用。运行目录也拒绝覆盖。配置的相对路径以配置文件所在目录为基准。
 
@@ -105,7 +109,9 @@ bash scripts/prepare-swe.sh django__django-13741
 
 Harbor 上游模板内置 SWE parser **4.0.3**；官方独立复评固定 **4.1.0**。内置 parser 的 `datasets==2.16.1` 额外约束 `pyarrow==20.0.0`。两种评分必须分别保留，不能默认为等价。`swe-regrade` 使用官方 harness 在干净容器重新应用补丁。正式评测以独立复评结果为准。
 
-## 真实单题试跑
+## 历史 DeepSeek 真实单题试跑
+
+本节保留既有固定模型试跑的复现配置，不代表平台仅支持该模型。新的模型通过 [模型池](docs/model-pool.md) 配置；任何真实运行都需另外确认费用策略，不能复用历史授权。
 
 初次准备先运行 `bash scripts/prepare-swe-live.sh`，从已固化的离线 SWE 任务创建只允许 DeepSeek 出网的副本；已存在时拒绝覆盖。
 
@@ -133,7 +139,7 @@ set +a
 
 新的 BKCrab 源码快照以 Git commit/tree 标识已提交内容，并保存未提交差异和未跟踪文件；旧快照只有来源哈希，不能代替源码归档，历史实验不会自动补造证据。无模型验收见 `VALIDATION.md`，真实单题试跑与官方复评见 `LIVE_VALIDATION.md`。
 
-控制台默认展示已复核的真实评测；平台自测和调试记录可单独筛选。同一批次可能同时包含有效和诊断 Agent，批次完成次数不等于通过题目数。
+控制台默认展示全部真实评测，包括待复核记录；平台自测和调试记录可单独筛选。同一批次可能同时包含有效和诊断 Agent，批次完成次数不等于通过题目数。
 
 “结果对比”可选两条真实任务轨迹，查看请求/工具次数、缓存输入、测试返回、最终补丁与逐轮证据；原有汇总比较保留在“批次汇总对比”。历史样本的解释性注释保存在 `console_reviews.json`，只有证据哈希仍匹配时展示为已复核；新实验不会自动继承结论。缺少响应或计时证据时显示未知，不生成推测性的耗时归因。
 

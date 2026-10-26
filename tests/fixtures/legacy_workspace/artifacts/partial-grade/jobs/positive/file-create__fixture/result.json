@@ -1,0 +1,15 @@
+{
+  "task_name": "file-create",
+  "finished_at": "2026-10-26T00:00:00+00:00",
+  "exception_info": null,
+  "verifier_result": {
+    "rewards": {
+      "reward": 1.0
+    }
+  },
+  "agent_result": {
+    "n_input_tokens": null,
+    "n_output_tokens": null,
+    "cost_usd": null
+  }
+}

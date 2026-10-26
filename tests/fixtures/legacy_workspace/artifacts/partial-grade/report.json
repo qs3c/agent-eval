@@ -1,0 +1,124 @@
+{
+  "benchmark": "file-smoke",
+  "primary_metric": "reward",
+  "evidence_kind": "deterministic control",
+  "agents": {
+    "positive": {
+      "expected": 2,
+      "recorded": 2,
+      "missing": 0,
+      "errors": 0,
+      "scored": 2,
+      "mean_on_scored": 1.0,
+      "mean_with_unscored_zero": 1.0,
+      "cost_usd": null
+    },
+    "negative": {
+      "expected": 2,
+      "recorded": 2,
+      "missing": 0,
+      "errors": 0,
+      "scored": 2,
+      "mean_on_scored": 0.0,
+      "mean_with_unscored_zero": 0.0,
+      "cost_usd": null
+    }
+  },
+  "paired_tasks": {
+    "file-create": {
+      "positive": 1.0,
+      "negative": 0.0
+    },
+    "file-preserve": {
+      "positive": 1.0,
+      "negative": 0.0
+    }
+  },
+  "trials": [
+    {
+      "agent": "negative",
+      "task": "file-create",
+      "task_name": "file-create",
+      "trial": "file-create__fixture",
+      "exception": null,
+      "metrics": {
+        "reward": 0.0
+      },
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd": null,
+      "agent_seconds": 8.7e-05,
+      "trial_seconds": 16.515552,
+      "result": "jobs/negative/file-create__fixture/result.json",
+      "guardian": {
+        "assisted": false,
+        "incidents": []
+      }
+    },
+    {
+      "agent": "negative",
+      "task": "file-preserve",
+      "task_name": "file-preserve",
+      "trial": "file-preserve__fixture",
+      "exception": null,
+      "metrics": {
+        "reward": 0.0,
+        "artifact": 0.0,
+        "no_extra_files": 0.0
+      },
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd": null,
+      "agent_seconds": 7.1e-05,
+      "trial_seconds": 16.412029,
+      "result": "jobs/negative/file-preserve__fixture/result.json",
+      "guardian": {
+        "assisted": false,
+        "incidents": []
+      }
+    },
+    {
+      "agent": "positive",
+      "task": "file-create",
+      "task_name": "file-create",
+      "trial": "file-create__fixture",
+      "exception": null,
+      "metrics": {
+        "reward": 1.0
+      },
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd": null,
+      "agent_seconds": 0.093748,
+      "trial_seconds": 16.656534,
+      "result": "jobs/positive/file-create__fixture/result.json",
+      "guardian": {
+        "assisted": false,
+        "incidents": []
+      }
+    },
+    {
+      "agent": "positive",
+      "task": "file-preserve",
+      "task_name": "file-preserve",
+      "trial": "file-preserve__fixture",
+      "exception": null,
+      "metrics": {
+        "reward": 1.0,
+        "artifact": 1.0,
+        "no_extra_files": 1.0
+      },
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd": null,
+      "agent_seconds": 0.092066,
+      "trial_seconds": 16.690231,
+      "result": "jobs/positive/file-preserve__fixture/result.json",
+      "guardian": {
+        "assisted": false,
+        "incidents": []
+      }
+    }
+  ],
+  "report_errors": []
+}

@@ -1,12 +1,6 @@
 import argparse
 from pathlib import Path
 
-from .config import load
-from .provenance import digest, source_manifest, write_json
-from .report import report
-from .run import execute
-
-
 def main():
     p = argparse.ArgumentParser(
         description="Agent harness evaluation workbench (Harbor)"
@@ -15,6 +9,9 @@ def main():
     from .rsi.cli import register
 
     register(sub)
+    from .doctor import register as register_doctor
+
+    register_doctor(sub)
     q = sub.add_parser("serve", help="启动本机评测控制台")
     q.add_argument("--root", type=Path, default=Path.cwd())
     q.add_argument("--port", type=int, default=8765)
@@ -64,6 +61,15 @@ def main():
     q.add_argument("--run-id", required=True)
     q.add_argument("--execute", action="store_true")
     args = p.parse_args()
+    if args.command == "doctor":
+        from .doctor import execute as execute_doctor
+
+        execute_doctor(args)
+        return
+
+    from .config import load
+    from .provenance import digest, source_manifest, write_json
+
     if args.command.startswith("rsi-"):
         from .rsi.cli import execute as execute_rsi
 
@@ -84,8 +90,12 @@ def main():
             f"Valid: {len(e.agents)} agents x {len(e.benchmark.tasks)} tasks x {e.attempts} attempts; mode={e.model.mode}"
         )
     elif args.command == "run":
+        from .run import execute
+
         execute(load(args.config), args.output, resume=args.resume, workbench_repair=args.workbench_repair)
     elif args.command == "report":
+        from .report import report
+
         report(args.run)
     elif args.command == "manifest-index":
         from .manifests import index_legacy_manifest

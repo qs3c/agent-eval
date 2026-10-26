@@ -1,0 +1,71 @@
+{
+  "created_at": "2026-10-26T00:00:00+00:00",
+  "harbor": "0.24.0",
+  "experiment": {
+    "schema_version": 1,
+    "name": "file-task-controls",
+    "model": {
+      "mode": "offline",
+      "name": "mock",
+      "api_base": "https://api.deepseek.com",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "messages_base": null,
+      "pool_id": null,
+      "spending": "disabled",
+      "max_tokens": 8192,
+      "context_window": 131072,
+      "search_review": null
+    },
+    "agents": [
+      {
+        "id": "positive",
+        "implementation": "agent_harness_eval.agents.control:Control",
+        "version": "fixture-v1",
+        "kwargs": {},
+        "capabilities": [
+          "shell",
+          "filesystem"
+        ]
+      },
+      {
+        "id": "negative",
+        "implementation": "nop",
+        "version": "harbor-0.24.0",
+        "kwargs": {},
+        "capabilities": [
+          "shell",
+          "filesystem"
+        ]
+      }
+    ],
+    "benchmark": {
+      "id": "file-smoke",
+      "tasks": [
+        "tasks/file-create",
+        "tasks/file-preserve"
+      ],
+      "requires": [
+        "shell",
+        "filesystem"
+      ],
+      "primary_metric": "reward",
+      "score_kind": "metric",
+      "dataset": null,
+      "evaluation": null
+    },
+    "attempts": 1,
+    "concurrency": 2,
+    "timeout_seconds": 300,
+    "setup_timeout_seconds": 600,
+    "cpus": 2,
+    "memory_mb": 4096,
+    "guardian": null,
+    "batch": null
+  },
+  "tasks": {},
+  "agent_artifacts": {
+    "positive": {},
+    "negative": {}
+  },
+  "evidence_kind": "deterministic control"
+}

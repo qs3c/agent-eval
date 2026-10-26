@@ -2,11 +2,6 @@ import asyncio
 import json
 from pathlib import Path
 
-from .evidence import create_case
-from .runner import create_candidate, perform
-from .store import Store
-
-
 def register(sub):
     q = sub.add_parser(
         "rsi-case", help="Freeze an evaluation diagnosis case (no model execution)"
@@ -38,6 +33,10 @@ def register(sub):
 
 
 def execute(args):
+    from .evidence import create_case
+    from .runner import create_candidate, perform
+    from .store import Store
+
     store = Store(args.root)
     if args.command == "rsi-case":
         result = create_case(store, args.run, args.agent, args.trials)

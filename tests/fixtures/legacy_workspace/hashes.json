@@ -1,0 +1,23 @@
+{
+  ".console/runs.sql": "96cbd0c318ebd5a75c2f010f4d1e0e02fe58b5130b039172636b847ef55d6ff9",
+  ".rsi/cases/11111111111111111111111111111111/record.json": "7fc2704460c1190d3f03f0f90aa10d423856dc41cdb98d76ac6e374dfdd04435",
+  ".rsi/queue.sql": "205d2d2e394836418f32ae19eb2ef0f96b917cc61d82c22f84378f6c59eef691",
+  "artifacts/completed/jobs/negative/file-create__fixture/result.json": "fd93e553fb82c9fe75d1c440b122d36d3dafa0f5c7031cbc6e66d908a67d53d2",
+  "artifacts/completed/jobs/negative/file-preserve__fixture/result.json": "12c0ca0aa0101303467c9a45ae2fcf2ede3ba4dbbe0bafe3ae77560d75511f66",
+  "artifacts/completed/jobs/positive/file-create__fixture/result.json": "7de9995b074b92cdbb90335add828f86081746b3200b9704b2ec4e3144520abc",
+  "artifacts/completed/jobs/positive/file-preserve__fixture/result.json": "ea8eeef131f5fd6e726c89cb7865473bed6592362ac4dcde04db498fcc2e4535",
+  "artifacts/completed/manifest.json": "9635b43de02fe4e42e4c0c9f8a0b0036d065a8c0f321c52ae6165935bd33449c",
+  "artifacts/completed/report.json": "dae47aca3bac801445027338f2ad972b7449c0b6e56d2e61ea800879ca304c91",
+  "artifacts/interrupted/batch-state.json": "cd4befa2a28bd667a05980c1bca8a5dd4588bf7859bf9b7f7e38c87d17317b60",
+  "artifacts/interrupted/manifest.json": "9635b43de02fe4e42e4c0c9f8a0b0036d065a8c0f321c52ae6165935bd33449c",
+  "artifacts/partial-grade/batches/001/official/progress.json": "a1c0d2ae30722e57d39dcb293d1729a2719a1a8c895769423bed2c2d49002cd2",
+  "artifacts/partial-grade/jobs/negative/file-create__fixture/result.json": "fd93e553fb82c9fe75d1c440b122d36d3dafa0f5c7031cbc6e66d908a67d53d2",
+  "artifacts/partial-grade/jobs/negative/file-preserve__fixture/result.json": "12c0ca0aa0101303467c9a45ae2fcf2ede3ba4dbbe0bafe3ae77560d75511f66",
+  "artifacts/partial-grade/jobs/positive/file-create__fixture/result.json": "7de9995b074b92cdbb90335add828f86081746b3200b9704b2ec4e3144520abc",
+  "artifacts/partial-grade/jobs/positive/file-preserve__fixture/result.json": "ea8eeef131f5fd6e726c89cb7865473bed6592362ac4dcde04db498fcc2e4535",
+  "artifacts/partial-grade/manifest.json": "f7cb1ce1de2d1fa36e916012215426d8695fe0e9de812d703b6ea37085692937",
+  "artifacts/partial-grade/official-summary.json": "ff37c8a2f96747be50d9fafc0ebc50cfc6c4d3b7aff4e2975bbe54bd9419dde3",
+  "artifacts/partial-grade/report.json": "dae47aca3bac801445027338f2ad972b7449c0b6e56d2e61ea800879ca304c91",
+  "host-regrading/queue.sql": "e37c614910c14e8308bbb0b0faa0aeb1779dfcb6eb26753c3a17e9c8685adcf1",
+  "recovery/repair.json": "ed35fc844c0754a21ad0724acd94b0c924638e9577b122a98a4448568e7a1935"
+}

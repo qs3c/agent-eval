@@ -1,0 +1,19 @@
+{
+  "total": 4,
+  "completed": 1,
+  "units": {
+    "positive/file-create/1": {
+      "agent": "positive",
+      "task": "file-create",
+      "attempt": 1,
+      "status": "completed"
+    },
+    "negative/file-create/1": {
+      "agent": "negative",
+      "task": "file-create",
+      "attempt": 1,
+      "status": "failed",
+      "error": "fixture: interrupted scoring"
+    }
+  }
+}

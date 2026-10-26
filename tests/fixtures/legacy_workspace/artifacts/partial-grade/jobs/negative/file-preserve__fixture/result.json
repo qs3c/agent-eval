@@ -1,0 +1,17 @@
+{
+  "task_name": "file-preserve",
+  "finished_at": "2026-10-26T00:00:00+00:00",
+  "exception_info": null,
+  "verifier_result": {
+    "rewards": {
+      "reward": 0.0,
+      "artifact": 0.0,
+      "no_extra_files": 0.0
+    }
+  },
+  "agent_result": {
+    "n_input_tokens": null,
+    "n_output_tokens": null,
+    "cost_usd": null
+  }
+}

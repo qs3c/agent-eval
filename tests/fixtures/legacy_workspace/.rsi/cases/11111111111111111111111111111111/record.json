@@ -1,0 +1,12 @@
+{
+  "id": "11111111111111111111111111111111",
+  "created_at": "2026-10-26T00:00:00+00:00",
+  "updated_at": "2026-10-26T00:00:00+00:00",
+  "phase": "created",
+  "run": "__WORKSPACE__/artifacts/completed",
+  "agent": "positive",
+  "trials": [
+    "file-create__fixture"
+  ],
+  "fixture_note": "仅测试旧存储读取，不代表完整诊断证据"
+}

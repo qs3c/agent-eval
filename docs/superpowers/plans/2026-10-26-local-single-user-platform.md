@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- 本文件是分阶段实施路线，不是本次已经执行的改造。所有复选框保持未完成；每个任务独立 PR/提交，验收后再进入依赖它的任务。
-- 执行技能以实际环境可用性为准；当前只交付文档，不启动实施、不委派代理、不部署、不运行付费模型实验。
+- 本文件是持续更新的分阶段实施路线。P0 已按用户授权实施，后续阶段仍未开始；复选框仅反映已经取得验证证据的交付。
+- 执行技能以实际环境可用性为准；本轮仅实施 P0，不委派代理、不部署服务、不运行付费模型实验。
 - 保留工作区原有未提交修改，尤其 `resources/live_model.py`、`tests/test_relay_roles.py` 与 `docs/interview/`；将来实现角色策略时先核对这些改动是否已经合并。
 - 新路径均相对仓库根目录。下面的新接口、文件和命令是计划，不表示当前已经存在。
 - 默认测试用假模型、本地临时 Git 仓库和 fake executor；Docker 集成验收单独执行，真实 API/公开 GitHub 写操作须有对应授权与预算。
@@ -38,15 +38,17 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 ## P0：建立可重复的本地产品基线
 
+**状态：已完成（2026-10-26）。** 实现 doctor、独立 Agent 准备入口和旧格式兼容夹具；完成独立 Python 环境安装、Linux Docker controls 与相关回归。完整命令、测试数量、原有改动保护和验收局限见 [P0 验证记录](../../p0-validation.md)。本阶段不提供新 schema 迁移；P1 尚未开始。
+
 ### T01 — 当前能力与安装诊断（R01、R12）
 
 **文件：** 新增 `src/agent_harness_eval/doctor.py`、`tests/test_doctor.py`、`docs/local-deployment.md`；修改 `cli.py`、`README.md`、`scripts/prepare-native.sh`。
 
-- [ ] 记录当前 CLI/API、状态文件与 fixture；将 README 中历史某轮授权/固定模型试跑叙述标为历史记录，不作为新用户默认授权。
-- [ ] 定义 doctor 结果 `{check_id, required_by, status, evidence, remediation}`；按选择的 Agent/benchmark 检查依赖，不执行付费请求或安装未知脚本。
-- [ ] 实现 Linux/Docker/磁盘/进程与工具链检查；拆开 DSH/BKCrab 准备入口，使单独安装一种 Agent 不要求另一种依赖。
-- [ ] 编写推荐安装、升级、卸载、私网访问、数据备份和 WSL2 未认证说明；明确平台启动与 BKCrab 服务 Docker 部署的区别。
-- [ ] 测试：缺 Docker/低磁盘/仅 DSH 时无 Go/无模型凭据四类报告；使用现有 controls 完成一次无模型端到端验证。
+- [x] 记录当前 CLI/API、状态文件与 fixture；将 README 中历史某轮授权/固定模型试跑叙述标为历史记录，不作为新用户默认授权。
+- [x] 定义 doctor 结果 `{check_id, required_by, status, evidence, remediation}`；按选择的 Agent/benchmark 检查依赖，不执行付费请求或安装未知脚本。
+- [x] 实现 Linux/Docker/磁盘/进程与工具链检查；拆开 DSH/BKCrab 准备入口，使单独安装一种 Agent 不要求另一种依赖。
+- [x] 编写推荐安装、升级、卸载、私网访问、数据备份和 WSL2 未认证说明；明确平台启动与 BKCrab 服务 Docker 部署的区别。
+- [x] 测试：缺 Docker/低磁盘/仅 DSH 时无 Go/无模型凭据四类报告；使用现有 controls 完成一次无模型端到端验证。
 
 **验收：** `uv run pytest -q tests/test_doctor.py`；在 Linux 验收机运行 `uv run agent-harness-eval doctor` 与现有 `run experiments/controls.json --output <新目录>`。记录实际输出，不把本计划中的命令当作已通过。
 
@@ -54,9 +56,11 @@ T07 依赖 T03/T04，不必等待所有结果页面完成；T09 依赖 T03/T05�
 
 **文件：** 新增 `tests/fixtures/legacy_workspace/`、`tests/test_legacy_workspace.py`、`docs/workspace-migration.md`；引用现有 `freezing.py`、`provenance.py`、`run.py`，暂不重写它们。
 
-- [ ] 从脱敏的小型控制实验构建旧 `.console`、RSI、复评和 artifacts 夹具，覆盖 completed/interrupted/partial-grade，不复制真实 key 或巨型日志。
-- [ ] 保存原始文件 hash 清单，写“只读导入不改原文件”“重复导入无新增记录”“缺失 provenance 显示 unknown”测试。
-- [ ] 记录当前 `workbench_repair` 允许范围和配置规范化行为，作为恢复回归测试输入。
+- [x] 从脱敏的小型控制实验构建旧 `.console`、RSI、复评和 artifacts 夹具，覆盖 completed/interrupted/partial-grade，不复制真实 key 或巨型日志。
+- [x] 保存原始文件 hash 清单，写“只读导入不改原文件”“重复导入无新增记录”“缺失 provenance 显示 unknown”测试。
+- [x] 记录当前 `workbench_repair` 允许范围和配置规范化行为，作为恢复回归测试输入。
+
+实施说明：兼容测试调用现有 `Console.import_history()`、RSI Store 与复评读取接口；缺失来源保留缺失并阻止可比较结论，未知费用保持 null。SQLite 使用旧 schema 的文本快照在测试目录还原；故障状态由实际 controls 产物派生，不冒称实际跑过 RSI/SWE。新增 `tests/test_prepare_native.py` 验证脚本分支，CLI/RSI 命令模块改为延迟加载执行依赖，使 doctor 在缺 Harbor 或非 Linux 环境仍能给出报告。
 
 **验收：** `uv run pytest -q tests/test_legacy_workspace.py`；迁移设计明确备份/恢复路径和新旧写入互斥。
 

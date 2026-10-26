@@ -1,0 +1,19 @@
+{
+  "expected_per_agent": 2,
+  "agents": {
+    "positive": {
+      "observed": 1,
+      "resolved": 1,
+      "complete": false,
+      "rate_on_observed": 1.0,
+      "raw_reports": []
+    },
+    "negative": {
+      "observed": 0,
+      "resolved": 0,
+      "complete": false,
+      "rate_on_observed": null,
+      "raw_reports": []
+    }
+  }
+}

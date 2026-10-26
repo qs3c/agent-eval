@@ -70,6 +70,12 @@ function modelDialog(token, data, item) {
     else { input.type = key.endsWith("base") ? "url" : "text"; input.maxLength = key === "label" ? 80 : key === "name" ? 120 : 500; }
     fields[key] = input; grid.append(rsiField(label, input, hint));
   }
+  const policyEnabled = el("input"); policyEnabled.type = "checkbox"; policyEnabled.checked = Boolean(item?.policy);
+  const policyParameters = el("textarea"); policyParameters.value = JSON.stringify(item?.policy?.parameters || {temperature:1,top_p:1});
+  const policyRequests = el("input"); policyRequests.type = "number"; policyRequests.min = 1; policyRequests.max = 1000000; policyRequests.value = item?.policy?.budget?.max_requests || 1000;
+  grid.append(rsiField("启用固定模型策略", policyEnabled, "固定该场景的模型和参数；子调用不能通过请求体切换角色。旧实验快照保持不变。"),
+    rsiField("统一采样/推理参数 JSON", policyParameters, "只填写服务支持的 temperature、top_p、seed、reasoning_effort、thinking、output_config；不支持时请求明确失败。"),
+    rsiField("每次尝试的模型请求上限", policyRequests, "平台与被测角色独立计数；这不是美元费用保证。"));
   const save = rsiButton(item ? "保存模型" : "添加到模型池", null, true); save.type = "submit";
   form.append(grid, error, save);
   form.onsubmit = async event => {
@@ -78,6 +84,11 @@ function modelDialog(token, data, item) {
     if (payload.context_window <= payload.max_tokens) { error.textContent = "上下文窗口必须大于最大输出 Token。"; return; }
     if (!payload.api_key) delete payload.api_key;
     if (!payload.messages_base) payload.messages_base = null;
+    try {
+      payload.policy = policyEnabled.checked ? {parameters:JSON.parse(policyParameters.value),
+        protocols:payload.messages_base || payload.api_base.replace(/\/v1\/?$/, "").replace(/\/$/, "") === "https://api.deepseek.com" ? ["openai-chat","anthropic-messages"] : ["openai-chat"],
+        budget:{max_requests:Number(policyRequests.value)}} : null;
+    } catch { error.textContent = "统一参数必须是有效 JSON 对象。"; return; }
     save.disabled = true; error.textContent = "";
     try {
       await api("/api/models" + (item ? "/" + item.id : ""), {method:item ? "PUT" : "POST", body:JSON.stringify(payload)});

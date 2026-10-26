@@ -44,6 +44,7 @@ class BenchmarkRevision(Frozen):
 
 
 class ExperimentPlan(Frozen):
+    policies: dict | None = Field(default=None, exclude_if=lambda value: value is None)
     experiment: dict
     agents: tuple[AgentRelease, ...] = ()
     benchmark: BenchmarkRevision | None = None

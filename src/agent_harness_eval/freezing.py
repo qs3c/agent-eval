@@ -31,6 +31,7 @@ def plan_from_manifest(manifest, *, evidence=()):
     exp = manifest["experiment"]
     benchmark = exp["benchmark"]
     return ExperimentPlan(
+        policies=manifest.get("policies"),
         experiment=exp,
         agents=tuple(release_from_manifest(agent, manifest) for agent in exp["agents"]),
         benchmark=BenchmarkRevision(

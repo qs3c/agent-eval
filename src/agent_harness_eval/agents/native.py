@@ -33,8 +33,25 @@ class Native(BaseInstalledAgent):
         live = self.model_config["mode"] == "live"
         filename = "live_model.py" if live else "mock_model.py"
         source = Path(__file__).parents[1] / "resources" / filename
-        await environment.upload_file(source, "/installed-agent/model_server.py")
-        await environment.upload_file(source, "/logs/agent/model_server.py")
+        if self.model_config.get("policy") is not None:
+            from ..policies.model import freeze
+
+            policy = freeze(self.model_config, "agent")
+            await environment.upload_file(source, "/installed-agent/policy_upstream.py")
+            await environment.upload_file(source, "/logs/agent/policy_upstream.py")
+            for name in ("policy_runtime.py", "policy_model.py"):
+                await environment.upload_file(source.with_name(name), "/installed-agent/" + name)
+            wrapper = source.with_name("policy_model.py")
+            await environment.upload_file(wrapper, "/installed-agent/model_server.py")
+            await environment.upload_file(wrapper, "/logs/agent/model_server.py")
+            with tempfile.TemporaryDirectory(prefix="harness-policy-") as tmp:
+                path = Path(tmp) / "model-policy.json"
+                path.write_text(json.dumps({"policy": policy.model_dump(mode="json"), "digest": policy.digest}))
+                await environment.upload_file(path, "/installed-agent/model-policy.json")
+                await environment.upload_file(path, "/logs/agent/model-policy.json")
+        else:
+            await environment.upload_file(source, "/installed-agent/model_server.py")
+            await environment.upload_file(source, "/logs/agent/model_server.py")
         if live:
             await environment.upload_file(source.with_name("search_review.py"), "/installed-agent/search_review.py")
             with tempfile.TemporaryDirectory(prefix="agent-harness-eval-secret-") as tmp:
@@ -91,3 +108,11 @@ class Native(BaseInstalledAgent):
             else "mock provider; not model performance",
         }
         (self.logs_dir / "coverage.json").write_text(json.dumps(coverage, indent=2))
+        if self.model_config.get("policy") is not None:
+            from ..policies.model import freeze, verify_usage
+            from ..traces import read_lines
+
+            report = verify_usage(freeze(self.model_config, "agent"), {
+                "requests": read_lines(self.logs_dir / "policy-requests.jsonl"), "cost_usd": context.cost_usd})
+            (self.logs_dir / "model-policy-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
+            context.metadata["model_policy"] = report

@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .guardian.config import GuardianConfig
+from .policies.model import Settings as ModelPolicySettings
 
 
 class Strict(BaseModel):
@@ -33,6 +34,7 @@ class SearchReview(Strict):
 
 
 class Model(Strict):
+    policy: ModelPolicySettings | None = Field(default=None, exclude_if=lambda value: value is None)
     mode: Literal["offline", "mock", "live"] = "offline"
     name: str = "mock"
     api_base: str = "https://api.deepseek.com"
@@ -48,6 +50,12 @@ class Model(Strict):
     def validate_search_review(self):
         if self.search_review and self.mode != "live":
             raise ValueError("搜索审查仅支持 live 模式")
+        if self.policy:
+            from .policies.model import freeze
+
+            freeze(self.model_dump(mode="json"))
+            if self.search_review:
+                raise ValueError("固定模型策略当前不接管辅助搜索；请使用保留的搜索策略入口，不能把它认作完整模型策略覆盖")
         return self
 
 
@@ -142,6 +150,8 @@ class Experiment(Strict):
                     raise ValueError("web_search is currently supported by the BKCrab adapter only")
                 if self.model.mode != "live":
                     raise ValueError("external web_search requires live mode")
+                if self.model.policy:
+                    raise ValueError("固定模型策略当前不支持辅助搜索；不能静默绕过模型请求预算")
             if "sdk-minimal" in str(agent.kwargs):
                 raise ValueError("sdk-minimal is excluded from this comparison")
         return self
@@ -204,4 +214,12 @@ def load(path: Path, *, validate_agent_artifacts=True) -> Experiment:
                 agent.kwargs[key] = str((path.parent / agent.kwargs[key]).resolve())
                 if validate_agent_artifacts and not Path(agent.kwargs[key]).is_file():
                     raise ValueError(f"missing agent artifact: {agent.kwargs[key]}")
+        if exp.model.policy:
+            protocol = "anthropic-messages" if agent.implementation == "agent_harness_eval.agents.dsh:DeepSeekStandard" else "openai-chat"
+            if agent.implementation == "agent_harness_eval.agents.recipe:Recipe" and Path(agent.kwargs.get("provenance", "")).is_file():
+                import json
+
+                protocol = json.loads(Path(agent.kwargs["provenance"]).read_text())["recipe"]["model_protocol"]
+            if protocol != "none" and protocol not in exp.model.policy.protocols:
+                raise ValueError(f"{agent.id}: model policy does not admit required protocol {protocol}")
     return exp

@@ -28,6 +28,9 @@ def submit_console(console, row):
             for field, path in agent["kwargs"].items() if field in {"binary", "bundle", "provenance"}}
             for agent in config["agents"]}}
     manifest["selection"] = selection_record(config["benchmark"]["tasks"])
+    from ..policies.experiment import fingerprint
+
+    manifest["policies"] = fingerprint(config)
     plan_id = commands.store.create_plan(plan_from_manifest(manifest), key)
     return commands.submit("console", {"run_id": row["id"], "plan_id": plan_id,
         "cooperative_pause": True}, key=key)
@@ -87,6 +90,9 @@ def submit_experiment(root, experiment, output, *, resume=False, workbench_repai
                 for field, path in agent["kwargs"].items() if field in {"binary", "bundle", "provenance"}}
                 for agent in config["agents"]}}
         manifest["selection"] = selection_record(config["benchmark"]["tasks"])
+        from ..policies.experiment import fingerprint
+
+        manifest["policies"] = fingerprint(config)
         plan = plan_from_manifest(manifest)
         plan_id = commands.store.create_plan(plan, "cli:" + key)
         config_path = directory / "config.json"

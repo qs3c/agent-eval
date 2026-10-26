@@ -10,12 +10,18 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from .policies.model import Settings as ModelPolicySettings
 
 SCENES = {
     "executor_bkcrab": "执行 Agent · BKCrab",
     "executor_dsh": "执行 Agent · DSH",
     "experiment": "实验 Agent",
     "guardian": "守护 Agent",
+    "integration": "接入 Agent",
+    "diagnosis": "诊断 Agent",
+    "improvement": "改进 Agent",
+    "user_simulator": "Benchmark 用户模拟器",
+    "official_grading": "Benchmark 模型评分器",
 }
 
 
@@ -43,6 +49,7 @@ class ModelInput(BaseModel):
     max_tokens: int = Field(default=32768, gt=0, le=1048576)
     context_window: int = Field(default=1000000, gt=0, le=10000000)
     api_key: SecretStr | None = Field(default=None, max_length=4096)
+    policy: ModelPolicySettings | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def valid(self):
@@ -232,7 +239,7 @@ class ModelPool:
             raise ValueError("请先在全局模型设置中添加模型并指定场景默认模型")
         if scene == "executor_dsh" and not entry["messages_base"]:
             raise ValueError("DSH 需要支持 Messages 的模型接口")
-        return {
+        result = {
             "mode": "live",
             "spending": "unbounded",
             "name": entry["name"],
@@ -243,6 +250,15 @@ class ModelPool:
             "api_key_env": "EVAL_POOL_KEY_" + entry["key_ref"],
             "pool_id": entry["id"],
         }
+        if entry.get("policy"):
+            result["policy"] = entry["policy"]
+        return result
+
+    def frozen_policy(self, role, identity=None):
+        from .policies.model import freeze
+
+        scene = "experiment" if role == "agent" else role
+        return freeze(self.resolve(scene, identity), role)
 
     def environment(self, *configs):
         result = {}

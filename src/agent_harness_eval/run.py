@@ -173,6 +173,10 @@ async def run_experiment(
             name: digest(Path(__file__).resolve().parents[2] / "scripts" / name)
             for name in ["pin-swe-runtime.py", "materialize-grader.py"]
         }
+    if not resume:
+        from .policies.experiment import fingerprint
+
+        manifest["policies"] = fingerprint(manifest["experiment"])
     for task in exp.benchmark.tasks:
         target = output / "tasks" / task.name
         if resume:

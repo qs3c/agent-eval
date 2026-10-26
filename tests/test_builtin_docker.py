@@ -41,6 +41,11 @@ def test_builtin_controls_evidence_and_cancel_after_container_start(tmp_path, na
         exp = load(Path("experiments/controls.json"))
         exp.agents = [Agent.model_validate(releases.agent(release_id))]
         exp.model.mode, exp.model.name = "mock", "fixture-model"
+        if os.environ.get("BUILTIN_MODEL_POLICY") == "1":
+            from agent_harness_eval.policies.model import Settings
+
+            exp.model.policy = Settings(parameters={"temperature": 0, "top_p": 1},
+                protocols=("openai-chat", "anthropic-messages"))
         exp.concurrency = 1
         output = project / "artifacts" / name
         job = submit_experiment(project, exp, output)
@@ -52,6 +57,11 @@ def test_builtin_controls_evidence_and_cancel_after_container_start(tmp_path, na
         result = check(releases.directory / release_id, output)
         assert result["levels"]["runnable"]["passed"], result
         assert result["observed_model_calls"], result
+        if exp.model.policy:
+            for path in output.glob("jobs/*/*/agent/policy-requests.jsonl"):
+                records = [json.loads(line) for line in path.read_text().splitlines()]
+                assert records and all(row["body"]["model"] == "fixture-model" and row["body"]["temperature"] == 0 for row in records)
+            assert len(list(output.glob("jobs/*/*/agent/model-policy-report.json"))) == 2
         assert not result["levels"]["comparable"]["passed"]
         if name in {"hermes", "opencode", "bkcrab"}:
             assert result["levels"]["diagnosable"]["passed"], result

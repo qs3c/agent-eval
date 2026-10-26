@@ -119,6 +119,9 @@ def results(output, experiment, trials, execution, score_kind):
     selected, issues = official_trials(output, experiment, trials) if official else (deepcopy(trials), [])
     terminal = execution in {"completed", "failed", "interrupted", "cancelled", "incomplete"}
     data = summarize(experiment, selected, "resolved" if official else score_kind, terminal)
+    from ..policies.assurance import assess
+
+    data["model_assurance"] = assess(output, experiment)
     expected = len(experiment["agents"]) * len(experiment["benchmark"]["tasks"]) * experiment["attempts"]
     def graded(row):
         from ..comparison import numeric

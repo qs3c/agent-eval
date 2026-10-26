@@ -99,6 +99,11 @@ function drawExperimentComparison(data, body, active) {
   }
   if (data.denominators) meta.append(el("p", `计划 ${data.denominators.planned} 次 · 已执行 ${data.denominators.executed} 次 · 已评分 ${data.denominators.scored} 次`));
   if (data.issues?.length) meta.append(fold("评分证据问题", data.issues.join("\n")));
+  if (data.model_assurance) {
+    meta.append(el("p", data.model_assurance.scope, "callout warning"));
+    meta.append(fold("模型一致性与不可比较原因", Object.entries(data.model_assurance.agents).map(([name, row]) =>
+      `${name}：已观察调用${row.observed_consistent ? "一致" : "尚未完整核验"}；证据 ${row.recorded}/${row.expected} 次。\n${row.reasons.join("；")}`).join("\n\n")));
+  }
   if (data.harbor) meta.append(fold("Harbor 内置评分（独立参考）", JSON.stringify(data.harbor.agents, null, 2)));
   const summary = el("section", undefined, "panel comparison-panel");
   summary.append(el("h2", "整体表现 · 本次全部任务"),

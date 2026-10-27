@@ -62,6 +62,26 @@ def test_import_selection_rejects_disabled_and_wrong_protocol(flow):
     assert not console.runs()
 
 
+def test_empty_release_selection_never_falls_back_to_template_agents(flow):
+    console, _ = flow
+    with pytest.raises(ValueError, match="至少选择"):
+        console.preflight(dict(template="controls", releases=[], model_mode="mock"))
+    assert not console.runs()
+
+
+def test_offline_recipe_can_be_preflighted_from_local_setup(tmp_path, flow):
+    console, _ = flow
+    (tmp_path / "offline").mkdir()
+    source = repository(tmp_path / "offline")
+    recipe = Recipe.model_validate(fixture_recipe(id="offline-fixture", model_modes=["offline"], model_protocol="none"))
+    record = build(recipe, source, tmp_path / "offline-built", recipe_directory=tmp_path, executor=fake_build)
+    Releases(console.root).add(tmp_path / "offline-built")
+    preview = console.preflight(dict(template="controls", releases=[record["release_id"]], model_mode="offline", sample_count=2))
+    assert preview["paid"] is False
+    assert preview["experiment"]["model"]["mode"] == "offline"
+    assert preview["planned_attempts"] == 2
+
+
 def test_local_api_preflight_and_build_are_same_origin_and_never_start_on_read(flow):
     console, release = flow
     client = TestClient(create_app(console.root), base_url="http://127.0.0.1")
@@ -88,11 +108,32 @@ def test_live_preflight_requires_service_authorization_and_key_and_execution_con
     with pytest.raises(ValueError, match="allow-live"):
         console.preflight(request)
     console.allow_live = True
+    with pytest.raises(ValueError, match="禁止网络访问"):
+        console.preflight(request)
+    allow_fixture_model(console, "fixture.invalid")
     report = console.preflight(request)
     assert report["paid"] and "fixture-secret" not in json.dumps(report)
     with pytest.raises(ValueError, match="确认"):
         console.submit({**request, "preflight_digest": report["digest"]})
     assert not console.runs()
+
+
+def test_local_model_preflight_explains_container_loopback_without_calling_endpoint(flow):
+    from agent_harness_eval.model_pool import ModelInput
+
+    console, release = flow
+    console.allow_live = True
+    allow_fixture_model(console, "127.0.0.1")
+    saved = console.models.save(ModelInput(label="Local", name="test", api_base="http://127.0.0.1:19878/v1", api_key="test-only"))
+    preview = console.preflight(dict(template="controls", releases=[release], model_mode="live", model_id=saved["models"][-1]["id"]))
+    assert any("容器自身" in message for message in preview["warnings"])
+    assert preview["model_calls_made"] == 0
+
+
+def allow_fixture_model(console, host):
+    for task in (console.root / "tasks").glob("*/task.toml"):
+        text = task.read_text().replace('network_mode = "no-network"', 'network_mode = "allowlist"\nallowed_hosts = ["' + host + '"]', 1)
+        task.write_text(text)
 
 
 def test_real_docker_custom_agent_and_builtin_share_model_through_product_flow(tmp_path, monkeypatch):

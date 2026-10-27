@@ -59,10 +59,24 @@ def summarize_usage(requests, responses):
 
 
 def convert(logs: Path, name: str, version: str):
-    events = read_lines(logs / "events.jsonl")
+    events, event_warnings = [], []
+    event_path = logs / "events.jsonl"
+    if event_path.exists():
+        for number, line in enumerate(event_path.read_text(errors="replace").splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+                if not isinstance(event, dict) or not isinstance(event.get("type"), str) or not isinstance(event.get("data"), dict):
+                    raise ValueError("unsupported event shape")
+            except (ValueError, TypeError):
+                event_warnings.append(f"events.jsonl:{number} 无法转换为标准事件；原始记录已保留")
+                continue
+            events.append(event)
     wire = read_lines(logs / "wire_requests.jsonl")
     coverage = {
         "native_events": bool(events),
+        "event_warnings": event_warnings,
         "wire_model_requests": bool(wire),
         "provider_requests": bool(wire)
         or any(e["type"] == "model_request" for e in events),

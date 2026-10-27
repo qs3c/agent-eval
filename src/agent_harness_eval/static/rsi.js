@@ -83,6 +83,7 @@ function rsiConfigNote(data) {
     const selected = (config.models || []).find(m => m.id === model.value);
     const ready = chosen.installed && selected?.has_api_key && (select.value !== "dsh" || selected.messages_base);
     status.replaceChildren(rsiBadge(!chosen.installed ? "运行环境未就绪" : !selected ? "请选择模型" : !selected.has_api_key ? "模型缺少凭据" : select.value === "dsh" && !selected.messages_base ? "DSH 需要 Messages 接口" : config.configured && select.value === config.executor && model.value === config.model_id ? "已启用" : "可启用", ready ? "success" : "warning"));
+    if (!chosen.installed) status.append(el("p", "测评基线与平台诊断执行器分别安装。在平台目录先准备原生构建产物，再运行以下命令；完整步骤见 docs/platform-agents.md。"), el("code", 'python scripts/prepare-rsi-runtime.py --root "$PWD"'));
     save.disabled = !ready;
   }
   function choose() { model.value = config.bindings?.["executor_" + select.value] || ""; statusUpdate(); }

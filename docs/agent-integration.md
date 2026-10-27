@@ -56,11 +56,13 @@ model_modes: [offline]
 model_protocol: none
 ```
 
-这是确定性协议夹具，不是一个真实模型 Agent。构建后运行 `integration list --root <平台目录>`，再用 `integration agent --release <id> --root <平台目录>` 获取完整 Agent 配置对象；将其放入实验 JSON 的 `agents`，与现有 controls 使用同一个 `run` 入口。
+这是确定性协议夹具，不是一个真实模型 Agent。先在该目录执行 `git init -b main`、`git add agent.py build.py`、`git commit -m "Add protocol example"`（需要已配置 Git 作者身份），并准备配方指定的 Docker 镜像。打开“Agent 接入”，填写源码目录与配方绝对路径，点击“构建自己的版本”。构建完成后进入“创建对比”，只勾选 `hello-harness`，选择 `controls`、**离线 · 无模型协议检查**、两题，再预检和运行。此例不支持 mock/live，不能与需要模型的基线混在一次实验中。
+
+真实 Agent 应按下节接入模型中继并声明实际支持的 `mock/live`，再与内置基线做同模式对比。CLI 也可使用 `integration list --root <平台目录>` 和 `integration agent --release <id> --root <平台目录>` 获取 Agent 配置对象，放入实验 JSON 的 `agents`，通过同一个 `run` 入口执行。
 
 CLI Agent 使用 `entrypoint.argv` 替代 `entrypoint.python`，例如 `[python3, "{agent_dir}/agent.py", "{request_file}"]`。CLI 从 JSON 文件读取请求，并写入 `{output_dir}/agent-result.json`。Python 函数接收同一个请求 dict，返回同一个结果 dict，包装器负责写文件；Python 扩展仍只在容器内部导入。
 
-请求字段：`schema_version=1`、`instruction`、`workspace`、`output_dir`、`deadline_unix`、`model`。模型包含 `mode/id/api_base/api_key_env/max_tokens`。结果必须有 `schema_version=1` 和 `status=completed|failed`；Agent 自报 completed 仅指正常退出，benchmark 是否通过由独立验证器判定。标准输出、标准错误及请求/来源留在每次尝试的 `agent/` 目录。
+请求字段：`schema_version=1`、`instruction`、`workspace`、`output_dir`、`deadline_unix`、`model`。模型包含 `mode/id/api_base/api_key_env/max_tokens`，其中 `api_key_env` 是环境变量名列表（可能为空），不是单个变量名。Python 可用 `next((os.environ[name] for name in model["api_key_env"] if name in os.environ), "relay-only")` 读取中继凭据。结果必须有 `schema_version=1` 和 `status=completed|failed`；Agent 自报 completed 仅指正常退出，benchmark 是否通过由独立验证器判定。标准输出、标准错误及请求/来源留在每次尝试的 `agent/` 目录。
 
 ## 模型与可观测性
 
@@ -71,7 +73,7 @@ CLI Agent 使用 `entrypoint.argv` 替代 `entrypoint.python`，例如 `[python3
 `integration check --release <id> --run <实验目录> --root <平台目录>` 保存独立 conformance 记录，包含证据 hash：
 
 - Runnable：至少两次独立尝试均有完整结果、来源和协议响应。
-- Comparable：还需要完整模型角色、参数和网络覆盖证明；仅观察到部分中继调用不会授予该级别。T10 完成前保持不通过并说明原因。
+- Comparable：还需要完整模型角色、参数和网络覆盖证明；仅观察到部分中继调用不会授予该级别，未覆盖时保持不通过并说明原因。
 - Diagnosable：在 Runnable 之外检查模型请求（原生 hook 或中继记录）、原生工具调用及工具结果；缺失时保持不通过。派生事件应指向原始输出，不冒充原生 provider hook。
 
 该检查只对所验证的配方、Release、任务与环境负责，不表示任意 benchmark 通用。取消、超时、资源回收需通过专项集成验收。新 Release 不自动替换已经冻结的实验；源码跟踪与 RSI 准入指针由后续流程维护。

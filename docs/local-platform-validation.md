@@ -57,3 +57,46 @@ SWE 初次隔离验收使用 `django__django-13741`、oracle/nop 对照，但固
 旧收件箱和读投影保留，执行权收口到 Manager；不为移除兼容代码而破坏历史恢复路径。新用户操作顺序、安装条件、凭据配置与升级步骤见 [本地部署](local-deployment.md)、[模型策略](model-policies.md)、[Agent 接入](agent-integration.md)、[来源跟踪](source-tracking.md)和[迁移备份](workspace-migration.md)。
 
 最终全量使用 Python 3.12 的 `python -m pytest -q -rs`，启用 `RSI_DOCKER_TESTS=1 GUARDIAN_DOCKER_TESTS=1 INTEGRATION_DOCKER_TESTS=1 CLEANUP_DOCKER_TESTS=1 BUILTIN_MODEL_POLICY=1`，并指定已有 `BUILTIN_RELEASE_ROOT=/tmp/harness-p1-zUBzJWtE`。没有启用付费模型。Windows 本机 `compileall` 和 `git diff --check` 通过；实施前的三个未提交文件 SHA-256 保持不变，没有纳入实施提交。
+
+## 2026-10-27 首次使用实走结果
+
+本轮在独立源码副本 `/tmp/harness-onboarding-e72h` 从锁定依赖安装开始，使用浏览器操作接入、模型设置、创建对比、逐题证据和 RSI。基础版本为 `633e3af`，叠加本轮修复；新建虚拟环境、数据库和 Release 目录。复用了机器上的 uv、依赖下载缓存和固定 Docker 镜像，不等于全新操作系统、空缓存安装认证。
+
+| 步骤 | 实际结果 |
+| --- | --- |
+| 首次安装 | `uv sync --locked --python 3.12` 成功；doctor 检查通过。Linux x86_64 / Python 3.12.3 / Docker，Web 使用独立端口 18765 |
+| 基线接入 | 页面安装固定 BKCrab 源码并构建，Release `aa25ebfd3e03…` |
+| 自有 Agent | 文档离线示例新建 Git 仓库，按标准 Python 配方构建；运行 `b9a5b923ba7c433dbb315c81e8aedd9b` 两题均为 1，无异常 |
+| 模型配置 | 页面添加 API URL、模型 ID、测试 Key 并绑定实验角色；使用私网本机假 API，未调用付费服务 |
+| 同模型对比 | 自有测试 Agent Release `274fba1b338d…` 与 BKCrab；两题、各一次，运行 `1c7ed7eee6e446f9b01ba59d73c421d8` 四次均完成、均评分、无异常 |
+| 对比与定位 | 自有 Agent 主分 0.5，BKCrab 为 1；`file-preserve` 分数 0 对 1。原始指标显示 `artifact=1`、`no_extra_files=0`，定位到额外调试文件 |
+| 诊断材料 | 从逐题对比直接保存零分尝试，案例 `94bf061f948442d0ae72205f6de7e9ca`，只含一条选中记录；未要求填写目标 |
+| 诊断展示 | 确定性本机执行器读取冻结 reward 证据 `e0034`，生成中文诊断并在独立源码副本移除调试文件；候选 `5818b34425f84e59903a573f40a4d805` 检查通过，页面明确显示尚未复评、未发布 |
+
+该诊断执行器是流程验收 fixture，不是大模型推理质量证明，也没有通过公开 PR 或父子 benchmark 复评证明能力提升。对比使用的假 API 只验证统一模型路由；分数不用于比较真实 Agent 能力，费用缺失仍显示未知。
+
+### 本轮修复
+
+- 空实验列表增加接入、配置模型、创建对比三步入口；主要创建入口指向新流程。筛选无结果时可直接查看全部记录。
+- 接入页先展示自有 Agent 与内置基线，再展示 GitHub 跟踪和 RSI 闭环；缺少输入时禁用核验、启动按钮。
+- 支持文档示例的 offline 模式；空 Agent 选择明确拒绝，题目数随 benchmark 规模收敛，非 live 不选择模型。
+- 模型配置提示容器内 localhost 的含义；预检提示回环地址，拒绝禁网任务直接调用真实模型。`controls` 保持禁网，不自动放宽任务或验证器策略。实走使用独立任务副本，仅允许本机测试端点。
+- Manager live 策略不一致时给出停止、等待退出和重启步骤，避免只重启 Web 后仍无法执行。
+- 运行详情随新尝试落盘刷新轨迹列表；不反复重置未变化的选择。
+- 逐题对比增加“保存这次尝试为诊断案例”，覆盖正常退出但得分为零的尝试；说明原生诊断执行器需独立准备。
+- 修复自定义 JSONL 事件缺少 `type/data` 导致转换器异常、整批终止的问题：无法标准化的事件保留原文和逐行警告，不伪造原生事件覆盖，也不阻断评分。
+- 接入文档明确 `model.api_key_env` 是列表，补齐 Git 提交、离线示例、网络策略和诊断操作步骤。
+
+### 失败证据与验证范围
+
+早期失败记录没有覆盖：`fbcbae0ad7ed482492f0a721bc34291c`、`115bf8769234414a84b2c27f1edf9ef1` 涉及测试样例凭据字段用错、回环地址及禁网任务；`6f08af8815604f0688144c79f0764d48` 复现轨迹转换器异常。最终成功运行沿用修正后的固定 Agent Release，只更新平台转换器，没有靠删除日志绕开问题。
+
+- 最终常规 Python 全量：**517 passed、22 skipped**，94.68 秒（`onboarding-full-final.log`）；跳过项要求额外 Docker 开关或预备产物，未计为通过。
+- 开启 `BUILTIN_RELEASE_ROOT` 的产品流程及 Web/模型/Manager/RSI 专项：**56 passed**，46.43 秒（`onboarding-final-tests.log`），包含实际 Docker 自有 Agent + BKCrab 同模型控制对比。
+- 轨迹及配方专项：**18 passed**（`onboarding-trace-tests.log`）。
+- Node UI：**36 passed**，包含新增六项首次使用回归。
+- 原有三个未提交文件 SHA-256 与实施前一致。未推送、未替换服务器既有服务、未发布 PR。
+
+本轮没有重复 SWE 下载和官方评分、全部四种基线构建、真实模型诊断质量或空缓存安装认证，相关历史证据仍见上文 P0–P4。当前仍需改善的产品门槛是：SWE 数据与镜像准备、平台原生诊断执行器独立安装、未知 GitHub 仓库需要配方/适配。它们不应被表述为“只填 URL 即保证成功”。
+
+收尾状态：完成浏览器诊断验证后，100.93.173.10 的 SSH 连续连接超时，本机 Tailscale 仍为 Running。因此本轮独立 Web（PID 2370198 / 端口 18765）、假 API（PID 2332547 / 端口 19878）及工作区 Manager 的停止未确认，可能仍在运行；没有对既有生产服务执行停止操作。恢复连接后应先核对 PID 命令行包含该工作区，再定向停止 Web/假 API，并对该 root 执行 manager stop，确认 alive=false。测试输出和案例保留用于复核。

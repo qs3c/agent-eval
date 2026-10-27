@@ -26,7 +26,15 @@
 
 真实模型实验先在 **模型设置** 填写 API URL、模型 ID 和 Key，服务使用 `--allow-live` 启动；创建对比时切换真实模型并选择同一个模型条目。预检后确认费用才会入队。模型、任务或 Agent 产物在预检后改变会使提交失效。题目抽样清单随实验冻结，后续更改源码、模型池或模板不会回写已有实验。
 
+`controls` 的任务使用 `no-network`，只供离线和模拟模型检查，不能仅切换为真实模型后运行。真实模型任务的 `task.toml` 中，`[agent]` 应使用 `network_mode = "allowlist"`，并在 `allowed_hosts` 放行所用模型端点的主机名；不要改动验证器的网络策略。自定义 API URL 也必须符合任务的网络限制。预检会拦截禁网任务，但不会实际发送请求测试连通性。宿主机模型服务应监听容器可达的接口，填写对应地址；任务容器中的 `localhost` 指向容器自身。
+
+如果此前已经启动过不带 `--allow-live` 的服务，先关闭 Web，在同一平台目录执行 `uv run agent-harness-eval manager stop`；等待 `uv run agent-harness-eval manager status` 显示 `alive=false`，再启动 `uv run agent-harness-eval serve --allow-live --port 8765`。Manager 会等待已有作业结束，不要为更改开关强行杀死正在执行的实验。只关闭浏览器或 Web 不会改变后台执行策略。
+
+接入文档中的 `hello-harness` 是无需模型的协议示例，在“创建对比”选择 **离线 · 无模型协议检查**，单独运行两题。与 BKCrab 等模型 Agent 对比时，应接入支持 mock/live 的自己的 Agent；先做模拟模型检查，再使用配置好的真实模型。
+
 结果页区分成绩、执行错误、评分等待、未知费用与模型策略覆盖。模拟模型成绩仅证明执行链路；当前内置版本不因运行成功自动取得完整 Comparable。GitHub URL 接入和持续版本闭环见 [源码跟踪](source-tracking.md)，未知仓库需要配方或配置好的 Integration Agent。
+
+在逐题对比中选择题目和具体尝试，点击 **保存这次尝试为诊断案例**。这一步冻结证据，不调用模型，也不要求填写改进目标；正常执行但得分为零的记录同样可以诊断。随后按案例页提示配置平台执行 Agent 和诊断/改进模型，再创建候选运行改进。被测 Agent 的 Release 与平台诊断执行器是两套独立产物；后者首次准备步骤见 [平台 Agent 执行边界](platform-agents.md)。
 
 先通过官方安装方式准备 Git、Docker 和 uv，让当前用户可访问 Docker。然后在用户自己的平台 checkout 中运行：
 

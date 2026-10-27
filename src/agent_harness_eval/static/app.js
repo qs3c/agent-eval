@@ -192,6 +192,14 @@ function renderRunRows() {
     body.append(tr);
   }
   $("#empty").hidden = rows.length > 0;
+  if (!runs.length) {
+    $("#empty").replaceChildren(el("p", "首次使用：先接入自己的 Agent 和一个基线，再配置模型、创建对比。无需 API Key 也能先做接入检查。"),
+      link("1. 接入 Agent →", "#integrations", "button"), link("2. 配置模型 →", "#models", "button"), link("3. 创建对比 →", "#setup", "button primary"));
+  } else if (!rows.length) {
+    const showAll = el("button", "查看全部记录（含离线与模拟实验）", "button");
+    showAll.onclick = () => { filter = "all"; search = ""; renderRuns(epoch); };
+    $("#empty").replaceChildren(el("p", "当前筛选没有匹配的实验，接入检查记录位于平台自测。"), showAll);
+  }
   $("#run-count").textContent = rows.length;
   stats(
     [
@@ -467,6 +475,17 @@ function regradingPanel(run) {
   return panel;
 }
 
+function refreshDetailTraces(run) {
+  const existing = $("#detail-traces");
+  if (!existing) return;
+  const signature = JSON.stringify(run.trials.map(t => t.id));
+  if (existing.dataset.signature === signature) return;
+  const traces = el("section", undefined, "trace-section");
+  traces.id = "detail-traces"; traces.dataset.signature = signature;
+  traces.append(el("h2", "执行轨迹与证据"));
+  existing.replaceWith(traces);
+  tracePicker(run, traces).catch(e => traces.append(el("p", e.message, "error")));
+}
 async function renderDetail(id, token, initial = true) {
   const [r, logs, incidents] = await Promise.all([
     api("/api/runs/" + id),
@@ -530,14 +549,12 @@ async function renderDetail(id, token, initial = true) {
     configPanel.append(info, details);
     grids.append(logPanel, configPanel);
     const traces = el("section", undefined, "trace-section");
-    traces.append(el("h2", "执行轨迹与证据"));
+    traces.id = "detail-traces";
     const guardian = el("section", undefined, "panel");
     guardian.id = "guardian-incidents";
     view.append(head, state, metrics, results, guardian, traces, grids);
-    tracePicker(r, traces).catch((e) =>
-      traces.append(el("p", e.message, "error")),
-    );
   }
+  refreshDetailTraces(r);
   $("#detail-state").replaceChildren(
     runState(r),
     el("span", modes[r.mode] + " · " + r.benchmark, "muted"),

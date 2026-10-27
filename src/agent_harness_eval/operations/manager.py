@@ -248,7 +248,7 @@ def ensure(root, *, allow_live=False):
         info = status(root)
         if info["alive"]:
             if info["allow_live"] != allow_live:
-                raise ValueError("Manager live policy differs; stop it explicitly before changing policy")
+                raise ValueError("Manager live policy differs：后台 Manager 的真实模型开关与本次启动不一致。请先在该工作区执行 manager stop，等待 manager status 显示 alive=false，再以需要的 --allow-live 设置启动服务；关闭 Web 不会停止 Manager。")
             return info
         (commands.store.directory / "stop.json").unlink(missing_ok=True)
         argv = [sys.executable, "-m", "agent_harness_eval.cli", "manager", "run", "--root", str(root)]

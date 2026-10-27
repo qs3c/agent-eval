@@ -49,7 +49,7 @@ class Submission(Strict):
     sample_count: int | None = Field(default=None, ge=1, le=500)
     sample_seed: int = 0
     preflight_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    model_mode: Literal["mock", "live"] | None = None
+    model_mode: Literal["offline", "mock", "live"] | None = None
 
 
 def safe_file(root, path):
@@ -212,6 +212,8 @@ class Console:
         return rows
 
     def prepare(self, data, *, authorization=True):
+        if isinstance(data, dict) and "releases" in data and not data["releases"]:
+            raise ValueError("至少选择一个已构建 Agent 版本；首次使用请先接入或安装 Agent")
         request = Submission.model_validate(data)
         if self.blocked:
             raise ValueError(self.blocked)

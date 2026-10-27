@@ -1,4 +1,16 @@
 "use strict";
+function diagnosisFromTrial(runId, agent, trial) {
+  const button = el("button", "保存这次尝试为诊断案例", "button");
+  button.type = "button";
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      const result = await api("/api/rsi/cases", {method:"POST", body:JSON.stringify({run_id:runId, agent, trials:[trial]})});
+      location.hash = "#rsi-case/" + result.id;
+    } catch (e) { notice(e.message); button.disabled = false; }
+  };
+  return button;
+}
 function datasetLabel(dataset) {
   return dataset
     ? `${dataset.name} · ${dataset.split || "split 未记录"} · 修订 ${dataset.revision || "未记录"}`
@@ -170,6 +182,8 @@ function drawExperimentComparison(data, body, active) {
           if (!active() || v !== detailVersion || ticket !== request) return;
           if (t.task !== task || t.agent !== name) throw Error("轨迹的 Agent 或任务不匹配，已停止展示。");
           column.replaceChildren(traceCard(t));
+          const record = records.find(r => r.id === select.value);
+          if (record?.trial) column.append(diagnosisFromTrial(run.id, name, record.trial), el("p", "仅冻结所选测试证据，不调用模型；进入案例后再配置诊断。"));
         } catch (error) {
           if (active() && v === detailVersion && ticket === request) column.replaceChildren(el("p", error.message, "error"));
         }

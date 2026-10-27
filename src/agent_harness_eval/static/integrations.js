@@ -73,10 +73,12 @@ async function renderIntegrations(token) {
   const release = rsiSelect(catalog.releases.map(r => [r.release_id, `${r.release.agent_id} · ${r.release_id.slice(0, 12)}`]), "检查版本");
   const runs = rsiSelect(history.runs.filter(r => ["completed", "failed", "interrupted", "cancelled"].includes(r.status)).map(r => [r.id, r.name + " · " + modes[r.mode]]), "检查实验");
   const report = el("pre");
-  releases.append(rsiField("版本", release), rsiField("已结束实验", runs), rsiButton("核验运行证据", async () => {
+  const check = rsiButton("核验运行证据", async () => {
     try { report.textContent = JSON.stringify(await api("/api/integrations/check", {method: "POST", body: JSON.stringify({release_id: release.value, run_id: runs.value})}), null, 2); }
     catch (e) { notice(e.message); }
-  }), report, link("创建控制实验或对比 →", "#setup", "button primary"));
+  });
+  check.disabled = !release.value || !runs.value;
+  releases.append(rsiField("版本", release), rsiField("已结束实验", runs), check, report, link("创建控制实验或对比 →", "#setup", "button primary"));
   const loop = rsiPanel("版本更新与合并后复评", "冻结当前已准入版本作为基线。普通更新或指定 PR 的实际合并 SHA 通过准入后，用相同题目和模型复评。不会自动发布或合并 PR；模拟控制结果不更新质量推荐。");
   const tracked = rsiSelect(tracking.sources.filter(s => s.admitted).map(s => [s.id, s.repository + " · " + s.ref]), "跟踪来源");
   const evaluation = localInput("复评配置路径"), candidate = localInput("已发布 PR 的候选 ID（可选）"), rounds = localInput("轮次上限", "1", "number"), attempts = localInput("总尝试上限", "20", "number"), fee = localInput("确认闭环模型费用", "", "checkbox");
@@ -93,7 +95,10 @@ async function renderIntegrations(token) {
       rsiButton("停止闭环", async () => { try { await api(`/api/rsi/cycles/${item.id}/stop`, {method: "POST", body: "{}"}); await renderIntegrations(token); } catch (e) { notice(e.message); } }), link("查看 RSI 诊断 →", "#rsi"));
     loop.append(box);
   }
-  view.append(sources, loop, builtins, own, queue, releases);
+  const startLoop = [...loop.querySelectorAll("button")].find(b => b.textContent === "启动有界闭环");
+  startLoop.disabled = !tracked.value;
+  if (!tracked.value) loop.append(el("p", "先添加来源并完成版本准入，再启动更新复评。"));
+  view.append(own, builtins, queue, releases, sources, loop);
 }
 
 async function renderLocalSetup(token) {
@@ -107,7 +112,7 @@ async function renderLocalSetup(token) {
   }
   if (!selected.length) form.append(link("先接入或安装 Agent →", "#integrations", "button"));
   const template = rsiSelect(templates.templates.map(t => [t.id, `${t.benchmark} · ${t.tasks.length} 题 · ${t.id}`]), "Benchmark 模板");
-  const mode = rsiSelect([["mock", "模拟模型 · 接入检查"], ["live", "真实模型 · 能力对比"]], "模型模式");
+  const mode = rsiSelect([["mock", "模拟模型 · 接入检查"], ["offline", "离线 · 无模型协议检查"], ["live", "真实模型 · 能力对比"]], "模型模式");
   const model = rsiSelect([["", "使用实验模型绑定"], ...pool.models.map(m => [m.id, m.label + " · " + m.name])], "统一模型");
   const count = localInput("题目数", "2", "number"), seed = localInput("抽样种子", "0", "number"); count.min = "1"; count.max = "500";
   const attempts = localInput("每题次数", "1", "number"); attempts.min = "1"; attempts.max = "100";
@@ -120,6 +125,7 @@ async function renderLocalSetup(token) {
   let frozen = null, revision = 0;
   form.oninput = () => { ++revision; frozen = null; launch.disabled = true; details.replaceChildren(el("p", "条件已变更，请重新预检。")); };
   const preview = rsiButton("预检实验", async () => {
+    if (!selected.some(([box]) => box.checked)) { notice("至少选择一个 Agent 版本；首次使用请先接入或安装 Agent。"); return; }
     const requestedRevision = ++revision;
     frozen = null; launch.disabled = true;
     const request = {template: template.value, releases: selected.filter(([box]) => box.checked).map(([, id]) => id), model_mode: mode.value, sample_count: Number(count.value), sample_seed: Number(seed.value), attempts: Number(attempts.value)};
@@ -128,11 +134,23 @@ async function renderLocalSetup(token) {
       const report = await api("/api/runs/preflight", {method: "POST", body: JSON.stringify(request)});
       if (epoch !== token || revision !== requestedRevision) return;
       frozen = {request, report};
-      details.replaceChildren(el("p", `${report.planned_attempts} 次尝试 · 可用磁盘 ${rsiBytes(report.free_disk_bytes)} · 预计费用：未知${report.paid ? "（涉及付费调用）" : "（模拟模型）"}`), el("p", report.downloads), ...report.warnings.map(w => el("p", w)));
+      details.replaceChildren(el("p", `${report.planned_attempts} 次尝试 · 可用磁盘 ${rsiBytes(report.free_disk_bytes)} · ${report.paid ? "预计费用：未知（涉及付费调用）" : request.model_mode === "offline" ? "离线协议检查，不调用模型" : "模拟模型接入检查，不调用外部模型"}`), el("p", report.downloads), ...report.warnings.map(w => el("p", w)));
       paid.checked = false; launch.disabled = report.paid;
       paid.onchange = () => { launch.disabled = !frozen || (report.paid && !paid.checked); };
     } catch (e) { notice(e.message); frozen = null; launch.disabled = true; }
   });
+  const updateSelection = () => { preview.disabled = !selected.some(([box]) => box.checked) || !template.value; };
+  for (const [box] of selected) box.addEventListener("change", updateSelection);
+  const updateTasks = () => {
+    const size = templates.templates.find(t => t.id === template.value)?.tasks.length || 0;
+    count.max = String(Math.min(500, size));
+    count.value = String(Math.max(1, Math.min(Number(count.value) || 2, size)));
+    updateSelection();
+  };
+  template.addEventListener("change", updateTasks);
+  updateTasks();
+  const updateModel = () => { model.disabled = mode.value !== "live"; };
+  mode.addEventListener("change", updateModel); updateModel();
   form.onsubmit = e => e.preventDefault(); form.append(preview); panel.append(form);
   review.append(details, rsiField("确认真实模型费用不设美元硬上限", paid), launch, link("查看已有逐题对比 →", "#compare", "button"));
   view.append(panel, review);

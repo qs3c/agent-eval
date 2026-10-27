@@ -56,7 +56,7 @@ function modelDialog(token, data, item) {
   const specs = [
     ["label", "显示名称", item?.label || "", "例如：日常编码 / 深度诊断"],
     ["name", "模型 ID", item?.name || "", "例如：deepseek-flash"],
-    ["api_base", "Chat Completions 接口地址", item?.api_base || "https://api.deepseek.com", "服务根地址或以 /v1 结尾的地址"],
+    ["api_base", "Chat Completions 接口地址", item?.api_base || "https://api.deepseek.com", "服务根地址或以 /v1 结尾；宿主机服务需使用容器可达地址，localhost 指向任务容器自身"],
     ["messages_base", "Messages 接口地址（DSH）", item?.messages_base || "", "DeepSeek 官方接口自动填写；其他服务按其文档配置"],
     ["api_key", "API Key", "", item?.has_api_key ? "已配置；留空保持原密钥" : "密钥仅保存在服务端"],
     ["max_tokens", "最大输出 Token", item?.max_tokens || 32768, "每次模型响应的输出上限"],

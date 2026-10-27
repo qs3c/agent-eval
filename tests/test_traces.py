@@ -71,6 +71,18 @@ def test_absent_evidence_is_unknown(tmp_path):
     assert trajectory is None and usage == {} and not _coverage["native_events"]
 
 
+def test_custom_or_partial_events_do_not_abort_trial_or_invent_native_coverage(tmp_path):
+    raw = '{"event":"write_file","path":"result.txt"}\nnull\n{"type":"run_end","data":null}\n{"partial":\n'
+    (tmp_path / "events.jsonl").write_text(raw)
+    (tmp_path / "wire_requests.jsonl").write_text('{"messages":[{"role":"user","content":"task"}]}\n')
+    trajectory, usage, coverage = convert(tmp_path, "custom", "1")
+    assert trajectory is not None and usage == {}
+    assert not coverage["native_provider_hook"] and not coverage["native_events"]
+    assert coverage["wire_model_requests"]
+    assert len(coverage["event_warnings"]) == 4
+    assert (tmp_path / "events.jsonl").read_text() == raw
+
+
 def test_inflight_request_does_not_report_partial_total(tmp_path):
     (tmp_path / "wire_requests.jsonl").write_text(
         '{"model":"m","messages":[{"role":"user","content":"task"}]}\n' * 2

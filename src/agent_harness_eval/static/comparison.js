@@ -131,7 +131,8 @@ function drawExperimentComparison(data, body, active) {
       label.append(el("small", reviewNames[run.reviews[name]?.status] || "待复核", "run-sub"));
       return [label, score + (run.reviews[name]?.status === "diagnostic" ? "（诊断）" : ""), kind === "resolved" ? `${a.solved_tasks} / ${data.task_count}` : "不适用",
         `${a.graded ?? a.scored} / ${a.expected}`, `${a.missing} / ${a.errors} / ${a.unscored} / ${a.extra}`,
-        ...["agent_seconds", "input_tokens", "output_tokens", "cost_usd"].map(k => usageLabel(a.usage[k]))];
+        ...["agent_seconds", "input_tokens", "output_tokens", "cost_usd"].map(k =>
+          k.endsWith("tokens") ? tokenUsageLabel(a.usage[k].total, a.usage[k]) : usageLabel(a.usage[k]))];
     })));
   summary.append(el("p", "仅完整评分后显示最终主分；未评分不判失败。辅助尝试完整保留并单独标注，不能作为纯自主成绩。用量来自原始结果，未知总量保持未知。总耗时为各次 Agent 执行时间之和。筛选任务不会改变整体结果。", "muted"));
   body.append(meta, summary);

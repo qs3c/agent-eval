@@ -1,3 +1,4 @@
+import json
 import sys
 import threading
 import types
@@ -103,13 +104,15 @@ def test_inspect_errors_are_not_all_missing_images(tmp_path, monkeypatch, detail
         assert image_lifecycle.leases()
 
 
-def test_official_adapter_only_changes_image_lifecycle(tmp_path, monkeypatch):
+@pytest.mark.parametrize("pinned", [False, True])
+def test_official_adapter_image_lifecycle_and_frozen_ref(tmp_path, monkeypatch, pinned):
     from agent_harness_eval.resources import official_runner
 
     docker_utils = types.ModuleType("swebench.harness.docker_utils")
     docker_utils.should_remove = lambda *a: True
     docker_utils.clean_images = lambda *a: (_ for _ in ()).throw(AssertionError("global scan"))
     class Spec:
+        instance_id = "task"
         @property
         def instance_image_key(self):
             return "swebench/sweb.eval.x86_64.task:latest"
@@ -120,8 +123,12 @@ def test_official_adapter_only_changes_image_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "swebench.harness", harness)
     monkeypatch.setitem(sys.modules, "swebench.harness.test_spec.test_spec", spec_module)
     monkeypatch.chdir(tmp_path)
+    expected = "swebench/sweb.eval.x86_64.task:latest"
+    if pinned:
+        expected = "swebench/sweb.eval.x86_64.task@sha256:" + "a" * 64
+        Path("official-image-map.json").write_text(json.dumps({"task": expected}))
     official_runner.configure()
     assert docker_utils.should_remove("image", "none", True, set()) is False
     docker_utils.clean_images(None, set(), "none", True)
-    assert Spec().instance_image_key == "swebench/sweb.eval.x86_64.task:latest"
+    assert Spec().instance_image_key == expected
     assert read(Path("official-images.json")) == [Spec().instance_image_key]

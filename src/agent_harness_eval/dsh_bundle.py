@@ -1,5 +1,6 @@
-"""Package the official Standard preset unchanged, with a one-task transport plugin."""
+"""Package the official Standard preset with audited transport/compatibility fixes."""
 
+import io
 import json
 import shutil
 import tarfile
@@ -8,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from .provenance import digest, write_json
+from .dsh_compat import SEARCH_MODULE, patched_search_module, patched_fetch_modules
 
 
 class JS(str):
@@ -76,6 +78,9 @@ def build_bundle(runtime: Path, output: Path):
     web = modules / "@deepseek-ai/dsh-web-app"
     cli = modules / "@deepseek-ai/dsh/package.json"
     version = json.loads(cli.read_text())["version"]
+    search_module, search_fix = patched_search_module((runtime / SEARCH_MODULE).read_bytes())
+    patched_files, fetch_fixes = patched_fetch_modules(runtime)
+    patched_files[SEARCH_MODULE] = search_module
     original = web / "presets/standard.patch.yml"
     audit = audit_standard(original)
     shutil.copyfile(original, output / "standard.patch.yml")
@@ -125,18 +130,28 @@ def build_bundle(runtime: Path, output: Path):
         version=version,
         transport_sha256=digest(output / "transport.patch.yml"),
         driver_sha256=digest(output / "eval-driver.mjs"),
+        compatibility_patches=[search_fix, *fetch_fixes],
+        web_fetch_review=True,
         differences=[
             "SDK startup transport plus one-task driver; official Standard preset mounted through agentPresets.mount",
             "no browser UI",
             "container provides isolation; permission mode danger-full-access",
             "office runtime extras disabled",
             "fresh state; no external user skills",
+            "DeepSeek search adapter preserves response text as normalized content (audited compatibility patch)",
+            "Optional web_fetch model-visible content review through the evaluation relay",
         ],
     )
     write_json(output / "audit.json", audit)
     node = Path(shutil.which("node")).resolve()
     with tarfile.open(output / "runtime.tar.gz", "w:gz", compresslevel=1) as archive:
-        archive.add(modules, arcname="node_modules")
+        archive.add(modules, arcname="node_modules", filter=lambda info: None if info.name in patched_files else info)
+        # Overlay into the new archive only: never mutate npm cache or old bundles.
+        for name, content in patched_files.items():
+            info = tarfile.TarInfo(name)
+            info.mode = 0o644
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
         archive.add(node, arcname="node")
         for name in (
             "standard.patch.yml",

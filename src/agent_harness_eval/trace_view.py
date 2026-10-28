@@ -364,6 +364,7 @@ def trace(console, run_id, trial_id):
             "error_signals": sum(t["error_signal"] for t in all_tools),
         },
         "usage_complete": complete,
+        "usage_evidence": usage_coverage["usage_by_purpose"]["agent"],
         "tool_counts": dict(Counter(t["name"] for t in all_tools)),
         "patch": clipped(patch_text, 24000),
         "patch_files": re.findall(r"^diff --git a/(.*?) b/", patch_text, re.MULTILINE),

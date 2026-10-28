@@ -145,3 +145,25 @@ def test_batch_regrade_api_is_idempotent_and_scoped(client):
     assert client.post(f"/api/runs/{run_id}/batches/99/regrade", json={}).status_code == 422
     assert client.post(url, json={}, headers={"Origin": "https://evil.example"}).status_code == 403
     assert client.get(f"/api/runs/{run_id}/batches/1/regrade-log").json() == {"logs": []}
+
+
+def test_official_regrading_policy_endpoint_keeps_frozen_config(client):
+    import json
+    from agent_harness_eval.guardian.evidence import write
+    console = client.app.state.console
+    template = console.root / 'experiments/controls.json'
+    exp = json.loads(template.read_text())
+    exp['benchmark']['score_kind'] = 'resolved'
+    exp['batch'] = {'size': 1, 'prepare_swe': True, 'official_regrade': True}
+    template.write_text(json.dumps(exp))
+    row = client.post('/api/runs', json={'template': 'controls', 'official_regrade': False}).json()
+    frozen = row['experiment']
+    output = Path(console.row(row['id'])['path'])
+    write(output / 'manifest.json', {'experiment': frozen, 'tasks': {}})
+    before = (output / 'manifest.json').read_bytes()
+    url = f"/api/runs/{row['id']}/official-regrading"
+    assert client.post(url, json={'enabled': True}).json()['enabled'] is True
+    assert client.post(url, json={'enabled': False}).json()['enabled'] is False
+    assert client.post(url, json={'enabled': 'false'}).status_code == 422
+    assert client.post(url, json={'enabled': True, 'extra': 1}).status_code == 422
+    assert (output / 'manifest.json').read_bytes() == before

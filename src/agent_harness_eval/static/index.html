@@ -206,6 +206,10 @@
             <p id="summary-model"></p>
             <p>一个实验按序执行，实验内部按所选并发运行。</p>
             <p>提交时保存配置、任务和 Agent 包，结果写入独立目录。</p>
+            <label id="official-regrade-option" class="check-card" hidden>
+              <input type="checkbox" name="official_regrade" />启用官方 SWE 复评
+            </label>
+            <small id="official-regrade-hint" hidden>关闭后仅运行 Harbor 原始评分，跳过额外的官方测试重放。</small>
             <label id="live-confirm" class="check-card" hidden
               ><input
                 type="checkbox"

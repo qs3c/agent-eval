@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "name": "swe-new-30-double-review-20261017",
+  "model": {
+    "mode": "live",
+    "name": "deepseek-flash",
+    "api_base": "https://api.deepseek.com",
+    "api_key_env": "EVAL_POOL_KEY_f7180ddfe34c4811bc25628be683ce99",
+    "messages_base": "https://api.deepseek.com/anthropic",
+    "pool_id": "79aa0124f796459fac13d01311d2f5f7",
+    "spending": "unbounded",
+    "max_tokens": 32768,
+    "context_window": 1000000,
+    "search_review": {
+      "endpoint": "https://openrouter.ai/api/v1/systemone",
+      "model": "typesafe/jev-1.13-20260917",
+      "api_key_env": "EVAL_SEARCH_REVIEW_API_KEY",
+      "timeout_seconds": 10,
+      "deny_threshold": 0.5,
+      "web_fetch": true
+    }
+  },
+  "agents": [
+    {
+      "id": "dsh-standard",
+      "implementation": "agent_harness_eval.agents.dsh:DeepSeekStandard",
+      "version": "0.2.1-alpha.2+search-content+fetch-content-review",
+      "kwargs": {
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/dsh-bundle-content-review-20261017/runtime.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/dsh-bundle-content-review-20261017/provenance.json"
+      },
+      "capabilities": [
+        "shell",
+        "filesystem"
+      ]
+    }
+  ],
+  "benchmark": {
+    "id": "swe-verified-unseen-30",
+    "tasks": [
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-13933",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-13658",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/matplotlib__matplotlib-25311",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/pydata__xarray-3095",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/astropy__astropy-13977",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-10914",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/astropy__astropy-7606",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/sphinx-doc__sphinx-7757",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-13569",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/pytest-dev__pytest-5631",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/matplotlib__matplotlib-24149",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-17029",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/scikit-learn__scikit-learn-14141",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/sphinx-doc__sphinx-9591",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/sympy__sympy-13878",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/sphinx-doc__sphinx-8595",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-16950",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-14238",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/pydata__xarray-4966",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/sympy__sympy-13852",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-11163",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/scikit-learn__scikit-learn-10908",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-13406",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-11206",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/sphinx-doc__sphinx-9673",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-14765",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-11276",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-16116",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/sympy__sympy-13480",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-new-30-20261015/django__django-14315"
+    ],
+    "requires": [
+      "shell",
+      "filesystem"
+    ],
+    "primary_metric": "reward",
+    "score_kind": "resolved",
+    "dataset": {
+      "name": "princeton-nlp/SWE-bench_Verified",
+      "revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+      "split": "test"
+    },
+    "evaluation": {
+      "name": "Harbor SWE parser",
+      "version": "4.0.3",
+      "environment": "per-task Docker digest recorded in runtime-provenance.json; official SWE harness 4.1.0 regrade stored separately"
+    }
+  },
+  "attempts": 1,
+  "concurrency": 2,
+  "timeout_seconds": 1800,
+  "setup_timeout_seconds": 600,
+  "cpus": 2,
+  "memory_mb": 4096,
+  "guardian": {
+    "mode": "assist",
+    "command": [],
+    "version": "model-pool-driver/v2",
+    "pass_env": [],
+    "model": {
+      "mode": "live",
+      "name": "deepseek-flash",
+      "api_base": "https://api.deepseek.com",
+      "api_key_env": "EVAL_POOL_KEY_f7180ddfe34c4811bc25628be683ce99",
+      "messages_base": "https://api.deepseek.com/anthropic",
+      "pool_id": "79aa0124f796459fac13d01311d2f5f7",
+      "spending": "unbounded",
+      "max_tokens": 32768,
+      "context_window": 1000000
+    },
+    "poll_seconds": 15.0,
+    "idle_seconds": 600.0,
+    "confirmations": 2,
+    "tool_grace_seconds": 45.0,
+    "diagnostic_seconds": 300.0,
+    "verification_seconds": 90.0,
+    "command_seconds": 60.0,
+    "cleanup_seconds": 30.0,
+    "setup_seconds": 1200.0,
+    "verifier_seconds": 1200.0,
+    "max_incidents": 3,
+    "max_actions": 40
+  },
+  "batch": {
+    "size": 3,
+    "prepare_swe": true,
+    "official_regrade": true,
+    "retain_count": 3,
+    "retain_gib": 20.0,
+    "retain_hours": 24.0,
+    "min_free_gib": 20.0
+  },
+  "web_proxy": "device"
+}

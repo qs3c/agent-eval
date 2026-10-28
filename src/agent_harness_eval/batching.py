@@ -19,8 +19,28 @@ from .report import report, task_key
 from .search import search_hosts
 
 
+def official_regrade_enabled(exp, output):
+    """Read an audited operational override without rewriting frozen inputs."""
+    configured = bool(exp.batch and exp.batch.official_regrade)
+    path = Path(output) / "operations/official-regrading.json"
+    if not path.exists():
+        return configured
+    if path.is_symlink():
+        raise ValueError("Official regrading policy cannot be a symlink")
+    policy = json.loads(path.read_text())
+    if policy.get("schema_version") != 1 or type(policy.get("enabled")) is not bool:
+        raise ValueError("Invalid official regrading policy")
+    return policy["enabled"]
+
+
 def search_network_policy(text, hosts):
     """Set only the agent table; preserve verifier and environment policies."""
+    import tomllib
+
+    # Public SWE tasks must be able to fetch arbitrary search-result URLs. API
+    # endpoints are an egress minimum, not a replacement for a public policy.
+    if tomllib.loads(text).get("agent", {}).get("network_mode") == "public":
+        return text
     sections = re.split(r"(?m)(?=^\[)", text)
     for i, section in enumerate(sections):
         if section and section.splitlines()[0].strip() == "[agent]":
@@ -136,9 +156,11 @@ def _prepare_batch(exp, output, paths, number):
             import tomllib
 
             agent = tomllib.loads(text)["agent"]
-            if agent["network_mode"] != "allowlist" or agent.get("allowed_hosts") != hosts:
+            if agent["network_mode"] != "public" and (
+                agent["network_mode"] != "allowlist" or agent.get("allowed_hosts") != hosts
+            ):
                 raise ValueError(
-                    "Prepared SWE agent network policy is not the frozen allowlist"
+                    "Prepared SWE agent network policy does not permit required endpoints"
                 )
             record_tasks(output, [task])
             if backup.exists():
@@ -154,14 +176,15 @@ def _prepare_batch(exp, output, paths, number):
 def regrade_batch(exp, output, paths, number, *, inherited=(), force=False):
     from .regrading import gate, grade_units, update_summary
 
-    if not force and not exp.batch.official_regrade:
-        return
+    if not force and not official_regrade_enabled(exp, output):
+        return "disabled"
     if not inherited:
         with gate("batches") as fd:
             return regrade_batch(exp, output, paths, number, inherited=(fd,), force=force)
     try:
         # Manual recovery also grades experiments whose original policy deferred scoring.
         grade_units(exp, output, paths, number, inherited, source="manual" if force else "automatic")
+        return "completed"
     finally:
         update_summary(exp, output)
 
@@ -394,7 +417,12 @@ async def run_batches(
             await asyncio.to_thread(retain, output, paths, number, prepared=True)
             if shutil.disk_usage(output).free < exp.batch.min_free_gib * 1024**3:
                 raise RuntimeError("Insufficient disk headroom before Agent execution")
-            for agent in exp.agents:
+            order = list(exp.agents)
+            if exp.batch.rotate_agents:
+                offset = (number - 1) % len(order)
+                order = order[offset:] + order[:offset]
+            entry["agent_order"] = [agent.id for agent in order]
+            for agent in order:
                 phase("running", agent=agent.id)
                 policy = {
                     "max_count": exp.batch.retain_count,
@@ -419,10 +447,11 @@ async def run_batches(
                     resume=resume,
                 )
                 report(output)
-            phase("regrading")
+            enabled = official_regrade_enabled(exp, output)
+            phase("regrading" if enabled else "cleaning")
             await asyncio.to_thread(retain, output, paths, number, prepared=True)
             try:
-                await asyncio.to_thread(benchmark.grade, exp, output, paths, number)
+                grading_status = await asyncio.to_thread(benchmark.grade, exp, output, paths, number)
             except Exception as error:  # noqa: BLE001 - persist scoring failures without aborting Agent execution
                 # Official scoring is independent of Agent execution. Retain
                 # its failure evidence while allowing the next batch to run.
@@ -433,7 +462,7 @@ async def run_batches(
                 }
             else:
                 entry["official_regrade"] = {
-                    "status": "completed" if exp.batch.official_regrade else "disabled",
+                    "status": grading_status or ("completed" if enabled else "disabled"),
                     "updated_unix": time.time(),
                 }
             entry.pop("error", None)

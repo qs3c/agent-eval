@@ -19,6 +19,7 @@ class SearchReview(Strict):
     api_key_env: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     timeout_seconds: float = Field(default=10, gt=0, le=60)
     deny_threshold: float = Field(default=0.5, gt=0, le=1)
+    web_fetch: bool = True
 
     @model_validator(mode="after")
     def validate_endpoint(self):
@@ -100,20 +101,22 @@ class BatchConfig(Strict):
     min_free_gib: float = Field(default=20, ge=0)
     max_pending_grade_batches: int = Field(default=2, ge=1, le=20)
     estimated_task_gib: float = Field(default=2, gt=0)
+    rotate_agents: bool = False
 
 
 class Experiment(Strict):
     schema_version: Literal[1] = 1
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     model: Model = Field(default_factory=Model)
+    web_proxy: Literal["device", "direct"] = "device"
     agents: list[Agent] = Field(min_length=1)
     benchmark: Benchmark
     attempts: int = Field(default=1, ge=1)
     concurrency: int = Field(default=1, ge=1)
-    timeout_seconds: int = Field(default=300, gt=0)
+    timeout_seconds: int | None = Field(default=300, gt=0)
     setup_timeout_seconds: int = Field(default=600, gt=0)
-    cpus: int = Field(default=2, gt=0)
-    memory_mb: int = Field(default=4096, gt=0)
+    cpus: int | None = Field(default=2, gt=0)
+    memory_mb: int | None = Field(default=4096, gt=0)
     guardian: GuardianConfig | None = None
     batch: BatchConfig | None = None
 
@@ -145,9 +148,17 @@ class Experiment(Strict):
             if agent.kwargs.get("web_search") is not None:
                 from .search import WebSearch
 
-                WebSearch.model_validate(agent.kwargs["web_search"])
-                if agent.implementation.startswith("agent_harness_eval.agents."):
-                    raise ValueError("web_search requires an external adapter that implements the search contract")
+                search = WebSearch.model_validate(agent.kwargs["web_search"])
+                adapters = {
+                    "agent_harness_eval.agents.dsh:DeepSeekStandard": "platform-relay",
+                    "agent_harness_eval.agents.frozen_cli:OpenCode": "direct",
+                    "agent_harness_eval.agents.frozen_cli:Hermes": "direct",
+                }
+                if agent.implementation not in adapters and agent.implementation.startswith("agent_harness_eval.agents."):
+                    raise ValueError("web_search requires a supported native adapter")
+                transport = adapters.get(agent.implementation)
+                if transport and (search.provider != "exa" or search.transport != transport):
+                    raise ValueError("This adapter requires Exa with transport=" + transport)
                 if self.model.mode != "live":
                     raise ValueError("external web_search requires live mode")
                 if self.model.policy:
@@ -195,16 +206,17 @@ def load(path: Path, *, validate_agent_artifacts=True) -> Experiment:
         from harbor.models.task.config import TaskConfig
 
         config = TaskConfig.model_validate_toml((task / "task.toml").read_text())
+        policy = config.agent.explicit_phase_policy() or config.environment.resolve_baseline()
         if not (exp.batch and exp.batch.prepare_swe):
             from .search import search_hosts
 
             hosts = search_hosts(exp)
-            if hosts and (
-                config.agent.network_mode.value != "allowlist"
-                or not set(hosts) <= set(config.agent.allowed_hosts)
+            if hosts and policy.network_mode.value != "public" and (
+                policy.network_mode.value != "allowlist"
+                or not set(hosts) <= set(policy.allowed_hosts)
             ):
-                raise ValueError("web_search endpoints must be explicitly included in task network allowlist")
-        if exp.model.mode == "mock" and config.agent.network_mode.value != "no-network":
+                raise ValueError("web_search requires public networking or endpoints explicitly included in task network allowlist")
+        if exp.model.mode == "mock" and config.agent.network_mode != "no-network":
             raise ValueError(
                 "mock tasks must explicitly set agent.network_mode = no-network"
             )

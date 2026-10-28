@@ -27,14 +27,15 @@ def test_shared_freezing_is_independent_of_source(tmp_path):
 
 
 @pytest.mark.parametrize("regrade_fails", [False, True])
-def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch, regrade_fails):
+@pytest.mark.parametrize("rotate_agents", [False, True])
+def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch, regrade_fails, rotate_agents):
     from agent_harness_eval import batching
     from agent_harness_eval.guardian import supervisor
     from agent_harness_eval.run import run_experiment
 
     exp = load(Path("experiments/controls.json"))
     exp.benchmark.plugin = "swe"  # This fixture explicitly exercises official grading lifecycle.
-    exp.batch = BatchConfig(size=1, min_free_gib=0)
+    exp.batch = BatchConfig(size=1, min_free_gib=0, rotate_agents=rotate_agents)
     from agent_harness_eval.guardian.config import GuardianConfig
 
     exp.guardian = GuardianConfig()
@@ -86,6 +87,8 @@ def test_batches_pair_agents_before_cleanup_and_resume(tmp_path, monkeypatch, re
         ("regrade", "file-preserve"),
         ("cleanup", "file-preserve"),
     ]
+    if rotate_agents:
+        expected_events[6], expected_events[7] = expected_events[7], expected_events[6]
     if regrade_fails:
         expected_events = [event for event in expected_events if event[0] != "cleanup"]
     assert events == expected_events
@@ -262,3 +265,18 @@ def test_cleanup_keeps_images_referenced_by_other_containers(tmp_path, monkeypat
     assert not any(c[1:3] == ["image", "rm"] for c in commands)
     record = json.loads((tmp_path / "batches/001/cleanup.json").read_text())
     assert record["images"][0]["status"] == "retained_container_reference"
+
+
+def test_regrading_policy_override_skips_grader_without_changing_frozen_config(tmp_path, monkeypatch):
+    from agent_harness_eval import batching, regrading
+    exp = load(Path('experiments/controls.json'))
+    exp.batch = BatchConfig(size=1, official_regrade=True)
+    write_json(tmp_path / 'operations/official-regrading.json', {'schema_version': 1, 'enabled': False})
+    original = exp.model_dump(mode='json')
+    monkeypatch.setattr(regrading, 'grade_units', lambda *a, **k: pytest.fail('disabled grading invoked'))
+    batching.regrade_batch(exp, tmp_path, [], 1)
+    assert not batching.official_regrade_enabled(exp, tmp_path)
+    assert exp.model_dump(mode='json') == original
+    write_json(tmp_path / 'operations/official-regrading.json', {'schema_version': 1, 'enabled': 'false'})
+    with pytest.raises(ValueError, match='policy'):
+        batching.regrade_batch(exp, tmp_path, [], 1)

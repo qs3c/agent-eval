@@ -79,6 +79,16 @@ def main():
     q = sub.add_parser("bundle-dsh")
     q.add_argument("runtime", type=Path)
     q.add_argument("output", type=Path)
+    q = sub.add_parser("terminal-bench-prepare", help="下载固定版本官方 Terminal-Bench，生成工作台实验配置（不启动模型）")
+    q.add_argument("--dataset", required=True, help="例如 terminal-bench@2.0 或 terminal-bench/terminal-bench@4.0.0")
+    q.add_argument("--destination", type=Path, required=True)
+    q.add_argument("--template", type=Path, required=True, help="复用已有实验的 Agent 与模型配置")
+    q.add_argument("--config-output", type=Path, help="实验配置路径；保存到 experiments/ 后控制台可发现")
+    selection = q.add_mutually_exclusive_group()
+    selection.add_argument("--task", action="append", dest="tasks", help="指定任务名，可重复传不同任务")
+    selection.add_argument("--count", type=int, help="按 seed 确定性抽样；不传则使用全部任务")
+    q.add_argument("--seed", type=int, default=20261017)
+    q.add_argument("--cpu-only", action="store_true", help="显式排除 GPU/TPU 任务，并记录为 CPU 子集")
     q = sub.add_parser("swe-export")
     q.add_argument("run", type=Path)
     q.add_argument("output", type=Path)
@@ -249,12 +259,26 @@ def main():
                 ),
                 "binary_sha256": digest(args.binary),
                 "profile": "isolated-coding",
+                "web_fetch_review": (args.source / "internal/agent/tools/web_fetch_review.go").is_file()
+                and b"EVAL_FETCH_REVIEW_URL" in args.binary.read_bytes(),
             },
         )
     elif args.command == "bundle-dsh":
         from .dsh_bundle import build_bundle
 
         build_bundle(args.runtime.resolve(), args.output.resolve())
+    elif args.command == "terminal-bench-prepare":
+        import asyncio
+        import json
+
+        from .benchmarks.terminal import prepare
+
+        result = asyncio.run(prepare(
+            args.dataset, args.destination, load(args.template),
+            config_output=args.config_output, names=args.tasks, count=args.count,
+            seed=args.seed, cpu_only=args.cpu_only,
+        ))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.command == "swe-export":
         from .benchmarks.swe import export
 

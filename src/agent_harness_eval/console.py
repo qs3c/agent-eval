@@ -50,6 +50,7 @@ class Submission(Strict):
     sample_seed: int = 0
     preflight_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     model_mode: Literal["offline", "mock", "live"] | None = None
+    official_regrade: bool | None = None
 
 
 def safe_file(root, path):
@@ -189,6 +190,7 @@ class Console:
                     "mode": exp.model.mode,
                     "model": exp.model.name,
                     "guardian_mode": exp.guardian.mode if exp.guardian else None,
+                    "official_regrade": exp.batch.official_regrade if exp.batch and exp.batch.prepare_swe else None,
                     "agents": [a.id for a in exp.agents],
                     "tasks": [p.name for p in exp.benchmark.tasks],
                     "benchmark": exp.benchmark.id,
@@ -283,6 +285,10 @@ class Console:
             ):
                 raise ValueError("服务环境中缺少模型凭据")
         config = exp.model_dump(mode="json")
+        if request.official_regrade is not None:
+            if not exp.batch or not exp.batch.prepare_swe:
+                raise ValueError("官方 SWE 复评开关仅适用于分批 SWE 实验")
+            config["batch"]["official_regrade"] = request.official_regrade
         for field in (
             "name",
             "attempts",
@@ -346,6 +352,13 @@ class Console:
             freeze_selection(config["benchmark"]["tasks"], frozen / "tasks")
             if selection:
                 write_json(frozen / "tasks/selection.json", selection)
+            else:
+                parents = {Path(task).parent for task in config["benchmark"]["tasks"]}
+                if len(parents) == 1:
+                    original_selection = next(iter(parents)) / "selection.json"
+                    if original_selection.is_file():
+                        safe_file(next(iter(parents)), original_selection)
+                        shutil.copyfile(original_selection, frozen / "tasks/selection.json")
             for i, task in enumerate(config["benchmark"]["tasks"]):
                 source = Path(task)
                 validate_tree(
@@ -436,6 +449,7 @@ class Console:
 
     def evidence(self, row):
         from .guardian.evidence import incident_summary
+        from .usage_view import trial_usage
 
         path = safe_file(self.artifacts, Path(row["path"]))
         manifest = read_manifest(path)
@@ -474,10 +488,15 @@ class Console:
                         "agent_seconds": duration(value.get("agent_execution") or {}),
                         "input_tokens": usage.get("n_input_tokens"),
                         "output_tokens": usage.get("n_output_tokens"),
+                        "usage_evidence": trial_usage(result.parent, usage),
                         "cost_usd": usage.get("cost_usd"),
                         "guardian": incident_summary(result.parent),
                     }
                 )
+        if report:
+            evidence = {(t["agent"], t["trial"]): t["usage_evidence"] for t in trials}
+            for trial in report.get("trials", []):
+                trial["usage_evidence"] = evidence.get((trial.get("agent"), trial.get("trial")), {})
         return manifest, report, completed, trials
 
     @staticmethod
@@ -612,9 +631,12 @@ class Console:
 
     def regrading_view(self, output, state):
         from .regrading import jobs
+        from .batching import official_regrade_enabled
 
         queued = jobs(output)
         exp = (read_manifest(output) or {}).get("experiment", {})
+        parsed = Experiment.model_validate(exp) if exp else None
+        enabled = official_regrade_enabled(parsed, output) if parsed else False
         per_task = len(exp.get("agents", [])) * exp.get("attempts", 1)
         batches = []
         for batch in (state or {}).get("batches", []):
@@ -622,6 +644,8 @@ class Console:
             progress = read_json(output, output / "batches" / f"{number:03d}" / "official/progress.json")
             legacy = read_json(output, output / "batches" / f"{number:03d}" / "official/status.json")
             status = batch.get("official_regrade", {}).get("status", "pending")
+            if not enabled and status == "pending":
+                status = "disabled"
             if legacy and legacy.get("errors"):
                 status = "failed"
             if progress:
@@ -634,7 +658,33 @@ class Console:
                             "eligible": batch["phase"] in {"completed", "failed"},
                             "task_count": len(batch["tasks"]),
                             "expected_units": len(batch["tasks"]) * per_task})
-        return {"concurrency": 2, "batches": batches}
+        return {"concurrency": 2, "enabled": enabled,
+                "supported": bool(parsed and parsed.batch and parsed.batch.prepare_swe), "batches": batches}
+
+    def set_official_regrading(self, run_id, enabled):
+        from .guardian.evidence import write
+        row = self.row(run_id)
+        exp = Experiment.model_validate(json.loads(row["config"]))
+        if not exp.batch or not exp.batch.prepare_swe:
+            raise ValueError("官方 SWE 复评开关仅适用于分批 SWE 实验")
+        if type(enabled) is not bool:
+            raise ValueError("enabled 必须为布尔值")
+        output = safe_file(self.artifacts, Path(row["path"]))
+        if not output.is_dir():
+            raise ValueError("运行尚未初始化，请在创建实验时设置复评开关")
+        folder = output / "operations"
+        folder.mkdir(exist_ok=True)
+        policy = safe_file(output, folder / "official-regrading.json")
+        with (folder / ".policy.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            record = {"schema_version": 1, "enabled": enabled, "time": now(),
+                      "reason": "用户切换自动官方复评；保留冻结配置及已有评分证据"}
+            # Append the decision first; the atomic policy file controls subsequent batches.
+            history = safe_file(output, folder / "official-regrading-history.jsonl")
+            with history.open("a") as log:
+                log.write(json.dumps(record, ensure_ascii=False) + "\n")
+            write(policy, record)
+        return record
 
     def submit_regrading(self, run_id, number):
         from .regrading import enqueue
@@ -924,23 +974,23 @@ class Console:
             and not self.allow_live
         ):
             raise ValueError("当前服务未开启守护模型执行")
-        with (self.state / "logs" / (run_id + ".log")).open("wb") as log:
+        argv = [sys.executable, "-u", "-m", "agent_harness_eval.cli", "run", str(config), "--output", row["path"]]
+        resume = read_json(self.state, config.parent / "resume.json")
+        if resume:
+            if resume.get("run_id") != run_id:
+                raise ValueError("恢复请求与实验不匹配")
+            argv.append("--resume")
+            if resume.get("workbench_repair"):
+                repair = safe_file(Path(row["path"]), Path(resume["workbench_repair"]))
+                argv += ["--workbench-repair", str(repair)]
+        with (self.state / "logs" / (run_id + ".log")).open("ab" if resume else "wb") as log:
             if self.lock is None:
                 raise ValueError("Execution requires the manager ownership lock")
             child_env.update(HARNESS_LEGACY_LOCK_FD=str(self.lock.fileno()),
                              HARNESS_LEGACY_LOCK_PATH=str(self.state / "server.lock"))
             # Inherited flock prevents a restarted server launching alongside an orphan CLI.
             self.process = subprocess.Popen(
-                [
-                    sys.executable,
-                    "-u",
-                    "-m",
-                    "agent_harness_eval.cli",
-                    "run",
-                    str(config),
-                    "--output",
-                    row["path"],
-                ],
+                argv,
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 cwd=self.root,

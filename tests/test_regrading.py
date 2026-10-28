@@ -247,7 +247,7 @@ def test_incomplete_report_is_not_a_success(grading, monkeypatch):
     assert read(output / "batches/001/official/progress.json")["completed"] == 0
 
 
-def test_legacy_success_is_reused_only_with_matching_saved_inputs(grading, monkeypatch):
+def test_legacy_scoring_cannot_satisfy_new_delivery_policy(grading, monkeypatch):
     exp, output, paths = grading
     directory = output / "batches/001/official"
     write(directory / "records.json", [read(p / "tests/config.json") for p in paths])
@@ -271,11 +271,13 @@ def test_legacy_success_is_reused_only_with_matching_saved_inputs(grading, monke
                 "incomplete_ids": [],
             },
         )
-    monkeypatch.setattr(
-        regrading,
-        "run_command",
-        lambda *args: pytest.fail("Already graded inputs must be skipped"),
-    )
+    calls = []
+    def run(command, work, log, inherited):
+        calls.append(work)
+        log.write_text("ok")
+        report(work)
+        return 0
+    monkeypatch.setattr(regrading, "run_command", run)
     regrading.update_summary(exp, output)
     assert (
         read(output / "official-summary.json")["agents"][exp.agents[0].id]["observed"]
@@ -285,4 +287,33 @@ def test_legacy_success_is_reused_only_with_matching_saved_inputs(grading, monke
     regrading.update_summary(exp, output)
     summary = read(output / "official-summary.json")["agents"][exp.agents[0].id]
     assert summary["observed"] == 2
-    assert summary["resolved"] == 1
+    assert summary["resolved"] == 0
+    assert len(calls) == 4
+    # Original evidence remains intact, but is not imported as new-policy scoring.
+    for agent in exp.agents:
+        assert read(directory / agent.id / "attempt-1/report.json")["resolved_instances"] == 1
+
+
+def test_frozen_image_map_is_delivered_and_changes_invalidate_cache(grading, monkeypatch):
+    exp, output, paths = grading
+    image = "swebench/test@sha256:" + "a" * 64
+    for task in paths:
+        write(task / "runtime-provenance.json", {"image": image})
+    calls = []
+    def run(command, work, log, inherited):
+        task = read(work / "records.json")[0]["instance_id"]
+        assert read(work / "official-image-map.json") == {task: image}
+        calls.append(work)
+        log.write_text("ok")
+        report(work)
+        return 0
+    monkeypatch.setattr(regrading, "run_command", run)
+    regrading.grade_units(exp, output, paths, 1, ())
+    assert len(calls) == 4
+    regrading.grade_units(exp, output, paths, 1, ())
+    assert len(calls) == 4
+    image = "swebench/test@sha256:" + "b" * 64
+    for task in paths:
+        write(task / "runtime-provenance.json", {"image": image})
+    regrading.grade_units(exp, output, paths, 1, ())
+    assert len(calls) == 8

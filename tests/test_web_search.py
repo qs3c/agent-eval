@@ -31,6 +31,42 @@ network_mode = "no-network"
     assert search_network_policy(updated, hosts) == updated
 
 
+def test_public_swe_network_is_not_replaced_by_api_only_allowlist():
+    original = '[agent]\nnetwork_mode = "public"\ntimeout_sec = 600\n[verifier]\nnetwork_mode = "public"\n'
+    assert search_network_policy(original, ["api.deepseek.com", "api.exa.ai"]) == original
+
+
+@pytest.mark.parametrize("mode,allowed,valid", [
+    ("public", [], True),
+    ("allowlist", ["api.exa.ai"], True),
+    ("allowlist", ["api.deepseek.com"], False),
+    ("no-network", [], False),
+])
+def test_search_validation_accepts_public_or_explicit_hosts(tmp_path, mode, allowed, valid):
+    from agent_harness_eval.config import load
+
+    task = tmp_path / "task"
+    task.mkdir()
+    (task / "task.toml").write_text(
+        'schema_version = "1.0"\n[task]\nname = "eval/fixture"\n[agent]\n'
+        f'network_mode = "{mode}"\nallowed_hosts = {json.dumps(allowed)}\n'
+    )
+    config = {
+        "name": "search-network-fixture", "model": {"mode": "live"},
+        "agents": [{"id": "dsh", "version": "fixture",
+                    "implementation": "agent_harness_eval.agents.dsh:DeepSeekStandard",
+                    "kwargs": {"web_search": {"provider": "exa", "credential_env": "SEARCH_KEY", "transport": "platform-relay"}}}],
+        "benchmark": {"id": "fixture", "tasks": [str(task)]},
+    }
+    path = tmp_path / "experiment.json"
+    path.write_text(json.dumps(config))
+    if valid:
+        load(path)
+    else:
+        with pytest.raises(ValueError, match="web_search requires"):
+            load(path)
+
+
 @pytest.mark.parametrize("config", [
     {"provider": "exa"},
     {"provider": "searxng", "endpoint": "http://user:secret@host"},

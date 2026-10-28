@@ -2,6 +2,7 @@ import shlex
 from pathlib import Path
 
 from ..provenance import digest
+from ..web_proxy import web_proxy_environment
 from .native import Native
 
 
@@ -28,6 +29,7 @@ class DeepSeekStandard(Native):
             "mkdir -p /installed-agent/dsh && tar -xzf /installed-agent/dsh.tar.gz -C /installed-agent/dsh && chmod -R a+rX /installed-agent/dsh",
         )
         await self.model_setup(environment)
+        await self.search_setup(environment)
 
     async def run(self, instruction, environment, context):
         work = await self.prepare(environment, instruction)
@@ -60,4 +62,5 @@ class DeepSeekStandard(Native):
             + command
             + " >/logs/agent/stdout.log 2>/logs/agent/stderr.log"
         )
-        await self.exec_as_agent(environment, launch, env=env, cwd=work)
+        async with web_proxy_environment(self, environment) as proxy:
+            await self.exec_as_agent(environment, launch, env={**env, **proxy}, cwd=work)

@@ -62,12 +62,8 @@ write_json(
 dockerfile.write_text(
     f"FROM {pinned}\nWORKDIR /testbed\nCOPY uv /root/.local/bin/uv\nRUN chmod 755 /root/.local/bin/uv && mkdir -p /logs\n"
 )
-config = task / "task.toml"
-config.write_text(
-    config.read_text().replace(
-        '[agent]\nnetwork_mode = "public"', '[agent]\nnetwork_mode = "no-network"'
-    )
-)
+# Pinning images/grading dependencies must not change the task's agent network
+# contract. Batch preparation handles required API hosts for restricted tasks.
 records = [
     json.loads(p.read_text()) for p in sorted(task.parent.glob("*/tests/config.json"))
 ]

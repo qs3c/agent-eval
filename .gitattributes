@@ -1,3 +1,5 @@
 *.sh text eol=lf
 *.patch text eol=lf
 tests/fixtures/legacy_workspace/** text eol=lf
+# Preserve significant context prefixes in vendored Git patches.
+patches/**/*.patch -whitespace

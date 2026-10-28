@@ -12,6 +12,11 @@ function fold(title, text) {
 }
 function traceCard(t) {
   const card = el("section", undefined, "panel trace-card");
+  const tokens = key => tokenUsageLabel(t.metrics[key], {
+    known: t.usage_evidence?.known_usage?.[key],
+    missing_requests: t.usage_evidence?.missing_usage_requests,
+    issues: Object.keys(t.usage_evidence?.usage_issues || {}),
+  });
   card.append(
     el("h2", t.agent),
     el("p", t.trial, "mono"),
@@ -29,10 +34,10 @@ function traceCard(t) {
         ["模型请求", number(t.metrics.requests)],
         ["工具调用", number(t.metrics.tools)],
         ["多工具轮次（不等同于并行）", number(t.metrics.multi_tool_rounds)],
-        ["输入 token（含缓存）", number(t.metrics.input_tokens)],
+        ["输入 token（含缓存）", tokens("input_tokens")],
         ["缓存命中输入", number(t.metrics.cached_tokens)],
         ["未命中缓存输入", number(t.metrics.uncached_tokens)],
-        ["输出 token", number(t.metrics.output_tokens)],
+        ["输出 token", tokens("output_tokens")],
         ["工具返回中的错误信号", number(t.metrics.error_signals)],
         [
           "工具分布",

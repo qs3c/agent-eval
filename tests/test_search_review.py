@@ -105,7 +105,7 @@ def test_http_review_gate_before_search(tmp_path, monkeypatch, probability, expe
             feedback = json.loads(caught.value.read())["error"]["message"]
             assert feedback == review.DENIED
             assert not forwarded
-        assert len(seen) == 1
+        assert len(seen) == (2 if expected == 200 else 1)
         data, auth = seen[0]
         assert auth == "Bearer review-secret"
         assert data["state"] == {"task": "Fix OuterRef scoping in this checkout.", "search_query": "Django OuterRef API documentation"}
@@ -259,6 +259,13 @@ def test_native_uploads_review_code_and_separate_key(tmp_path, monkeypatch):
     assert "/installed-agent/search_review.py" in files
     assert "review-secret" not in files["/installed-agent/model.json"]
     assert any("chmod 600 /installed-agent/search-review.key" in cmd for cmd in commands)
+    import ssl
+    trust = files["/installed-agent/model-ca.pem"]
+    assert files["/logs/agent/model-ca.pem"] == trust
+    assert ssl.create_default_context(cadata=trust).verify_mode == ssl.CERT_REQUIRED
+    prefix, native = agent.wrap_model("native-agent-command").split(" && ", 1)
+    assert "SSL_CERT_FILE=/installed-agent/model-ca.pem python3" in prefix
+    assert native == "native-agent-command"
 
 
 @pytest.mark.skipif(not os.environ.get("DSH_SEARCH_RUNTIME"), reason="requires extracted frozen DSH runtime and node")
@@ -285,3 +292,44 @@ try {
         assert result.returncode == 0, result.stderr
         assert "platform denial preserved" in result.stdout
         assert len(seen) == 1 and not forwarded
+
+
+def test_streaming_search_rejection_has_paired_evidence(tmp_path, monkeypatch):
+    with proxy(tmp_path, monkeypatch, config()) as (base, forwarded):
+        with pytest.raises(HTTPError) as caught:
+            urlopen(Request(base + "/search/v1/messages", json.dumps({**payload(), "stream": True}).encode()))
+        assert caught.value.code == 400
+        assert not forwarded
+    request = json.loads((tmp_path / "native_wire_requests.jsonl").read_text())
+    response = json.loads((tmp_path / "wire_responses.jsonl").read_text())
+    assert request["request_id"] == response["request_id"]
+    assert request["purpose"] == response["purpose"] == "web_search"
+    assert response["usage"] is None
+
+
+def test_denial_logged_even_when_client_disconnects(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(relay, "LOGS", tmp_path)
+    monkeypatch.setattr(review, "decide", lambda *args: {"denied": True})
+    task = tmp_path / "prompt.txt"
+    task.write_text("task")
+    handler = object.__new__(relay.Handler)
+    handler.server = SimpleNamespace(model_config={"search_review": config()}, review_key="key", review_task_path=task)
+    def disconnect(*args):
+        raise BrokenPipeError()
+    handler.send_response = disconnect
+    with pytest.raises(BrokenPipeError):
+        handler.review_search(payload(), "request")
+    response = json.loads((tmp_path / "wire_responses.jsonl").read_text())
+    assert response["request_id"] == "request" and response["outcome"] == "search_review_denied"
+
+
+def test_native_session_title_usage_is_separate(tmp_path, monkeypatch):
+    body = {"model": "main", "messages": [{"role": "user", "content": "title"}],
+            "response_format": {"type": "json_schema", "json_schema": {"name": "session_title", "schema": {"type": "object"}}}}
+    with proxy(tmp_path, monkeypatch, None) as (base, forwarded):
+        with urlopen(Request(base + "/v1/chat/completions", json.dumps(body).encode())) as response:
+            assert response.status == 200
+    for filename in ("native_wire_requests.jsonl", "effective_wire_requests.jsonl", "wire_responses.jsonl"):
+        rows = [json.loads(line) for line in (tmp_path / filename).read_text().splitlines()]
+        assert rows and all(row["purpose"] == "session_title" for row in rows)

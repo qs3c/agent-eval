@@ -35,6 +35,16 @@ def test_multitask_scores_and_usage_coverage():
     assert data["agents"]["a"]["usage"]["cost_usd"]["known"] is None
 
 
+def test_partial_wire_usage_does_not_become_strict_total():
+    rows = [row("a", "django", 1, input_tokens=100), row("a", "other", 0,
+        usage_evidence={"known_usage": {"input_tokens": 40}, "missing_usage_requests": 1,
+                        "usage_issues": {"缺少响应": 1}})]
+    usage = summarize(config(), rows, "resolved", True)["agents"]["a"]["usage"]["input_tokens"]
+    assert usage["total"] is None
+    assert usage["known"] == 140
+    assert usage["missing_requests"] == 1
+
+
 def test_repeated_attempts_are_task_balanced_not_best_of():
     rows = [row("a", "django", x) for x in (1, 0)] + [row("a", "other", 1)] * 2
     data = summarize(config(2), rows, "resolved", True)

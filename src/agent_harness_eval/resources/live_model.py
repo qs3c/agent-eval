@@ -19,9 +19,11 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 if __package__:
-    from . import search_review
+    from . import search_review, fetch_review, tool_result_review
 else:
     import search_review
+    import fetch_review
+    import tool_result_review
 
 LOCK = threading.Lock()
 LOGS = Path("/logs/agent")
@@ -217,6 +219,34 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def review_fetch(self):
+        started = time.monotonic()
+        record = {"request_id": str(uuid.uuid4()), "policy": fetch_review.POLICY}
+        config = self.server.model_config.get("search_review")
+        status, message = 503, fetch_review.UNAVAILABLE
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+            if not 0 < size <= 1000000:
+                raise ValueError("invalid fetch review size")
+            body = json.loads(self.rfile.read(size))
+            if not config or not config.get("web_fetch", True):
+                raise ValueError("fetch review is not configured")
+            record.update(model=config["model"], deny_threshold=config["deny_threshold"])
+            allowed = fetch_review.review(config, self.server.review_key,
+                                          self.server.review_task_path.read_text(encoding="utf-8"), body, record)
+            record["outcome"] = "allowed" if allowed else "denied"
+            status, message = (200, None) if allowed else (403, fetch_review.DENIED)
+        except Exception as error:
+            record.update(outcome="unavailable", error_type=type(error).__name__)
+        record["elapsed_ms"] = (time.monotonic() - started) * 1000
+        append("fetch_review.jsonl", record)
+        response = json.dumps({"allowed": status == 200, "request_id": record["request_id"], "message": message}, ensure_ascii=False).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+
     def review_search(self, body, request_id, protocol="messages"):
         config = self.server.model_config.get("search_review")
         if not config:
@@ -249,22 +279,49 @@ class Handler(BaseHTTPRequestHandler):
         response = json.dumps({"type": "error", "error": {
             "type": "permission_error" if status == 403 else "api_error", "message": message,
         }}, ensure_ascii=False).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(response)))
-        self.end_headers()
-        self.wfile.write(response)
         append("search_responses.jsonl" if protocol == "exa_search" else "wire_responses.jsonl", {
             "schema_version": 2, "request_id": request_id, "status": status,
             "outcome": "search_review_" + record["outcome"], "purpose": "web_search",
             "protocol": protocol, "usage": None, "stream_complete": False,
             "timing_ms": {"search_review": record["elapsed_ms"]},
         })
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
         return False
 
+    def review_search_result(self, result, request_id, protocol):
+        config = self.server.model_config.get("search_review")
+        if not config:
+            return 200, None
+        started = time.monotonic()
+        record = {"request_id": request_id, "policy": "swe-search-content/v1", "protocol": protocol,
+                  "model": config["model"], "deny_threshold": config["deny_threshold"]}
+        status, message = 503, "EVAL_SEARCH_RESULT_REVIEW_UNAVAILABLE：检索结果审查未完成，内容未放行。"
+        try:
+            # Review the entire provider payload, including excerpts and citations.
+            # It remains untrusted data; no field is silently truncated or discarded.
+            content = json.dumps(result, ensure_ascii=False)
+            allowed = fetch_review.review(config, self.server.review_key,
+                self.server.review_task_path.read_text(encoding="utf-8"),
+                {"stage": "content", "url": "https://search.invalid/results", "content": content}, record)
+            status = 200 if allowed else 403
+            message = None if allowed else "EVAL_SEARCH_RESULT_DENIED：检索内容涉及本题现成答案，未向 agent 返回结果。"
+            record["outcome"] = "allowed" if allowed else "denied"
+        except Exception as error:
+            record.update(outcome="unavailable", error_type=type(error).__name__)
+        record["elapsed_ms"] = (time.monotonic() - started) * 1000
+        append("search_result_review.jsonl", record)
+        return status, message
+
     def do_POST(self):
-        if self.path == "/search/exa":
-            self.exa_search()
+        if self.path == "/review/web-fetch":
+            self.review_fetch()
+            return
+        if self.path == "/search/exa" or (self.path == "/search/v1/messages" and self.server.model_config.get("web_search", {}).get("provider") == "exa"):
+            self.exa_search(messages=self.path == "/search/v1/messages")
             return
         paths = {
             "/v1/chat/completions": "/chat/completions",
@@ -301,7 +358,31 @@ class Handler(BaseHTTPRequestHandler):
 
         stamp("received")
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        append("native_wire_requests.jsonl", {"request_id": request_id, "body": body})
+        response_format = body.get("response_format") or {}
+        if (not search and isinstance(response_format, dict)
+                and isinstance(response_format.get("json_schema"), dict)
+                and response_format["json_schema"].get("name") == "session_title"):
+            purpose = "session_title"
+        if not search:
+            config = self.server.model_config.get("search_review")
+            if config and config.get("web_fetch", True):
+                with LOCK:
+                    if not hasattr(self.server, "fetch_gate"):
+                        self.server.fetch_gate = tool_result_review.Gate()
+                body = self.server.fetch_gate.filter(
+                    body, config, self.server.review_key,
+                    self.server.review_task_path.read_text(encoding="utf-8"), request_id,
+                    lambda record: append("fetch_review.jsonl", record))
+        append("native_wire_requests.jsonl", {"request_id": request_id, "purpose": purpose, "protocol": protocol, "body": body})
+        if search and self.server.model_config.get("search_review") and body.get("stream"):
+            append("wire_responses.jsonl", {
+                "schema_version": 2, "request_id": request_id, "purpose": purpose,
+                "protocol": protocol, "status": 400, "outcome": "invalid_request",
+                "usage": None, "stream_complete": False,
+                "timing_ms": {"finished": (time.monotonic_ns() - started) / 1e6},
+            })
+            self.send_error(400, "Reviewed search requires a non-streaming response")
+            return
         if search and not self.review_search(body, request_id):
             return
         # Auxiliary search is a separate provider operation: retain its model,
@@ -355,6 +436,30 @@ class Handler(BaseHTTPRequestHandler):
             with open_upstream(request, 60 if search else 300, request_id, purpose) as response:
                 status = response.status
                 stamp("headers")
+                if search and self.server.model_config.get("search_review"):
+                    try:
+                        data = response.read(1000001)
+                        if len(data) > 1000000:
+                            raise ValueError("search response too large")
+                        event = json.loads(data)
+                        collect_usage(event, usage)
+                        status, message = self.review_search_result(event, request_id, protocol)
+                    except Exception:
+                        status, message = 503, "EVAL_SEARCH_RESULT_REVIEW_UNAVAILABLE"
+                    stream_complete = True  # upstream usage is retained even if delivery is blocked
+                    if message:
+                        outcome = "search_result_review_denied" if status == 403 else "search_result_review_unavailable"
+                        data = json.dumps({"type": "error", "error": {"type": "api_error", "message": message}}, ensure_ascii=False).encode()
+                    else:
+                        observe(event)
+                        outcome = "completed"
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    stamp("upstream_end")
+                    return
                 self.send_response(status)
                 self.send_header(
                     "Content-Type",
@@ -438,7 +543,7 @@ class Handler(BaseHTTPRequestHandler):
             )
 
 
-    def exa_search(self):
+    def exa_search(self, messages=False):
         """Relay the native Exa contract, with independent search evidence."""
         key = getattr(self.server, "search_key", "")
         if not key:
@@ -449,6 +554,11 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < length <= 65536:
                 raise ValueError("invalid request size")
             body = json.loads(self.rfile.read(length))
+            if messages:
+                if body.get("stream"):
+                    raise ValueError("streaming search is unsupported")
+                body = {"query": search_review.query_from_messages(body), "type": "auto",
+                        "contents": {"highlights": True}, "numResults": 5}
             if not isinstance(body, dict) or not isinstance(body.get("query"), str) or not body["query"].strip():
                 raise ValueError("missing query")
             if set(body) - {"query", "type", "contents", "numResults"}:
@@ -475,10 +585,29 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with open_upstream(request, 10, request_id, "web_search") as response:
                 status = response.status
-                data = response.read().replace(key.encode(), b"[REDACTED]")
+                data = response.read(1000001).replace(key.encode(), b"[REDACTED]")
+                if len(data) > 1000000:
+                    raise ValueError("search response too large")
                 result = json.loads(data)
-                append("search_results.jsonl", {**record, "body": result})
-            outcome = "completed"
+                status, message = self.review_search_result(result, request_id, "exa_search")
+                if message:
+                    outcome = "search_result_review_denied" if status == 403 else "search_result_review_unavailable"
+                    data = json.dumps({"error": message}, ensure_ascii=False).encode()
+                else:
+                    append("search_results.jsonl", {**record, "body": result})
+                    outcome = "completed"
+                    if messages:
+                        # The frozen DSH provider consumes result blocks plus citation snippets.
+                        items = result.get("results", [])
+                        citations = [{"type": "web_search_result_location", "url": r["url"],
+                                      "title": r.get("title", ""),
+                                      "cited_text": " ".join(r.get("highlights") or [])} for r in items]
+                        data = json.dumps({"id": request_id, "type": "message", "role": "assistant",
+                            "content": [{"type": "web_search_tool_result", "tool_use_id": "exa-" + request_id,
+                                "content": [{"type": "web_search_result", "url": r["url"],
+                                             "title": r.get("title", "")} for r in items]},
+                                {"type": "text", "text": "Exa search results", "citations": citations}],
+                            "stop_reason": "end_turn"}, ensure_ascii=False).encode()
         except HTTPError as error:
             status, outcome = error.code, "http_error"
             error.close()
@@ -489,7 +618,7 @@ class Handler(BaseHTTPRequestHandler):
             append("wire_errors.jsonl", {**record, "error": type(error).__name__})
         finally:
             append("search_responses.jsonl", {**record, "schema_version": 2,
-                   "status": status, "outcome": outcome, "protocol": "exa_search",
+                   "status": status, "outcome": outcome, "protocol": "dsh_messages_to_exa" if messages else "exa_search",
                    "usage": None, "stream_complete": outcome == "completed",
                    "timing_ms": {"finished": (time.monotonic() - started) * 1000},
                    "retry_policy": RETRY_POLICY})

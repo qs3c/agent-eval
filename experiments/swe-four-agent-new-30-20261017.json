@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "name": "swe-four-agent-new-30-20261017",
+  "model": {
+    "mode": "live",
+    "name": "deepseek-flash",
+    "api_base": "https://api.deepseek.com",
+    "api_key_env": "EVAL_POOL_KEY_f7180ddfe34c4811bc25628be683ce99",
+    "messages_base": "https://api.deepseek.com/anthropic",
+    "pool_id": "79aa0124f796459fac13d01311d2f5f7",
+    "spending": "unbounded",
+    "max_tokens": 32768,
+    "context_window": 1000000,
+    "search_review": {
+      "endpoint": "https://openrouter.ai/api/v1/systemone",
+      "model": "typesafe/jev-1.13-20260917",
+      "api_key_env": "EVAL_SEARCH_REVIEW_API_KEY",
+      "timeout_seconds": 10,
+      "deny_threshold": 0.5,
+      "web_fetch": true
+    }
+  },
+  "agents": [
+    {
+      "id": "dsh-standard",
+      "implementation": "agent_harness_eval.agents.dsh:DeepSeekStandard",
+      "version": "0.2.1-alpha.2+search-content+platform-review",
+      "kwargs": {
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/dsh-bundle-platform-review-20261017/runtime.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/dsh-bundle-platform-review-20261017/provenance.json",
+        "web_search": {
+          "provider": "exa",
+          "credential_env": "EXA_API_KEY",
+          "transport": "platform-relay"
+        }
+      },
+      "capabilities": [
+        "shell",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "opencode",
+      "implementation": "agent_harness_eval.agents.frozen_cli:OpenCode",
+      "version": "1.19.3",
+      "kwargs": {
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/opencode-frozen-20261017/opencode.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/opencode-frozen-20261017/provenance.json",
+        "web_search": {
+          "provider": "exa",
+          "credential_env": "EXA_API_KEY",
+          "transport": "direct"
+        }
+      },
+      "capabilities": [
+        "shell",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "hermes",
+      "implementation": "agent_harness_eval.agents.frozen_cli:Hermes",
+      "version": "06671b7+web-result-fix.468d8dff",
+      "kwargs": {
+        "bundle": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-paid-exa-frozen-20261018/hermes-paid-exa-468d8dff.tar.gz",
+        "provenance": "/home/xavier/Desktop/github/agent-harness-eval/.cache/hermes-paid-exa-frozen-20261018/provenance-paid-exa.json",
+        "web_search": {
+          "provider": "exa",
+          "credential_env": "EXA_API_KEY",
+          "transport": "direct"
+        }
+      },
+      "capabilities": [
+        "shell",
+        "filesystem"
+      ]
+    }
+  ],
+  "benchmark": {
+    "id": "swe-verified-four-agent-unseen-30",
+    "tasks": [
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-15161",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-11603",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/matplotlib__matplotlib-25287",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-14089",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/sympy__sympy-18763",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/psf__requests-2931",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-14351",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-11451",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/pylint-dev__pylint-8898",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/scikit-learn__scikit-learn-25973",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/astropy__astropy-14995",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/sympy__sympy-22080",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-13809",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-11885",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/sympy__sympy-19954",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/matplotlib__matplotlib-22871",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/pytest-dev__pytest-5787",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-14155",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/sympy__sympy-15017",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/pydata__xarray-4695",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-11740",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-15127",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/sphinx-doc__sphinx-8459",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-16612",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-15503",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-12708",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/sympy__sympy-21930",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/sphinx-doc__sphinx-8035",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/scikit-learn__scikit-learn-13124",
+      "/home/xavier/Desktop/github/agent-harness-eval/datasets/swe-four-agent-30-20261017/django__django-10554"
+    ],
+    "requires": [
+      "shell",
+      "filesystem"
+    ],
+    "primary_metric": "reward",
+    "score_kind": "resolved",
+    "dataset": {
+      "name": "princeton-nlp/SWE-bench_Verified",
+      "revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+      "split": "test"
+    },
+    "evaluation": {
+      "name": "Harbor SWE parser",
+      "version": "4.0.3",
+      "environment": "Frozen digest per task; initial-workspace delta; SWE harness 4.1.0 official tests/scoring unchanged, atomic git-apply execution adaptation"
+    }
+  },
+  "attempts": 1,
+  "concurrency": 2,
+  "timeout_seconds": 1800,
+  "setup_timeout_seconds": 900,
+  "cpus": 2,
+  "memory_mb": 4096,
+  "web_proxy": "device",
+  "guardian": {
+    "mode": "observe",
+    "poll_seconds": 15,
+    "idle_seconds": 600,
+    "setup_seconds": 1200,
+    "verifier_seconds": 1200
+  },
+  "batch": {
+    "size": 3,
+    "prepare_swe": true,
+    "official_regrade": false,
+    "retain_count": 3,
+    "retain_gib": 20.0,
+    "retain_hours": 24.0,
+    "min_free_gib": 20.0,
+    "rotate_agents": true
+  }
+}

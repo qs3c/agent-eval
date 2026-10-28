@@ -53,6 +53,7 @@ DSH 使用锁定发布包及 Standard preset；源码 tag 是版本关联，不�
 
 先接入自己的 Agent，再到“创建对比”选择 Release、benchmark、题目和模型。首次使用 `controls` 两题：模型 Agent 选 mock，无模型协议夹具选 offline。预检不发送模型请求。模拟结果只验证执行链路，不代表真实能力。
 
+- [Terminal-Bench 接入](docs/terminal-bench.md)：导入固定版本、CPU 子集和确定性抽样，保留原始 verifier 与任务资源。
 - [Benchmark 扩展](docs/benchmark-integration.md)：标准 Harbor 任务与 verifier 输出，与 Agent 适配独立。
 - [模型策略](docs/model-policies.md)：模型参数、角色、预算与覆盖证据。
 - 逐题对比页面：查看原生轨迹、补丁、成绩和缺失证据。

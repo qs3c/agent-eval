@@ -30,7 +30,7 @@ def fixture(body):
             raise ValueError("fixture requires a supported write or shell tool")
         schema = tools[name].get("input_schema", tools[name].get("parameters", {}))
         for key in schema.get("properties", {}):
-            if key in ("path", "file_path", "filename"):
+            if key in ("path", "file_path", "filePath", "filename"):
                 args[key] = "result.txt"
             if key in ("content", "text"):
                 args[key] = "ready\n"

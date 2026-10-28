@@ -7,21 +7,24 @@
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="stylesheet" href="/static/rsi.css?v=20261027-onboarding" />
     <link rel="stylesheet" href="/static/models.css" />
+    <link rel="stylesheet" href="/static/home.css?v=20261028" />
     <script defer src="/static/trace.js"></script>
     <script defer src="/static/comparison.js"></script>
     <script defer src="/static/rsi.js?v=20261027-onboarding"></script>
     <script defer src="/static/models.js?v=20261027-onboarding"></script>
     <script defer src="/static/integrations.js?v=20261027-onboarding"></script>
+    <script defer src="/static/home.js?v=20261028"></script>
     <script defer src="/static/app.js"></script>
   </head>
   <body>
     <aside class="sidebar">
-      <a class="brand" href="#runs"
+      <a class="brand" href="#home"
         ><span class="brand-mark">a<span>e</span></span
         ><span>Agent Harness Eval<small>评测工作台</small></span></a
       >
       <div class="nav-caption">WORKSPACE</div>
       <nav>
+        <a href="#home" data-nav="home"><span>⌂</span> 工作台首页</a>
         <a href="#setup" data-nav="setup"><span>＋</span> 创建对比</a>
         <a href="#integrations" data-nav="integrations"><span>◇</span> Agent 接入</a>
         <a href="#runs" data-nav="runs"><span>▦</span> 实验记录</a
@@ -30,6 +33,7 @@
         <a href="#rsi" data-nav="rsi"><span>↗</span> RSI 改进</a>
         <a href="#models" data-nav="models"><span>◇</span> 模型设置</a>
       </nav>
+      <a class="guide-nav" href="#welcome" data-nav="welcome"><span>◌</span> 使用引导 <span>↗</span></a>
       <div class="sidebar-bottom">
         <span class="dot"></span> 本机工作空间<small
           >Harbor · Docker · Native agents</small
@@ -39,12 +43,13 @@
     </aside>
     <main>
       <header class="topbar">
-        <span>Workspace <b>/</b> <span id="breadcrumb">实验记录</span></span
+        <span>Workspace <b>/</b> <span id="breadcrumb">工作台</span></span
         ><span class="connection" id="connection"
           ><i class="dot"></i> 本机服务</span
         >
       </header>
       <div id="notice" role="status" aria-live="polite"></div>
+      <div id="guide-return" hidden></div>
       <div id="view"></div>
       <footer>
         Agent Harness Eval <span>可追溯的实验，从配置到证据。</span

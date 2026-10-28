@@ -129,8 +129,8 @@ function table(headers, rows) {
   return wrap;
 }
 function routeInfo() {
-  const [page = "runs", id] = location.hash.slice(1).split("/");
-  return { page, id };
+  const [page, id] = location.hash.slice(1).split("/");
+  return { page: page || "entry", id };
 }
 async function refreshRuns() {
   const data = await api("/api/runs");
@@ -194,8 +194,8 @@ function renderRunRows() {
   }
   $("#empty").hidden = rows.length > 0;
   if (!runs.length) {
-    $("#empty").replaceChildren(el("p", "首次使用：先接入自己的 Agent 和一个基线，再配置模型、创建对比。无需 API Key 也能先做接入检查。"),
-      link("1. 接入 Agent →", "#integrations", "button"), link("2. 配置模型 →", "#models", "button"), link("3. 创建对比 →", "#setup", "button primary"));
+    $("#empty").replaceChildren(el("p", "还没有实验记录。创建实验后，在这里查看进度与执行证据。"),
+      link("查看使用引导 →", "#welcome", "button"), link("创建对比 →", "#setup", "button primary"));
   } else if (!rows.length) {
     const showAll = el("button", "查看全部记录（含离线与模拟实验）", "button");
     showAll.onclick = () => { filter = "all"; search = ""; renderRuns(epoch); };
@@ -818,31 +818,40 @@ async function renderCompare(token) {
 async function route() {
   window.scrollTo(0, 0);
   const token = ++epoch;
-  const { page, id } = routeInfo();
+  let { page, id } = routeInfo();
   notice();
+  let landingData;
+  if (page === "entry") {
+    view.replaceChildren(el("p", "正在打开工作空间…", "landing-loading"));
+    landingData = await loadLandingData();
+    if (epoch !== token) return;
+    page = landingEntry(landingData);
+    history.replaceState(null, "", "#" + page);
+  }
+  if (typeof updateGuideReturn === "function") updateGuideReturn(page);
   $("#breadcrumb").textContent =
-    page === "setup" ? "创建对比" : page === "integrations" ? "Agent 接入" : page === "models" ? "模型设置" : ["rsi", "rsi-case"].includes(page) ? "RSI 改进" : page === "create"
+    page === "home" ? "工作台首页" : page === "welcome" ? "使用引导" : page === "setup" ? "创建对比" : page === "integrations" ? "Agent 接入" : page === "models" ? "模型设置" : ["rsi", "rsi-case"].includes(page) ? "RSI 改进" : page === "create"
       ? "创建实验"
       : ["compare", "batch-compare", "trace-compare"].includes(page)
         ? "结果对比"
         : page === "run"
           ? "运行详情"
           : "实验记录";
-  document
-    .querySelectorAll("[data-nav]")
-    .forEach((n) =>
-      n.classList.toggle(
-        "active",
-        n.dataset.nav === (page === "rsi-case" ? "rsi" : page === "run" ? "runs" : ["batch-compare", "trace-compare"].includes(page) ? "compare" : page),
-      ),
-    );
+  document.querySelectorAll("[data-nav]").forEach((n) => {
+    const active = n.dataset.nav === (page === "rsi-case" ? "rsi" : page === "run" ? "runs" : ["batch-compare", "trace-compare"].includes(page) ? "compare" : page);
+    n.classList.toggle("active", active);
+    if (active) n.setAttribute("aria-current", "page");
+    else n.removeAttribute("aria-current");
+  });
   if (["rsi", "rsi-case"].includes(page)) {
     const loading = el("div", "正在加载改进档案…", "rsi-loading");
     loading.setAttribute("role", "status");
     view.replaceChildren(loading);
   }
   try {
-    if (page === "setup") await renderLocalSetup(token);
+    if (page === "home") await renderHome(token, landingData);
+    else if (page === "welcome") await renderWelcome(token, landingData);
+    else if (page === "setup") await renderLocalSetup(token);
     else if (page === "integrations") await renderIntegrations(token);
     else if (page === "create") await renderCreate(token);
     else if (page === "models") await renderModels(token);

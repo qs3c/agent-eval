@@ -65,10 +65,10 @@ test('first integration exposes basic import before optional evolution', async t
   assert.equal(button(doc,'核验运行证据').disabled,true);
   assert.equal(button(doc,'启动有界闭环').disabled,true);
 });
-test('empty experiment list explains the first steps', async t => {
+test('empty experiment list links to the dedicated guide', async t => {
   const {doc,run} = setup(t);
   await run('renderRuns(0)');
-  assert.ok(doc.querySelector('#empty a[href="#integrations"]'));
+  assert.ok(doc.querySelector('#empty a[href="#welcome"]'));
   assert.ok(doc.querySelector('#empty a[href="#setup"]'));
 });
 

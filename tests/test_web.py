@@ -46,11 +46,11 @@ def test_api_boundaries(client):
 
 
 def test_explicit_bind_host_preserves_request_boundaries(tmp_path):
-    origin = "http://100.93.173.10:8765"
-    client = TestClient(create_app(tmp_path, bind_host="100.93.173.10"), base_url=origin)
+    origin = "http://100.100.100.10:8765"
+    client = TestClient(create_app(tmp_path, bind_host="100.100.100.10"), base_url=origin)
     assert client.get("/").status_code == 200
     assert client.get("/api/runs").status_code == 200
-    for host in ("evil.example", "100.93.173.11:8765", "100.93.173.10.evil.example"):
+    for host in ("evil.example", "100.100.100.11:8765", "100.100.100.10.evil.example"):
         assert client.get("/", headers={"Host": host}).status_code == 403
     assert client.post("/api/runs", headers={"Origin": origin}, json={}).status_code == 422
     assert client.post("/api/runs", headers={"Origin": "http://evil.example"}, json={}).status_code == 403
@@ -58,7 +58,7 @@ def test_explicit_bind_host_preserves_request_boundaries(tmp_path):
 
 
 def test_default_host_rejects_remote_address(client):
-    assert client.get("/", headers={"Host": "100.93.173.10:8765"}).status_code == 403
+    assert client.get("/", headers={"Host": "100.100.100.10:8765"}).status_code == 403
 
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "::", "*.example.com"])

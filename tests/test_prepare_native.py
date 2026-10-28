@@ -9,7 +9,7 @@ import pytest
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Linux shell preparation entrypoint")
-@pytest.mark.parametrize("selection", ["dsh", "bkcrab", "all"])
+@pytest.mark.parametrize("selection", ["dsh", "all"])
 def test_selected_agent_has_independent_build_dependencies(tmp_path, selection):
     root = Path(__file__).resolve().parents[1]
     (tmp_path / "scripts").mkdir()
@@ -28,14 +28,7 @@ def test_selected_agent_has_independent_build_dependencies(tmp_path, selection):
     cli.write_text(executable)
     cli.chmod(0o755)
     env = {**os.environ, "PATH": str(tools) + ":" + os.environ["PATH"], "CALL_LOG": str(log)}
-    env.pop("BKCRAB_SOURCE", None)
-    if selection != "dsh":
-        source = tmp_path / "source"
-        source.mkdir()
-        env["BKCRAB_SOURCE"] = str(source)
     subprocess.run(["bash", "scripts/prepare-native.sh", selection], cwd=tmp_path, env=env, check=True)
     calls = log.read_text()
-    assert ("npm ci" in calls) == (selection != "bkcrab")
-    assert ("bundle-dsh" in calls) == (selection != "bkcrab")
-    assert ("go build" in calls) == (selection != "dsh")
-    assert ("snapshot-bkcrab" in calls) == (selection != "dsh")
+    assert "npm ci" in calls and "bundle-dsh" in calls
+    assert "go build" not in calls

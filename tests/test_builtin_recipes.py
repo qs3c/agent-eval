@@ -12,7 +12,7 @@ from test_release_build import repository, fake_build
 
 
 def test_builtin_recipes_pin_sources_runtime_and_keep_patches_present():
-    assert {path.stem for path in catalog.RECIPES.glob("*.yaml")} == {"hermes", "opencode", "bkcrab", "dsh"}
+    assert {path.stem for path in catalog.RECIPES.glob("*.yaml")} == {"hermes", "opencode", "dsh"}
     for path in catalog.RECIPES.glob("*.yaml"):
         recipe = load(path)
         assert len(recipe.source.commit) == 40

@@ -102,7 +102,7 @@ def test_real_incremental_observer_is_independent_of_diagnostic_snapshots(target
 
     async def check():
         monitor = Monitor(GuardianConfig(confirmations=1))
-        monitor.observe(await backend.observe(), 0, "bkcrab")
+        monitor.observe(await backend.observe(), 0, "sample_agent")
         assert "old-call" in monitor.pending
         with path.open("a") as stream:
             stream.write(
@@ -115,7 +115,7 @@ def test_real_incremental_observer_is_independent_of_diagnostic_snapshots(target
         await backend.snapshot()  # A guardian inspection cannot steal return events.
         snapshot = await backend.observe()
         assert snapshot["telemetry"]["complete"]
-        assert monitor.observe(snapshot, 1, "bkcrab")[0] is None
+        assert monitor.observe(snapshot, 1, "sample_agent")[0] is None
         assert not monitor.pending
 
     asyncio.run(check())

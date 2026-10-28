@@ -23,14 +23,14 @@ async function renderModels(token) {
       const assigned = Object.entries(data.bindings).filter(([, id]) => id === item.id).map(([scene]) => data.scenes[scene]);
       const actions = el("div", undefined, "rsi-actions");
       actions.append(rsiButton("编辑", () => modelDialog(token, data, item)), rsiButton("移除", () => modelRemoveDialog(token, data, item)));
-      card.append(head, el("p", item.name, "model-name mono"), el("p", item.api_base, "model-endpoint"), el("p", `最大输出 ${number(item.max_tokens)} · 上下文 ${number(item.context_window)}`, "muted"), el("p", item.messages_base ? "Chat Completions + Messages · 可用于 BKCrab / DSH" : "Chat Completions · DSH 需补充 Messages 接口", "muted"), el("p", assigned.length ? "用于：" + assigned.join("、") : "尚未分配使用场景", "model-assignments"), actions);
+      card.append(head, el("p", item.name, "model-name mono"), el("p", item.api_base, "model-endpoint"), el("p", `最大输出 ${number(item.max_tokens)} · 上下文 ${number(item.context_window)}`, "muted"), el("p", item.messages_base ? "Chat Completions + Messages · 可用于 OpenCode / DSH / Hermes" : "Chat Completions · DSH 需补充 Messages 接口", "muted"), el("p", assigned.length ? "用于：" + assigned.join("、") : "尚未分配使用场景", "model-assignments"), actions);
       cards.append(card);
     }
     pool.append(cards);
   }
   const scenes = rsiPanel("场景默认模型", "每个场景独立选择。新任务保存配置快照，修改默认模型不影响已有任务。");
   const form = el("form", undefined, "model-bindings-form"), grid = el("div", undefined, "model-bindings-grid"), inputs = {};
-  const descriptions = {executor_bkcrab:"分析证据、修改候选代码", executor_dsh:"DeepSeek Harness 执行改进", experiment:"真实评测中各参与 Agent 共用，便于公平比较", guardian:"仅在实验启用自主介入时调用；不会自动开启守护"};
+  const descriptions = {executor_opencode:"OpenCode 分析证据、修改候选代码", executor_hermes:"Hermes 分析证据、修改候选代码", executor_dsh:"DeepSeek Harness 执行改进", experiment:"真实评测中各参与 Agent 共用，便于公平比较", guardian:"仅在实验启用自主介入时调用；不会自动开启守护"};
   for (const [scene, name] of Object.entries(data.scenes)) {
     const input = poolSelect(data, name, data.bindings[scene], scene.startsWith("executor_") ? "未指定（需选择后才能执行）" : "未指定（使用已有模板配置）"); inputs[scene] = input;
     grid.append(rsiField(name, input, descriptions[scene]));

@@ -15,24 +15,28 @@ from .sources import Sources, repository
 from .schema import Recipe
 
 
-def submit(root, source_id, *, confirm_paid=False):
-    from ..rsi.executors import settings, runtime
+def submit(root, source_id, *, executor, model_id=None, confirm_paid=False):
+    from ..platform_agents.releases import resolve, runtime
     from ..model_pool import ModelPool
     from ..policies.model import freeze
 
     sources = Sources(root)
     source = sources.get(source_id)
-    if not source["observed"]:
-        raise ValueError("先刷新来源，固定源码 SHA")
-    current, native = settings(root), runtime(root)
-    if not current or current.executor not in native.get("executors", {}):
-        raise ValueError("请先安装并配置原生平台 Agent 运行环境，参见 docs/platform-agents.md")
+    _, receipt = resolve(root, executor)
+    native = runtime(root)
+    if not native:
+        raise ValueError("请先准备通用平台容器，参见 docs/platform-agents.md")
     if not confirm_paid:
         raise ValueError("Integration Agent 会调用配置的模型，请确认费用后启动")
-    model = ModelPool(root).resolve("integration")
+    model = ModelPool(root).resolve("integration", model_id)
+    protocol = receipt["recipe"]["model_protocol"]
+    if protocol == "anthropic-messages" and not model.get("messages_base"):
+        raise ValueError("DSH 需要支持 Messages 接口的模型")
     policy = dict(model.get("policy") or {})
     if not model.get("policy"):
-        policy["protocols"] = ["anthropic-messages"] if current.executor == "dsh" else ["openai-chat"]
+        policy["protocols"] = [protocol]
+    if protocol not in policy.get("protocols", ["openai-chat", "anthropic-messages"]):
+        raise ValueError("所选模型策略不支持执行器协议")
     # A finite request allowance is mandatory for this automatic repair action.
     budget = dict(policy.get("budget") or {})
     budget["max_requests"] = min(budget.get("max_requests") or 50, 50)
@@ -42,13 +46,15 @@ def submit(root, source_id, *, confirm_paid=False):
     commands = Commands(root)
     for job in commands.list():
         if job["kind"] == "integration-assist" and job["payload"]["source"]["id"] == source_id and job["status"] not in TERMINAL:
+            if job["payload"].get("executor") != executor or job["payload"].get("policy_digest") != frozen.digest:
+                raise ValueError("已有接入任务正在执行；请等待完成或取消后再更换执行器/模型")
             return job
     token = uuid4().hex
     directory = commands.store.directory / "integration-assistant" / token
     return commands.submit("integration-assist", {
         "source": source, "output": str(directory), "model": model,
-        "policy_digest": frozen.digest, "image": native["image"], "executor": current.executor,
-        "timeout": min(current.timeout_seconds, 1800),
+        "policy_digest": frozen.digest, "image": native["image"], "executor": executor,
+        "executor_release": receipt["release_id"], "timeout": 1800,
     }, key="integration-assist:" + token)
 
 
@@ -85,6 +91,7 @@ def accept(root, source, workspace, result, destination):
     write_json(destination / "proposal.json", {"summary": value["summary"], "limitations": value.get("limitations", []),
         "source": source, "recipe_digest": recipe.digest, "patches": {name: digest(destination / name) for name in patches}})
     repair(root, source["id"], path)
+    Sources(root).enable(source["id"], True)
     return queue_refresh(root, source["id"], observe=False)
 
 
@@ -96,9 +103,15 @@ async def generate(root, payload):
     from ..rsi.models import Command
     from ..rsi.process import checked
 
-    source = payload["source"]
+    source = dict(payload["source"])
     output = Path(payload["output"])
     output.mkdir(parents=True, exist_ok=True)
+    if not source["observed"]:
+        from .tracking import probe
+        sha = probe(source)
+        Sources(root).observe(source["id"], sha)
+        source["observed"] = sha
+    write_json(output / "source-snapshot.json", source)
     checkout, workspace, evidence = (output / name for name in ("source", "candidate", "evidence"))
     fetch_source(SourceRevision(repository=source["repository"], ref=source["ref"], commit=source["observed"]), checkout, output / "fetch.log")
     workspace.mkdir()
@@ -122,6 +135,7 @@ async def generate(root, payload):
         "source_directory": str(checkout), "evidence_directory": str(evidence), "result_path": str(result)}
     command = Command(argv=[sys.executable, str(Path(__file__).parents[1] / "rsi/native_adapter.py"),
         "--root", str(Path(root).resolve()), "--executor", payload["executor"], "--image", payload["image"],
+        "--release", payload["executor_release"],
         "--timeout", str(payload["timeout"]), "--model-policy-json", json.dumps(payload["model"])], timeout_seconds=payload["timeout"] + 40)
     request = PlatformAgentRequest(role="integration", workspace=workspace, output=output, model_policy=policy,
         timeout_seconds=payload["timeout"] + 60, cpus=2, memory_mb=4096, tools=("read", "exec", "write_recipe", "final"))

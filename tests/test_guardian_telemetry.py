@@ -31,14 +31,14 @@ def test_tool_return_before_large_model_request_is_not_lost(tmp_path):
     )
     monitor = Monitor(GuardianConfig(confirmations=1))
     first = snapshot(path)
-    monitor.observe(first, 0, "bkcrab")
+    monitor.observe(first, 0, "sample_agent")
     write_lines(
         path,
         event("tool_result", {"id": "a"}, 1),
         event("model_request", {"messages": "x" * 200_000}, 2),
     )
     second = snapshot(path, first["telemetry"]["cursor"])
-    assert monitor.observe(second, 1, "bkcrab")[0] is None
+    assert monitor.observe(second, 1, "sample_agent")[0] is None
     assert not monitor.pending
 
 
@@ -72,11 +72,11 @@ def test_rotation_or_corrupt_line_drops_untrusted_pending(tmp_path):
     )
     first = snapshot(path)
     monitor = Monitor(GuardianConfig(confirmations=1))
-    monitor.observe(first, 0, "bkcrab")
+    monitor.observe(first, 0, "sample_agent")
     path.write_text("not-json\n", encoding="utf-8")
     changed = snapshot(path, first["telemetry"]["cursor"])
     assert changed["telemetry"]["gap"]
-    assert monitor.observe(changed, 1000, "bkcrab")[0] is None
+    assert monitor.observe(changed, 1000, "sample_agent")[0] is None
     assert not monitor.pending
 
 

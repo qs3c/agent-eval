@@ -43,11 +43,3 @@ the archive remain part of the task digest. The pinned image digest is recorded
 in the frozen runtime provenance and Dockerfile; image contents are not scanned.
 
 ## Agent source snapshots
-
-New BKCrab snapshots identify clean tracked source by Git commit/tree. For dirty
-source, `snapshot-bkcrab` requires a new sibling `.source/` evidence directory:
-it saves a binary Git diff against HEAD, untracked files in a tar, and their
-hashes. The runner verifies and copies these attachments with the Agent binary.
-`source_hash_kind` distinguishes this v2 identity from the legacy full-tree
-hash. Existing snapshots and binaries are not regenerated. Git repositories
-must remain unchanged during snapshotting; ignored build inputs are not captured.

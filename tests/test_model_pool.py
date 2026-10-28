@@ -32,7 +32,7 @@ def test_migration_once_without_returning_credentials(pool):
     old = pool.root / ".rsi"
     old.mkdir()
     (old / "executor-settings.json").write_text(
-        json.dumps({"executor": "bkcrab", "model": "existing-model"})
+        json.dumps({"executor": "sample_agent", "model": "existing-model"})
     )
     (old / "executor-key").write_text("existing-secret")
     first = pool.public()
@@ -75,8 +75,8 @@ def test_dsh_requires_messages_and_bindings_validate(pool):
         pool.bind({"unknown": identity})
     with pytest.raises(ValueError):
         pool.bind({"experiment": "missing"})
-    pool.bind({"executor_bkcrab": identity})
-    assert pool.resolve("executor_bkcrab")["api_base"] == "https://chat.example/v1"
+    pool.bind({"executor_opencode": identity})
+    assert pool.resolve("executor_opencode")["api_base"] == "https://chat.example/v1"
 
 
 def test_api_validation_never_echoes_key_and_rejects_cross_site(pool):

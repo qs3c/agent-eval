@@ -44,8 +44,8 @@ def test_missing_docker_and_low_disk_are_actionable(host, tmp_path, monkeypatch)
     assert not any(Path(call[0]).name == "docker" for call in host)
 
 
-def test_dsh_does_not_require_go_or_bkcrab_source(host, tmp_path, monkeypatch):
-    monkeypatch.delenv("BKCRAB_SOURCE", raising=False)
+def test_dsh_does_not_require_go_or_sample_agent_source(host, tmp_path, monkeypatch):
+    monkeypatch.delenv("CUSTOM_AGENT_SOURCE", raising=False)
     monkeypatch.setattr(doctor.shutil, "which", lambda tool: None if tool == "go" else "/bin/" + tool)
     checks = rows(tmp_path, agents=["dsh"])
     assert "go" not in checks
@@ -53,17 +53,10 @@ def test_dsh_does_not_require_go_or_bkcrab_source(host, tmp_path, monkeypatch):
     assert not any(Path(call[0]).name == "go" for call in host)
 
 
-def test_bkcrab_does_not_probe_node(host, tmp_path):
-    checks = rows(tmp_path, agents=["bkcrab"])
-    assert checks["go"]["status"] == "pass"
-    assert "node" not in checks and "npm" not in checks
-
-
-def test_bkcrab_requires_eval_entry(host, tmp_path, monkeypatch):
-    monkeypatch.setenv("BKCRAB_SOURCE", str(tmp_path / "source"))
-    assert rows(tmp_path, agents=["bkcrab"])["bkcrab-source"]["status"] == "fail"
-    (tmp_path / "source/cmd/bkcrab-eval").mkdir(parents=True)
-    assert rows(tmp_path, agents=["bkcrab"])["bkcrab-source"]["status"] == "pass"
+@pytest.mark.parametrize("agent", ["opencode", "hermes"])
+def test_recipe_agents_use_container_build_tools(host, tmp_path, agent):
+    checks = rows(tmp_path, agents=[agent])
+    assert "go" not in checks and "node" not in checks
 
 
 def test_busy_port_warns_without_stopping_service(host, tmp_path):

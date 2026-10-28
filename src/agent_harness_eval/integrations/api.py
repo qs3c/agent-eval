@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
@@ -37,6 +38,20 @@ class RepairInput(BaseModel):
 class AssistInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm_paid: bool = False
+    executor: Literal["opencode", "dsh", "hermes"]
+    model_id: str | None = None
+
+
+class OnboardInput(AssistInput):
+    repository: str
+    ref: str = "main"
+
+
+class InstructionsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    repository: str
+    ref: str = "main"
+    source_id: str | None = None
 
 
 class MonitorInput(BaseModel):
@@ -48,6 +63,50 @@ def router(console):
     routes = APIRouter(prefix="/api")
     from .sources import Sources
     from .tracking import queue_refresh, repair
+
+    @routes.get("/integrations/executors")
+    def executors():
+        from ..platform_agents.releases import catalog
+        from ..model_pool import ModelPool
+        public = ModelPool(console.root).public()
+        return {"options": catalog(console.root), "models": public["models"],
+                "model_id": public["bindings"].get("integration"), "allow_live": console.allow_live}
+
+    @routes.post("/integrations/instructions")
+    def external_instructions(value: InstructionsInput):
+        from .onboarding import instructions
+        return instructions(console.root, value.repository, value.ref, value.source_id)
+
+    @routes.post("/integrations/import", status_code=202)
+    def import_recipe(value: SourceInput):
+        from .schema import load
+        from .sources import repository
+        if not value.recipe:
+            raise ValueError("请提供平台主机上的配方绝对路径")
+        path = Path(value.recipe)
+        if not path.is_absolute() or not path.is_file():
+            raise ValueError("请提供平台主机上已存在的配方绝对路径")
+        if repository(load(path).source.repository) != repository(value.repository):
+            raise ValueError("配方必须使用绝对路径并匹配目标仓库")
+        store = Sources(console.root)
+        row = store.add(value.repository, value.ref)
+        repair(console.root, row["id"], path)
+        store.enable(row["id"], True)
+        return {"source": store.get(row["id"]), "job": queue_refresh(console.root, row["id"])}
+
+    @routes.post("/integrations/onboard", status_code=202)
+    def onboard(value: OnboardInput):
+        from .assistant import submit as assist
+        if not console.allow_live or not value.confirm_paid:
+            raise ValueError("一键接入需要 --allow-live 并确认本次模型费用")
+        # Pause automatic tracking until the proposal enters ordinary admission.
+        store = Sources(console.root)
+        row = store.add(value.repository, value.ref)
+        if row["recipe"] or row["admitted"]:
+            raise ValueError("来源已存在接入配方；请在来源卡片中明确发起修复")
+        store.enable(row["id"], False)
+        job = assist(console.root, row["id"], executor=value.executor, model_id=value.model_id, confirm_paid=True)
+        return {"source": store.get(row["id"]), "job": job}
 
     @routes.get("/sources")
     def sources():
@@ -66,6 +125,7 @@ def router(console):
     @routes.post("/sources/{source_id}/repair", status_code=202)
     def repair_source(source_id: str, value: RepairInput):
         repair(console.root, source_id, value.recipe)
+        Sources(console.root).enable(source_id, True)
         return queue_refresh(console.root, source_id)
 
     @routes.post("/sources/{source_id}/monitor")
@@ -78,7 +138,7 @@ def router(console):
 
         if not console.allow_live:
             raise ValueError("请先以 --allow-live 开启平台模型调用")
-        return assist(console.root, source_id, confirm_paid=value.confirm_paid)
+        return assist(console.root, source_id, executor=value.executor, model_id=value.model_id, confirm_paid=value.confirm_paid)
 
     @routes.get("/integrations")
     def overview():

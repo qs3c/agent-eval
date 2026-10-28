@@ -17,7 +17,7 @@ function setup(t, releases = []) {
   dom.window.fetch = async (url, options = {}) => {requests.push([url,options]); return {ok:true,json:async()=>replies[url] || {}};};
   const context = dom.getInternalVMContext();
   vm.runInContext(fs.readFileSync(path.join(dir,'app.js'),'utf8').split('window.addEventListener("hashchange", route);')[0] + '\n' + ['rsi.js','integrations.js','comparison.js'].map(p=>fs.readFileSync(path.join(dir,p),'utf8')).join('\n'),context);
-  return {doc:dom.window.document, window:dom.window, requests, run:s=>vm.runInContext(s,context)};
+  return {doc:dom.window.document, window:dom.window, requests, replies, run:s=>vm.runInContext(s,context)};
 }
 const button = (doc,name) => [...doc.querySelectorAll('button')].find(b=>b.textContent===name);
 test('empty setup cannot preflight template agents and offers offline mode', async t => {
@@ -70,4 +70,55 @@ test('empty experiment list explains the first steps', async t => {
   await run('renderRuns(0)');
   assert.ok(doc.querySelector('#empty a[href="#integrations"]'));
   assert.ok(doc.querySelector('#empty a[href="#setup"]'));
+});
+
+function executorReply() {
+  return {allow_live:true, model_id:'model-one', models:[{id:'model-one',label:'Shared model',name:'fixed',has_api_key:true,messages_base:'https://fixture.invalid/messages'}],
+    options:['opencode','dsh','hermes'].map(id=>({id,name:id==='opencode'?'OpenCode':id==='dsh'?'DSH':'Hermes',ready:true,protocol:id==='dsh'?'anthropic-messages':'openai-chat'}))};
+}
+function input(window, doc, label, value) {
+  const field=doc.querySelector(`[aria-label="${label}"]`); field.value=value;
+  field.dispatchEvent(new window.Event(field.tagName==='SELECT'?'change':'input',{bubbles:true})); return field;
+}
+test('automatic onboarding sends the explicitly selected public executor and model', async t => {
+  const {doc,run,window,replies,requests}=setup(t);
+  replies['/api/integrations/executors']=executorReply();
+  await run('renderIntegrations(0)');
+  assert.deepEqual([...doc.querySelector('[aria-label="接入执行器"]').options].map(o=>o.value),['opencode','dsh','hermes']);
+  input(window,doc,'Agent 源码链接','https://github.com/example/agent');
+  input(window,doc,'接入执行器','hermes');
+  const paid=doc.querySelector('[aria-label="确认本次接入模型费用"]'); paid.checked=true; paid.dispatchEvent(new window.Event('change'));
+  assert.equal(button(doc,'开始一键接入').disabled,false);
+  button(doc,'开始一键接入').click();
+  await new Promise(resolve=>setImmediate(resolve));
+  const request=requests.find(([url])=>url==='/api/integrations/onboard');
+  assert.deepEqual(JSON.parse(request[1].body),{repository:'https://github.com/example/agent',ref:'main',executor:'hermes',model_id:'model-one',confirm_paid:true});
+  assert.ok(!requests.some(([url])=>url==='/api/rsi/executor-settings'));
+});
+test('manual onboarding copies instructions without paid setup and submits for platform admission', async t => {
+  const {doc,run,window,replies,requests}=setup(t);
+  replies['/api/integrations/executors']={options:[],models:[],allow_live:false};
+  replies['/api/integrations/instructions']={instructions:'Read docs/agent-integration.md; submit recipe for platform checks.'};
+  let copied=''; Object.defineProperty(window.navigator,'clipboard',{value:{writeText:async text=>{copied=text;}}});
+  await run('renderIntegrations(0)');
+  input(window,doc,'Agent 源码链接','https://github.com/example/agent');
+  input(window,doc,'接入方式','manual');
+  assert.equal(button(doc,'开始一键接入').parentElement.hidden,true);
+  button(doc,'生成接入说明').click(); await new Promise(resolve=>setImmediate(resolve));
+  button(doc,'复制接入说明').click(); await new Promise(resolve=>setImmediate(resolve));
+  assert.match(copied,/docs\/agent-integration.md/);
+  assert.ok(!requests.some(([url,options])=>options.method==='POST' && ['/api/integrations/onboard','/api/sources'].includes(url)));
+  input(window,doc,'接入配方绝对路径','/tmp/integration/recipe.yaml');
+  button(doc,'提交配方并由平台验收').click(); await new Promise(resolve=>setImmediate(resolve));
+  const request=requests.find(([url])=>url==='/api/integrations/import');
+  assert.equal(JSON.parse(request[1].body).recipe,'/tmp/integration/recipe.yaml');
+});
+test('unavailable executor and missing fee confirmation prevent automatic submission', async t => {
+  const {doc,run,window,replies}=setup(t);
+  const config=executorReply(); config.options[0].ready=false; config.options[0].reason='Runtime missing';
+  replies['/api/integrations/executors']=config;
+  await run('renderIntegrations(0)'); input(window,doc,'Agent 源码链接','https://github.com/example/agent');
+  assert.equal(button(doc,'开始一键接入').disabled,true);
+  input(window,doc,'接入执行器','dsh');
+  assert.equal(button(doc,'开始一键接入').disabled,true);
 });

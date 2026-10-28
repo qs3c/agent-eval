@@ -1,7 +1,5 @@
 # SWE 搜索请求审查
 
-本版审查平台 `/search/v1/messages`（DSH 冻结搜索插件）及 `/search/exa`（BKCrab Exa platform-relay）的搜索请求。JEV 接收当前尝试的完整题目和搜索词，判断是否直接查找该题现成解答。允许时原样转发搜索请求；不审查返回结果，不拦截 web_fetch、shell 或其他直连网络。BKCrab 仍需显式启用 Exa platform-relay；direct、Brave、SearxNG 不在审查范围内。
-
 ## 配置
 
 在实验 JSON 的 `model` 中添加以下配置；未配置或为 null 时不启用。以下为 OpenRouter 固定版本配置，密钥必须为 OpenRouter API key：
@@ -43,5 +41,3 @@ DSH 插件会将 HTTP 错误中的 `error.message` 放入工具错误，另附�
 2026-10-15：相关测试 45 passed，全量回归 305 passed、9 skipped。实际实验冻结 DSH 插件的额外兼容性测试 1 passed：确认插件异常保留 HTTP 403 与 EVAL_SEARCH_DENIED，没有访问搜索上游。这验证了插件的错误传递，不代表验证了受测模型接下来是否遵循提示。
 
 复现插件兼容性检查：将冻结 runtime.tar.gz 解压到临时目录，在 Linux 项目环境执行 `DSH_SEARCH_RUNTIME=/path/to/runtime PYTHONPATH=src python -m pytest tests/test_search_review.py::test_frozen_dsh_provider_preserves_platform_denial -q`。需要 Node.js；测试只访问本机模拟服务，不调用真实 JEV 或 DeepSeek。
-
-2026-10-16 整合远端 Exa relay 后，隔离 Linux 目录全量回归 `325 passed、10 skipped`；冻结 DSH 插件额外测试 `1 passed`。现有 BKCrab eval 二进制配合模拟模型及拒绝判断，观察到一次搜索、两次模型请求，`EVAL_SEARCH_DENIED` 进入后续模型输入，未访问搜索上游；证据位于服务器 `/tmp/jev-bkcrab-denial-20261016/validation.json`。真实 OpenRouter 使用本模块分别判断通用文档查询（0.07，允许）和直接索取补丁（0.98，拒绝）。这些检查不代表真实 Agent 遵循提示或阈值经过校准。

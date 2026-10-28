@@ -1,24 +1,14 @@
 # RSI 改进工作台
 
-所有诊断 Agent（BKCrab、DSH 及自定义适配器）共用 PR 文案约定。标题格式为 `【RSI-generated pr】简短中文修改标题 / Concise English change title`；新诊断必须返回独立的 `title`、`title_en` 字段。历史候选缺少这两个字段时，使用原有双语摘要生成兼容标题，不改写冻结诊断。
-
-正文参考 [BKCrab #3](https://github.com/qs3c/bkcrab/pull/3) 与 [#4](https://github.com/qs3c/bkcrab/pull/4)：中文在前、英文在后，每种语言先用短段落说明故障触发条件、原行为及修改效果，再列“修改”“验证”“范围与局限”“追溯信息”。验证记录实际检查命令及退出码、父子复评结果和局限；案例编号、提交和证据引用置于追溯信息。不得编造测试环境、测试数量或能力提升。新建及同步 PR 使用同一生成流程；历史 PR 在执行同步时应用该格式。
-
-首版完成可重复执行的一轮闭环：测评证据 → 独立源码候选 → 配置检查 → 父版本/候选复评 → PR 发布与状态同步。候选档案保留父子关系、失败、持平和退化记录，后续可以选取已有候选继续改进。执行 Agent 内置 BKCrab 和 DSH 下拉选项，同时保留自定义适配器接口。
-
 DGM 的参考点是利用执行反馈修改 Agent 自身实现、经验验证及保留多版本档案。原始实现见 [DGM](https://github.com/jennyzzt/dgm)、[父版本选择与档案循环](https://github.com/jennyzzt/dgm/blob/main/DGM_outer.py)、[改进步骤](https://github.com/jennyzzt/dgm/blob/main/self_improve_step.py)。本版是平台可操作的一轮流程与候选谱系，不宣称实现了 DGM 的自动种群采样和无限多代搜索。PR 发布是本平台增加的工程交付步骤。
 
 ## 使用界面
-
-首页以诊断案例 / 候选版本档案为主，案例支持搜索题目与诊断主题。点击“新建诊断案例”打开表单；没有已结束实验时显示说明及实验记录入口。在“执行 Agent”卡片下拉选择 BKCrab 或 DSH，点击保存即可启用，无需编辑 JSON。模型名称、服务地址和 API Key 统一在左侧一级导航“模型设置”管理；RSI 卡片只选择模型池条目与执行时限。已有服务端 DeepSeek 配置自动迁入全局模型池，页面只返回凭据是否已配置。保存设置不会调用模型。案例详情可以直接创建关联候选。
 
 证据索引按来源和完整性筛选，每页 20 项。人工快照、原始 Agent 轨迹和评分器输出分别标注；截断与缺失单独计数，长错误按需展开。候选详情分别展示代码检查、效果验证与交付状态，操作不可用时显示原因，补丁与 PR 正文折叠查看。
 
 在升级后的控制台打开 **RSI 改进**。选择已结束实验、Agent、异常尝试或全部已记录尝试，点击“保存诊断材料”，生成固定的证据快照，无需填写改进目标。这一步不执行模型，也不需要已选择执行 Agent。
 
 案例档案可独立打开，查看每份材料的来源、读取范围、截断和缺失；不必先创建候选。
-
-创建候选时，执行 Agent 默认使用页面保存的选择，也可单次切换。执行 Agent 与被改进的 Agent 分开：例如选择 DSH，仍可改进案例对应的 BKCrab 仓库。模型与运行镜像固定到候选快照；后续修改设置不会改变已有候选的模型。队列复用现有控制台工作线程：优先处理评测队列，再执行 RSI 动作。重复提交同一候选的并发动作会被拒绝。
 
 候选详情展示诊断引用、补丁、配置检查结果、复评结果、父提交和 PR 正文。**检查通过、观测改善、发布 PR 是不同状态**。运行异常的父版本不会被偷偷算作零分；缺失/异常、受辅助尝试或不一致的评测契约会阻止完整分数结论，可靠性变化另行显示。当前主分比较遵循平台既有 reward 越大越好的口径，不用于 loss 等越小越好的指标。
 
@@ -41,25 +31,15 @@ DGM 的参考点是利用执行反馈修改 Agent 自身实现、经验验证及
 
 ## 执行配置
 
-内置执行器复用平台已经准备的 BKCrab 原生 binary 和 DSH Standard bundle，在独立 Docker 容器内运行。只读挂载冻结证据，读写挂载独立候选源码与输出，设置进程数、内存、CPU 与时限，并在结束/中断时清理容器。不会重启或修改线上 BKCrab 服务。运行镜像按 SHA 固定，凭据使用临时只读文件挂载，不放入命令参数或候选快照。
-
 执行器和时限保存在 `.rsi/executor-settings.json`；模型元数据、场景分配与版本化密钥统一保存在忽略目录 `.console`。新任务冻结接口、模型、参数与凭据引用；修改或移除模型条目不改变已有候选。详细规则见 [全局模型池](model-pool.md)。
 
-本机原生运行包通过 `python scripts/prepare-rsi-runtime.py --root <平台目录> --artifacts-root <已有评测产物目录>` 准备。它使用已有 `.cache/bkcrab-eval`、`.cache/dsh-bundle03/runtime.tar.gz` 构建共享 Docker 镜像，并登记 `.cache/rsi-native.json`；首次本地安装需要完成此准备，未就绪时页面明确提示。旧内置 profile 从平台相邻 `bkcrab` / `deepseek-harness` 仓库识别目标；通用 recipe profile 可使用明确指定的其他源码仓库。都固定 Git 提交，不能直接在用户 dirty checkout 中修改。
-
 已发布 PR 可关联 [源码跟踪闭环](source-tracking.md)：只读观察 merge/squash 的实际目标 SHA，重新构建、接入检查和同条件复评。PR base/head 漂移将旧验证标为过期但不覆盖原证据；页面显示原因。普通 push 同样经过准入，历史 Plan 不变。发布与合并不会因开启闭环而自动获准；复评退化/证据不足、预算耗尽、PR 关闭都会停止自动推进。
-
-若验证容器无法访问 Go 下载站，在依赖齐全的宿主机针对目标提交先运行 `go mod verify`，再运行 `python scripts/prepare-rsi-go-cache.py --root <控制台目录> --module-cache "$(go env GOMODCACHE)" --web-directory <已按锁文件安装依赖的BKCrab源码>/web`。BKCrab 完整检查需要此准备步骤：镜像还会包含前端依赖和 package/lockfile 哈希，验证时先核对哈希，再从候选源码构建实际前端产物供 `go:embed` 使用，然后执行 `go test ./...`。哈希不匹配时拒绝使用缓存，需按新锁文件安装依赖并重新准备。该步骤基于已登记的镜像加入模块缓存，设置 `GOPROXY=off` 和 `GOTOOLCHAIN=local`，构建成功后登记新的镜像 SHA。新候选会使用此镜像；旧候选的冻结配置不变。缺失模块或工具链会直接失败，而不是等待网络下载。依赖版本改变后需重新准备缓存及镜像。构建上下文保留在 `.cache/rsi-go-build-*`，其中不包含模型凭据。
-
-内置 BKCrab 目标运行代码检查后，点击“运行父子复评”由 DSH 根据冻结故障证据及父子补丁制定针对性测试方案。平台不预先写死某个案例的测试函数，也不以原任务重跑代替故障验证。DSH 输出中文目标、方案理由、局限、证据引用、测试函数选择及 Go 测试覆盖文件；候选生产代码与原始证据只读。当前内置回归执行器支持 BKCrab 的 Go 测试，其他目标需自定义配置。
 
 平台冻结方案和测试文件哈希，在固定父、子提交的新副本上覆盖完全相同的测试文件，并使用同一个固定 Docker 镜像运行所选测试。每项测试保留命令、退出码、Go JSON 测试事件、原始输出和哈希。至少包含一个故障回归和一个正常对照；旧版失败必须匹配 DSH 事先声明的故障断言，正常对照必须两边通过，新版所选测试必须全部通过。编译失败、缺失/跳过测试、输出截断、panic 或超时都不能证明修复成功。
 
 DSH 方案制定使用当前配置的 DSH 模型与运行镜像，并为本轮保存配置快照；需要 `--allow-live` 和该动作的费用确认。父子 Go 测试本身不调用模型。已有原任务重跑记录保持原样并单独标明类型，不能触发内置候选的自动 PR 升级。自定义 profile 显式配置的实验复评继续保留。
 
 ### 自定义执行器
-
-参考 `rsi-profiles/bkcrab.json.example`，补充自己的适配器绝对路径、固定版本和 GitHub 目标后另存为 `.json` 才启用。示例没有指定任何模型，也不会自动成为可执行配置。BKCrab 的复评产物仍在 Harbor Docker 环境内运行；本版不部署或重启线上 BKCrab。
 
 Profile 字段：
 
@@ -110,17 +90,6 @@ Profile 字段：
 
 ## CLI
 
-```sh
-uv run agent-harness-eval rsi-case artifacts/swe-live-20 --agent bkcrab \
-  --trials django__django-15022__RkmihL7
-uv run agent-harness-eval rsi-candidate CASE_ID --profile bkcrab
-uv run agent-harness-eval rsi-action CANDIDATE_ID improve --execute
-uv run agent-harness-eval rsi-action CANDIDATE_ID evaluate --execute
-uv run agent-harness-eval rsi-action CANDIDATE_ID publish --execute
-```
-
-省略 `--execute` 只入队，由控制台或 `rsi-work ACTION_ID` 执行。真实模型复评额外需要 `--allow-live --confirm-unbounded`。基于已有候选继续改进用 `rsi-candidate CASE_ID --profile bkcrab --parent PARENT_CANDIDATE_ID`。失败候选不直接复用工作目录，创建新候选保留原始失败现场。
-
 ### PR 发布与复评同步
 
 未复评的候选发布为草稿 PR。内置候选必须有 DSH 针对性回归结果，原任务重跑分数改善不足以证明故障修复。最新父子复评完成、明确 `improved`、没有比较问题或执行异常，且被测父子提交与候选记录一致时，发布为正式待审阅 PR；已有草稿在复评完成后自动同步正文并升级。持平、退步、失败或无法判断的结果不触发升级。自动升级不自动合并或部署，也不把人工转为正式的 PR 自动降回草稿。
@@ -151,8 +120,6 @@ Linux 对应命令：`NODE_PATH="$PWD/.cache/rsi-ui/node_modules" node --test te
 
 `uv run pytest -q` 覆盖本地 Git fixture、证据完整性、失败适配器、检查失败、谱系、队列、Web 边界和模拟 GitHub 重试。`RSI_DOCKER_TESTS=1 uv run pytest tests/test_rsi_docker.py -q` 使用真实 Harbor/Docker，分别构建父版本与修复候选，各评两道控制题，预期从 0 到 1；这是确定性平台验收，不是模型效果数据。
 
-2026-10-12 已在服务器隔离目录 `/tmp/agent-harness-guardian-cgwNw3i9` 实际读取历史 `swe-live-20` 并创建两个案例：API 异常题 `django-14122` 导出约 5.37 MB；`/proc` 相关题 `django-15022` 导出约 7.27 MB，其中单独标记 6 份人工诊断快照。原始实验未修改，没有因此运行模型或给 BKCrab 提交修复。
-
 同日验收：启用 `GUARDIAN_DOCKER_TESTS=1 RSI_DOCKER_TESTS=1` 的全量回归 113 项通过（144.42 秒）；随后补充活跃 CLI 锁与真实控制台队列执行覆盖，相关 RSI/Console/Web 共 44 项通过（3.92 秒）。真实配对复评确认父子各两道任务、源码提交及构建产物归属，控制题均分 0 → 1。新模块 Ruff、前端 JS 语法及 Git 空白检查通过。浏览器核验了两个案例的独立入口和人工快照来源；截图工具超时，因此没有完成截图层面的视觉验收。GitHub 发布使用模拟命令验证草稿、正文文件、固定提交和重复提交恢复，未创建真实 PR。
 2026-10-12 执行 Agent 入口验收：10 项前端交互回归与 53 项 Linux RSI/Console/Web 检查通过，包含两种原生执行器的 Docker 离线启动检查。390px 窄屏配置表单无横向溢出。测试覆盖默认选择保存、凭据不回传、未知字段拒绝和执行器/目标仓库分离；未调用真实模型，模型任务的端到端效果尚未验证。
 
@@ -162,11 +129,6 @@ Linux 对应命令：`NODE_PATH="$PWD/.cache/rsi-ui/node_modules" node --test te
 候选 `ce73cbac23b2420b84e2dd5a884a0dbe` 的原检查因容器无法访问 Go 下载站且没有模块缓存，等待 1800 秒后失败。人工准备离线依赖镜像，并补齐从候选源码构建前端的步骤，解决干净 clone 缺失 `internal/setup/web` 导致的 `go:embed` 错误。宿主机模块缓存已通过 `go mod verify`，pnpm 已安装依赖锁文件与源码锁文件相同。
 
 原候选提交 `70714f5` 未修改；新镜像 `sha256:46a9c8336a92633aff0bd63f8e292e57af76a8f2ce8e7604e66816c1dbbdd146` 下，真实前端构建和完整 `go test ./...` 成功（54 个包返回 ok，另有无测试文件的包；约 382 秒）。三项新增 exec 回归在断网容器中通过。真实容器负例确认锁文件不匹配立即拒绝。平台执行器/API 回归 8 passed、2 个 opt-in Docker 测试跳过。
-
-原失败 action、冻结 profile 和 `check-0.json` 保留；补充记录在候选 `revalidation/`，含原 record 备份、原失败日志哈希、实际检查镜像与人工恢复说明。候选阶段更新为 validated，诊断限制和 PR 草稿正文明确标记 operator-assisted recovery。没有重新调用模型、发布 PR、部署 BKCrab 或运行配对效果复评；不能把本次恢复视为原自主运行成功。两个控制台的新候选均使用新镜像。
-# 通用 Recipe 候选与分层验证
-
-新的 RSI profile 可填写 `integration_recipe`，指向[标准 Agent 配方](agent-integration.md)。候选创建时复制配方和所有 patch 并记录哈希；后续更改原配方不影响该候选。支持源码构建的标准 Agent 共用此路径，已有 BKCrab 历史 profile 保留兼容构建。新标准 BKCrab 案例若匹配内置配方则自动采用冻结 recipe。DSH 当前 registry-package 基线不能验证源码候选，必须另提供 source 配方。
 
 profile 仍需指定源码 `repository`、诊断/改进 `adapter`、代码 `checks` 和 `evaluation` 模板；使用 recipe 时不再同时填写 `build` / `artifacts`。构建在独立 eval 副本应用接入 patch，产品 worktree 不应用这些 patch。父、子源码都使用同一冻结 recipe，因而包含“旧源码 + 新 recipe”的桥接比较；PR 拒绝包含新引入的适配文件和 `.harness-eval/`。
 

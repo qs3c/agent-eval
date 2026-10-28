@@ -123,6 +123,8 @@ def register(sub):
     p.add_argument("--confirm-paid", action="store_true")
     p.add_argument("--root", type=Path, default=Path.cwd())
     p.add_argument("--repository")
+    p.add_argument("--executor", choices=["opencode", "dsh", "hermes"])
+    p.add_argument("--model-id")
     p.add_argument("--ref", default="main")
     p.add_argument("--recipe", type=Path)
     p.add_argument("--source-id")
@@ -190,14 +192,17 @@ def dispatch(args):
 
             if not args.confirm_paid:
                 raise ValueError("Integration Agent requires --confirm-paid")
+            if not args.executor:
+                raise ValueError("Integration Agent requires --executor")
             ensure(args.root, allow_live=True)
-            return assist(args.root, args.source_id, confirm_paid=args.confirm_paid)
+            return assist(args.root, args.source_id, executor=args.executor, model_id=args.model_id, confirm_paid=args.confirm_paid)
         if args.action == "revisions":
             return sources.revisions(args.source_id)
         if args.action == "repair":
             if not args.recipe:
                 raise ValueError("--recipe is required")
             repair(args.root, args.source_id, args.recipe)
+            sources.enable(args.source_id, True)
         ensure(args.root)
         return queue_refresh(args.root, args.source_id)
     if args.command == "integration-assist-work":

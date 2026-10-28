@@ -2,18 +2,11 @@
 
 内置目录提供固定版本的配方，不代表这些 Agent 已在你的机器上安装或验收。运行 `uv run agent-harness-eval integration builtins` 查看当前配方的状态：`unavailable`（未安装或已停用）、`unchecked`（已构建但未通过运行检查）、`runnable`（有对应 Release 的运行证据）。Comparable 需要单独的完整模型/网络策略覆盖证明。
 
-| Agent | 固定来源 | profile 与构建方式 |
-| --- | --- | --- |
-| Hermes | `9b904dcc22c23fe8b82834339bbdd96495072e59` | 原生 CLI oneshot，携带 Python 3.14；固定 `uv.lock` 安装依赖 |
-| OpenCode | `ed74ec82ce1fe3a36da6c0815a935473ef4bb0fb` | CLI 2.1.4 standalone，Bun 1.4.4 编译；不打包浏览器 UI |
-| BKCrab | `06cd21b8b1589036da00c78d5f8b447b63d0930a` | 固定源码已有 `cmd/bkcrab-eval`；编译并使用该原生入口 |
-| DSH | 官方 `dsh-v0.2.1-alpha.2`，commit `d743267388641bc76f17c45ce8b4c231aed1d32c` | 锁定 npm 发布包，保留 Standard preset；不是源码重编译 |
-
-四种配方的执行状态和验收范围见 [P2 验证记录](p2-validation.md)。不要把版本目录表当作已验收列表。它们均保留各自原生 harness 循环。每次运行使用独立 home，主模型指向平台中继；压缩、子 Agent、回退路径是否全部覆盖仍需策略验收。
+公共配方为 DSH、OpenCode、Hermes；版本与完整 SHA 以 src/agent_harness_eval/integrations/recipes/ 中的配方为准。不要把版本目录表当作已验收列表。它们均保留各自原生 harness 循环。每次运行使用独立 home，主模型指向平台中继；压缩、子 Agent、回退路径是否全部覆盖仍需策略验收。
 
 ## 构建一个条目
 
-克隆对应官方仓库，在干净 checkout 中检出表中的 commit。配方内的镜像均固定 digest；先按配方下载该镜像到本机 Docker。然后在平台目录运行：
+克隆对应官方仓库，在干净 checkout 中检出配方中的 commit。配方内的镜像均固定 digest；先按配方下载该镜像到本机 Docker。然后在平台目录运行：
 
 ```sh
 uv run agent-harness-eval integration build --builtin hermes --source /path/to/hermes-agent
@@ -44,5 +37,3 @@ uv run agent-harness-eval integration enable --release <release-id>
 ## DSH 发布包与源码候选
 
 DSH 配方显式记录 `build.artifact_origin=registry-package`，依赖使用平台已有 npm lock；构建保存发布包和源码 tag 的 Standard preset 两个 hash、一致性结果及模块审计。实际核对发现两者的 plan-mode 提示存在差异，因此不能把官方 tag 当作发布包的精确源码证明。运行保留现有锁定发布包，不将 tag 的提示覆盖进去。该 profile 可作为固定比较基线，不能用于声称某个 RSI 产品源码补丁已经在候选 Agent 中生效；这类验证必须使用 `source` 构建配方。
-
-旧 `prepare-native.sh dsh|bkcrab` 和原生适配器继续保留，用于现有实验复现；不自动改写既有计划及产物。

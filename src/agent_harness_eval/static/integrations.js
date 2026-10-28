@@ -9,16 +9,73 @@ function localInput(label, value = "", type = "text") {
   const input = el("input"); input.type = type; input.value = value;
   input.setAttribute("aria-label", label); return input;
 }
+function integrationExecutorControls(config) {
+  const box = el("div", undefined, "rsi-section-head");
+  box.classList.add("integration-executor-options");
+  const options = config.options || [];
+  const executor = rsiSelect(options.map(o => [o.id, o.name]), "接入执行器");
+  const model = rsiSelect([["", "请选择接入模型"], ...(config.models || []).map(m => [m.id, m.label + " · " + m.name])], "接入模型");
+  model.value = config.model_id || "";
+  const paid = localInput("确认本次接入模型费用", "", "checkbox"), state = el("p");
+  const controls = {box, executor, model, paid, ready: false, onchange: () => {}};
+  const update = () => {
+    const selected = options.find(o => o.id === executor.value), selectedModel = (config.models || []).find(m => m.id === model.value);
+    const reason = !selected?.ready ? selected?.reason || "执行器未就绪" : !config.allow_live ? "服务需以 --allow-live 启动" : !selectedModel?.has_api_key ? "请在模型设置中配置接入模型与凭据" : selected.protocol === "anthropic-messages" && !selectedModel.messages_base ? "DSH 需要支持 Messages 接口的模型" : !paid.checked ? "请确认本次接入模型费用" : "已就绪；候选生成后仍需平台构建和验收";
+    controls.ready = !!(selected?.ready && config.allow_live && selectedModel?.has_api_key && (selected.protocol !== "anthropic-messages" || selectedModel.messages_base) && paid.checked);
+    state.textContent = reason; controls.onchange();
+  };
+  box.append(rsiField("选择接入 Agent", executor), rsiField("接入模型", model), link("配置模型 →", "#models"),
+    rsiField("确认本次模型费用（最多 50 次请求、30 分钟；不是金额硬上限）", paid), state,
+    el("p", "首次使用：在下方构建所选内置 Agent，再运行 python scripts/prepare-rsi-runtime.py 准备平台容器。"));
+  executor.onchange = update; model.onchange = update; paid.onchange = update; update();
+  return controls;
+}
+function onboardingPanel(config, token) {
+  const panel = rsiPanel("接入自己的 Agent", "提供源码，选择由谁完成接入。两种方式都由平台构建、检查并保留验收证据。");
+  panel.classList.add("onboarding-panel");
+  const url = localInput("Agent 源码链接"), ref = localInput("源码分支或 ref", "main");
+  const mode = rsiSelect([["auto", "一键接入"], ["manual", "自行接入"]], "接入方式");
+  const automatic = integrationExecutorControls(config), manual = el("div", undefined, "rsi-section-head");
+  const instructions = el("textarea"); instructions.rows = 16; instructions.readOnly = true; instructions.setAttribute("aria-label", "给自己的接入 Agent 的说明"); instructions.style.width = "100%";
+  const recipe = localInput("接入配方绝对路径"), message = el("p"); message.setAttribute("role", "status");
+  let busy = false;
+  const refresh = () => { automatic.box.hidden = mode.value !== "auto"; manual.hidden = mode.value !== "manual"; start.disabled = busy || !url.value.trim() || !ref.value.trim() || !automatic.ready; submit.disabled = busy || !url.value.trim() || !ref.value.trim() || !recipe.value.trim(); copy.disabled = !instructions.value; };
+  const generate = rsiButton("生成接入说明", async () => {
+    const request = {repository:url.value.trim(), ref:ref.value.trim()};
+    try { const result = await api("/api/integrations/instructions", {method:"POST", body:JSON.stringify(request)}); if (request.repository !== url.value.trim() || request.ref !== ref.value.trim()) return; instructions.value = result.instructions; message.textContent = "说明已生成，可复制给你自己的开发工具。"; refresh(); }
+    catch (error) {message.textContent = error.message;}
+  });
+  const copy = rsiButton("复制接入说明", async () => {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(instructions.value);
+      else { instructions.focus(); instructions.select(); if (!document.execCommand("copy")) throw Error("当前浏览器不支持自动复制，请选中文本后复制。"); }
+      message.textContent = "已复制接入说明。";
+    } catch (error) {instructions.focus(); instructions.select(); message.textContent = "无法自动复制，请选中文本后复制。";}
+  });
+  const submit = rsiButton("提交配方并由平台验收", async () => {
+    if (submit.disabled) return; busy = true; refresh();
+    try { await api("/api/integrations/import", {method:"POST", body:JSON.stringify({repository:url.value.trim(), ref:ref.value.trim(), recipe:recipe.value.trim()})}); await renderIntegrations(token); notice("配方已提交，平台将固定源码、构建并运行控制验收。"); }
+    catch (error) {message.textContent = error.message;} finally {busy = false; refresh();}
+  }, true);
+  const start = rsiButton("开始一键接入", async () => {
+    if (start.disabled) return; busy = true; refresh();
+    try { await api("/api/integrations/onboard", {method:"POST", body:JSON.stringify({repository:url.value.trim(), ref:ref.value.trim(), executor:automatic.executor.value, model_id:automatic.model.value, confirm_paid:automatic.paid.checked})}); await renderIntegrations(token); notice("已排队接入；请查看下方接入任务与统一验收状态。"); }
+    catch (error) {message.textContent = error.message;} finally {busy = false; refresh();}
+  }, true);
+  automatic.box.append(start);
+  manual.classList.add("integration-manual-options");
+  manual.append(el("p", "使用你自己的 Codex、Claude Code 等工具。生成说明不会调用平台模型；完成后把配方和 patch 放到平台主机，再提交配方路径。"), generate, copy, rsiField("接入说明（可复制）", instructions), rsiField("平台主机上的接入配方绝对路径", recipe), submit);
+  automatic.onchange = refresh; mode.onchange = refresh;
+  url.oninput = ref.oninput = () => {instructions.value = ""; refresh();}; recipe.oninput = refresh;
+  panel.append(rsiField("Agent 源码链接或平台主机 Git 目录", url), rsiField("分支 / ref", ref), rsiField("接入方式", mode), automatic.box, manual, message);
+  refresh(); return panel;
+}
 async function renderIntegrations(token) {
-  const [catalog, jobs, history, tracking, cycles] = await Promise.all([api("/api/integrations"), api("/api/operations"), api("/api/runs"), api("/api/sources"), api("/api/rsi/cycles")]);
+  const [catalog, jobs, history, tracking, cycles, executors] = await Promise.all([api("/api/integrations"), api("/api/operations"), api("/api/runs"), api("/api/sources"), api("/api/rsi/cycles"), api("/api/integrations/executors")]);
   if (epoch !== token) return;
   view.replaceChildren(localHeader("接入自己的 Agent，准备对照版本。", "构建保留源码、配方与产物身份；运行检查和严格可比性分别记录。"));
-  const sources = rsiPanel("跟踪 GitHub 源码", "先观察固定 SHA，再构建和运行检查。普通 push 与 RSI 合并都经准入；当前实验不会随远端变化。");
-  const url = localInput("GitHub 地址"), ref = localInput("分支或 ref", "main"), mapping = localInput("已有配方路径（可选）");
-  sources.append(rsiField("GitHub 地址或本机 Git 目录", url), rsiField("分支 / ref", ref), rsiField("已有配方路径（可选）", mapping), rsiButton("添加来源", async () => {
-    try { await api("/api/sources", {method: "POST", body: JSON.stringify({repository: url.value, ref: ref.value, recipe: mapping.value || null})}); await renderIntegrations(token); }
-    catch (e) { notice(e.message); }
-  }, true));
+  const onboarding = onboardingPanel(executors, token);
+  const sources = rsiPanel("统一验收与源码跟踪", "接入候选 → Docker 构建 → 两题隔离控制 → Runnable 验收。生成成功不代表验收通过；题目得分另由验证器判定，Comparable 当前未认证。");
   for (const item of tracking.sources) {
     const row = el("div", undefined, "rsi-section-head");
     row.append(el("h3", item.repository + " · " + item.ref),
@@ -29,14 +86,17 @@ async function renderIntegrations(token) {
       try { await api(`/api/sources/${item.id}/refresh`, {method: "POST", body: "{}"}); await renderIntegrations(token); }
       catch (e) { notice(e.message); }
     }));
-    const repairPath = localInput("修复配方路径"), paid = localInput("确认接入 Agent 模型费用", "", "checkbox");
+    const repairPath = localInput("修复配方路径"), controls = integrationExecutorControls(executors);
+    const assist = rsiButton("用所选 Agent 生成修复候选", async () => {
+      if (assist.disabled) return; assist.disabled = true;
+      try { await api(`/api/sources/${item.id}/assist`, {method:"POST", body:JSON.stringify({executor:controls.executor.value, model_id:controls.model.value, confirm_paid:controls.paid.checked})}); await renderIntegrations(token); }
+      catch (e) {notice(e.message); assist.disabled = !controls.ready;}
+    });
+    controls.onchange = () => {assist.disabled = !controls.ready;}; controls.onchange();
     row.append(rsiField("修复配方路径", repairPath), rsiButton("使用修复配方重新准入", async () => {
       try { await api(`/api/sources/${item.id}/repair`, {method: "POST", body: JSON.stringify({recipe: repairPath.value})}); await renderIntegrations(token); }
       catch (e) { notice(e.message); }
-    }), rsiField("确认接入 Agent 模型费用（最多 50 次请求；不是美元硬上限）", paid), rsiButton("用平台 Agent 生成接入/修复候选", async () => {
-      try { await api(`/api/sources/${item.id}/assist`, {method: "POST", body: JSON.stringify({confirm_paid: paid.checked})}); await renderIntegrations(token); }
-      catch (e) { notice(e.message); }
-    }), rsiButton(item.enabled ? "暂停自动跟踪" : "恢复自动跟踪", async () => {
+    }), controls.box, assist, rsiButton(item.enabled ? "暂停自动跟踪" : "恢复自动跟踪", async () => {
       try { await api(`/api/sources/${item.id}/monitor`, {method: "POST", body: JSON.stringify({enabled: !item.enabled})}); await renderIntegrations(token); }
       catch (e) { notice(e.message); }
     }));
@@ -59,16 +119,16 @@ async function renderIntegrations(token) {
     try { await api("/api/integrations/build", {method: "POST", body: JSON.stringify({source: source.value, recipe: recipe.value})}); await renderIntegrations(token); }
     catch (e) { notice(e.message); }
   }, true));
-  const queue = rsiPanel("构建状态", "构建失败保留错误与证据；取消由 Manager 清理资源。"), rows = [];
+  const queue = rsiPanel("接入任务状态", "接入生成、构建与来源检查共用作业队列；失败保留错误与证据，取消由 Manager 清理资源。"), rows = [];
   for (const job of jobs.operations.filter(j => ["integration", "source-refresh", "integration-assist"].includes(j.kind))) {
     const action = el("div");
     if (["queued", "running", "held"].includes(job.status)) action.append(rsiButton("取消", async () => {
       try { await api(`/api/operations/${job.id}/cancel`, {method: "POST", body: "{}"}); await renderIntegrations(token); }
       catch (e) { notice(e.message); }
     }));
-    rows.push([job.id.slice(0, 12), labels[job.status] || job.status, job.error || "—", action]);
+    rows.push([job.id.slice(0, 12), {"integration-assist":"生成接入候选", integration:"Docker 构建", "source-refresh":"来源与验收检查"}[job.kind], labels[job.status] || job.status, job.error || "—", action]);
   }
-  queue.append(table(["作业", "状态", "原因", "操作"], rows), rsiButton("刷新状态", () => renderIntegrations(token)));
+  queue.append(table(["作业", "阶段", "状态", "原因", "操作"], rows), rsiButton("刷新状态", () => renderIntegrations(token)));
   const releases = rsiPanel("已构建版本与接入检查", "先创建一个模拟模型控制实验，再选择它核验该版本。检查不新增模型调用，也不会自行授予完整可比性。");
   const release = rsiSelect(catalog.releases.map(r => [r.release_id, `${r.release.agent_id} · ${r.release_id.slice(0, 12)}`]), "检查版本");
   const runs = rsiSelect(history.runs.filter(r => ["completed", "failed", "interrupted", "cancelled"].includes(r.status)).map(r => [r.id, r.name + " · " + modes[r.mode]]), "检查实验");
@@ -98,7 +158,8 @@ async function renderIntegrations(token) {
   const startLoop = [...loop.querySelectorAll("button")].find(b => b.textContent === "启动有界闭环");
   startLoop.disabled = !tracked.value;
   if (!tracked.value) loop.append(el("p", "先添加来源并完成版本准入，再启动更新复评。"));
-  view.append(own, builtins, queue, releases, sources, loop);
+  const advanced = el("details"), summary = el("summary", "高级：直接构建本机源码"); advanced.append(summary, own);
+  view.append(onboarding, queue, sources, releases, builtins, advanced, loop);
 }
 
 async function renderLocalSetup(token) {

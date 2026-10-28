@@ -118,6 +118,14 @@
 .rsi-field :is(input:not([type=checkbox]), select, textarea) { display: block; width: 100%; min-width: 0; margin-top: 8px; font: inherit; font-size: 13px; border: 1px solid #d8e2d8; border-radius: 7px; padding: 11px 12px; background: white; color: #314536; }
 .rsi-field textarea { resize: vertical; min-height: 128px; line-height: 1.8; }
 .rsi-field small { font-size: 11px; color: #7d8c7d; }
+.onboarding-panel > .rsi-field { display: block; }
+.integration-executor-options > .rsi-field,
+.integration-manual-options > .rsi-field { display: block; margin-bottom: 16px; }
+.integration-executor-options > .rsi-field:has(input[type=checkbox]) { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.integration-executor-options > .rsi-field input[type=checkbox] { order: -1; flex: 0 0 auto; }
+.integration-executor-options > .button,
+.integration-manual-options > .button { margin: 12px 10px 16px 0; }
+.integration-manual-options textarea { font-family: ui-monospace, monospace; }
 .rsi-form > .error { margin: 0; }
 .rsi-form > .error:empty { display: none; }
 .rsi-form > .button { justify-self: end; }

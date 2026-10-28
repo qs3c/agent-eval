@@ -72,7 +72,7 @@ def main():
     for name in ("manifest-index", "manifest-verify"):
         q = sub.add_parser(name)
         q.add_argument("run", type=Path)
-    q = sub.add_parser("snapshot-bkcrab")
+    q = sub.add_parser("snapshot-agent")
     q.add_argument("source", type=Path)
     q.add_argument("binary", type=Path)
     q.add_argument("output", type=Path)
@@ -240,7 +240,7 @@ def main():
 
         verify_manifest(args.run)
         print("Manifest audit passed")
-    elif args.command == "snapshot-bkcrab":
+    elif args.command == "snapshot-agent":
         write_json(
             args.output,
             {

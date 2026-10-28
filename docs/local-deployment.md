@@ -4,15 +4,7 @@
 
 ## 支持范围
 
-| 场景 | 当前要求 |
-| --- | --- |
-| 平台执行 | Linux x86_64、Python 3.12、可访问的 Linux Docker daemon、Git、uv 0.13.0 或更新版本 |
-| controls | 只需平台依赖；不需要 API key、Go、Node 或 BKCrab checkout |
-| DSH 旧原生构建 | 额外需要 Node 22 或更新版本、npm、锁文件；标准 Release 的工具链在容器中 |
-| BKCrab 旧原生构建 | 额外需要 Go 1.25 或更新版本、含 eval 入口的 BKCrab checkout；标准 Release 的工具链在容器中 |
-| SWE 准备 | 额外需要 uv 管理的 Python 3.13、数据与镜像下载空间；评分运行时另按固定构建准备 |
-| Windows 原生 | 可运行只依赖标准库的 doctor 获取诊断；不支持执行实验 |
-| WSL2 | 能检测并提示；尚未完成支持认证，不能用 doctor 通过代替完整验收 |
+执行需要 Linux x86_64、Python 3.12、Git、uv 0.13.0 或更新版本、Linux Docker daemon。Windows 原生仅支持只读 doctor；WSL2 尚未完成支持认证。标准配方在容器中构建，不要求宿主安装各 Agent 的工具链。
 
 版本下限只用于预检；具体可复现运行仍使用 `uv.lock` 和 Agent 锁文件。CPU/内存诊断是环境信息，不是并发准入。默认检查 20 GiB 空闲余量，SWE 实际占用可能远大于此值。doctor 不安装组件、不拉镜像、不运行 Agent、不发送 API 请求、不启动/停止进程。
 
@@ -20,7 +12,9 @@
 
 ### 从自己的 Agent 到逐题对比
 
-启动工作台后，进入 **Agent 接入**：自定义 Agent 填写干净源码目录与标准配方路径（见[接入规范](agent-integration.md)）。内置 Agent 先按卡片上的命令准备固定 Docker 镜像，再点击安装；Manager 下载固定 SHA 的源码并排队构建。无需在宿主机安装各 Agent 的编译工具，但 Docker 构建会下载依赖，未知下载大小不会显示为零。构建失败保留原因，其他版本仍可使用。
+启动工作台后，进入 **Agent 接入**：可以添加源码链接，让已配置的 Integration Agent 生成接入候选；也可以让自己常用的 Codex、Claude Code 等工具阅读双方源码，按[接入规范](agent-integration.md)生成配方和 patch，再填写干净源码目录与标准配方路径构建。自行接入不依赖平台接入执行器；已有来源可通过修复配方入口提交外部工具的产物。两种方式使用相同的构建与检查契约。
+
+内置 Agent 先按卡片上的命令准备固定 Docker 镜像，再点击安装；Manager 下载固定 SHA 的源码并排队构建。标准 Recipe 构建无需在宿主机安装各 Agent 的编译工具，但 Docker 构建会下载依赖，未知下载大小不会显示为零。构建失败保留原因，其他版本仍可使用。平台接入执行器首次安装仍按[平台 Agent 文档](platform-agents.md)准备。
 
 进入 **创建对比**，同时选择自己的 Release 与一个内置 Release，选择 benchmark 模板、题目数及抽样种子。首次使用 `controls`、两题、模拟模型执行接入检查，不需要 API Key。点击预检可看到尝试数、磁盘余量、付费状态、模型覆盖限制；预检不发送模型请求。确认运行后，到记录详情看进度，到结果对比看逐题表现。完成后回到 Agent 接入，选择该版本和已结束实验核验运行证据。
 
@@ -30,11 +24,9 @@
 
 如果此前已经启动过不带 `--allow-live` 的服务，先关闭 Web，在同一平台目录执行 `uv run agent-harness-eval manager stop`；等待 `uv run agent-harness-eval manager status` 显示 `alive=false`，再启动 `uv run agent-harness-eval serve --allow-live --port 8765`。Manager 会等待已有作业结束，不要为更改开关强行杀死正在执行的实验。只关闭浏览器或 Web 不会改变后台执行策略。
 
-接入文档中的 `hello-harness` 是无需模型的协议示例，在“创建对比”选择 **离线 · 无模型协议检查**，单独运行两题。与 BKCrab 等模型 Agent 对比时，应接入支持 mock/live 的自己的 Agent；先做模拟模型检查，再使用配置好的真实模型。
-
 结果页区分成绩、执行错误、评分等待、未知费用与模型策略覆盖。模拟模型成绩仅证明执行链路；当前内置版本不因运行成功自动取得完整 Comparable。GitHub URL 接入和持续版本闭环见 [源码跟踪](source-tracking.md)，未知仓库需要配方或配置好的 Integration Agent。
 
-在逐题对比中选择题目和具体尝试，点击 **保存这次尝试为诊断案例**。这一步冻结证据，不调用模型，也不要求填写改进目标；正常执行但得分为零的记录同样可以诊断。随后按案例页提示配置平台执行 Agent 和诊断/改进模型，再创建候选运行改进。被测 Agent 的 Release 与平台诊断执行器是两套独立产物；后者首次准备步骤见 [平台 Agent 执行边界](platform-agents.md)。
+在逐题对比中选择题目和具体尝试，点击 **保存这次尝试为诊断案例**。这一步冻结证据，不调用模型，也不要求填写改进目标；正常执行但得分为零的记录同样可以诊断。随后按案例页提示配置平台执行 Agent 和诊断/改进模型，再创建候选运行改进。被测任务与平台执行任务使用独立角色和证据；公共执行器可复用固定 Release，平台容器准备步骤见 [平台 Agent 执行边界](platform-agents.md)。
 
 先通过官方安装方式准备 Git、Docker 和 uv，让当前用户可访问 Docker。然后在用户自己的平台 checkout 中运行：
 
@@ -56,31 +48,17 @@ PYTHONPATH=src python3 -m agent_harness_eval.cli doctor --json
 
 `doctor` 输出 schema version 1，每项包含 `check_id`、`required_by`、`status`、`evidence`、`remediation`。status 为 pass/warn/fail；任一 fail 退出码为 1，其余为 0。warn 仍需阅读，例如未认证 WSL 或未测试模型连接。参数非法非零退出。工具版本、Docker 信息读取设 10 秒超时，不输出任意工具 stderr 或密钥值。
 
-```bash
-uv run agent-harness-eval doctor --agent dsh --benchmark controls
-uv run agent-harness-eval doctor --agent bkcrab --agent dsh --benchmark swe --min-free-gib 40
-uv run agent-harness-eval doctor --live --api-key-env MY_MODEL_KEY --json
-```
-
 `--agent` 可重复；默认 controls。`--live` 只检查指定环境变量是否非空，不验证 URL、模型协议或 key 有效性；模型池保存的凭据应在模型设置中检查。没有 key 不妨碍 mock/controls。模型连通性与付费生成必须通过另外的明确操作验证。
 
 ## 独立准备 Agent
 
+优先在内置目录中构建 OpenCode、DSH 或 Hermes 的标准 Release。旧 DSH bundle 的兼容准备入口仍保留：
+
 ```bash
-# 只准备 DSH，不读取 BKCRAB_SOURCE，不运行 Go。
 bash scripts/prepare-native.sh dsh
-
-# 只准备 BKCrab，不运行 npm 或 DSH 打包。
-export BKCRAB_SOURCE=/absolute/path/to/bkcrab
-bash scripts/prepare-native.sh bkcrab
-
-# 保留旧调用兼容；省略参数等于 all。
-bash scripts/prepare-native.sh all
 ```
 
-以上为保留的原生构建入口。新的通用 Release 管理已提供“接入 Agent”页面与 `integration` CLI，支持四个固定基线和自定义配方。已有 BKCrab eval 入口无需重复应用旧 patch。DSH 已存在的旧 bundle 仍拒绝覆盖，新的 Release 使用内容身份独立保存。
-
-平台主程序目前使用 Python 环境启动；Agent/任务执行使用 Docker。部署 BKCrab 服务到项目约定服务器时，仍须 Docker 部署并遵守既有端口与源码流程；本页不要求为运行 controls 停止 BKCrab 服务。
+这个命令需要宿主 Node/npm；标准 Recipe 构建和通用平台容器准备见 [平台执行器](platform-agents.md)。
 
 ## Web、生命周期与私网
 

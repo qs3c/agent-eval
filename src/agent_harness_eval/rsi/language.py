@@ -10,7 +10,7 @@ DIAGNOSIS_LANGUAGE_INSTRUCTIONS = (
     "Write topic, summary, hypotheses, changes and limitations in Chinese. "
     "Provide title and title_en as concise, single-line Chinese and English change titles, "
     "without a prefix; the platform adds 【RSI-generated pr】. "
-    "Follow the editorial style of BKCrab PRs #3 and #4: start summary with the concrete "
+    "Start summary with the concrete "
     "failure trigger, previous behavior and resulting behavior in a short paragraph. "
     "Write changes as Markdown bullets explaining what changed and why. "
     "Write limitations as Markdown bullets describing scope, uncertainties, untested paths "

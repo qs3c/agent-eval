@@ -6,15 +6,6 @@
   },
   "agents": [
     {
-      "id": "bkcrab",
-      "implementation": "agent_harness_eval.agents.bkcrab:Bkcrab",
-      "version": "source-snapshot",
-      "kwargs": {
-        "binary": "../.cache/bkcrab-eval",
-        "provenance": "../.cache/bkcrab-provenance.json"
-      }
-    },
-    {
       "id": "dsh-standard",
       "implementation": "agent_harness_eval.agents.dsh:DeepSeekStandard",
       "version": "0.2.1-alpha.2",

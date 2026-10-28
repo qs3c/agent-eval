@@ -177,7 +177,7 @@ Path(r["output_dir"],"agent-result.json").write_text(json.dumps({"schema_version
     recipe_path = tmp_path / "recipe.json"
     recipe_path.write_text(json.dumps(recipe))
     catalog = Releases(root)
-    builtin = next(row for row in Releases(os.environ["BUILTIN_RELEASE_ROOT"]).list() if row["release"]["agent_id"] == "bkcrab")
+    builtin = next(row for row in Releases(os.environ["BUILTIN_RELEASE_ROOT"]).list() if row["release"]["agent_id"] == "opencode")
     catalog.add(Releases(os.environ["BUILTIN_RELEASE_ROOT"]).directory / builtin["release_id"])
     commands = Commands(root)
     ensure(root)

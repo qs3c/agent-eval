@@ -84,7 +84,7 @@ def test_monitor_pending_tool_and_return():
         "time_unix": 1800000000,
         "logs": {"events.jsonl": {"size": 20, "text": json.dumps(call)}},
     }
-    assert m.observe(snap, 0, "bkcrab")[0] == "tool_overdue"
+    assert m.observe(snap, 0, "sample_agent")[0] == "tool_overdue"
     done = {
         "type": "tool_result",
         "seq": 2,
@@ -95,7 +95,7 @@ def test_monitor_pending_tool_and_return():
         "size": 40,
         "text": json.dumps(call) + "\n" + json.dumps(done),
     }
-    assert m.observe(snap, 1, "bkcrab")[0] is None
+    assert m.observe(snap, 1, "sample_agent")[0] is None
 
 
 def driver(tmp_path, body):

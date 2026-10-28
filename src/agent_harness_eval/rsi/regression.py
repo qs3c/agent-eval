@@ -16,15 +16,13 @@ from .process import checked
 
 
 def enabled(record):
-    return record.get("profile_id") in {"builtin-bkcrab", "builtin-dsh"} and not record[
+    return record.get("profile_id") in {"builtin-opencode", "builtin-dsh", "builtin-hermes"} and not record[
         "profile"
     ].get("evaluation") and not record["profile"].get("integration_recipe")
 
 
 def configuration(store, record):
     case = store.get("cases", record["case"])
-    if case["agent"] != "bkcrab":
-        raise ValueError("该目标尚未配置确定性回归执行器")
     identity = store.path("cases", case["id"]) / "evidence/experiment.json"
     if digest(identity) != case["identity_sha256"]:
         raise ValueError("冻结的原测试配置已变化，拒绝复评")

@@ -46,18 +46,6 @@ uv run agent-harness-eval run experiments/guardian-controls.json --output artifa
 
 ## 发现与期限
 
-- 定时读取 Harbor 生命周期：创建、环境启动、Agent 开始/结束、验证和清理。
-- 默认每 15 秒轮询、连续 600 秒无日志进展且两次命中才触发调查。轮询频率和静默阈值是不同参数；历史冻结配置不自动修改。
-- 日志尾部仅用于展示和诊断。Docker 监测单独按文件身份、字节偏移和边界校验增量消费完整事件行；普通诊断 snapshot 不推进监测游标。每轮有界读取，积压在后续轮询追赶；半行等待补齐。轮转、截断、损坏或超过单行上限会记录 gap 并清除不可信 pending，证据不完整时不能判工具逾期。
-- BKCrab 的 exec 使用显式 timeout，否则使用 120 秒默认值。DSH 的 `tool/call`/`tool/result` 同样配对，`job_output(wait=true)` 按 timeout_ms（默认 30 秒，上限 600 秒）识别等待；明确有效工具等待期限与宽限期内不产生静默报警。自定义 DSH preset 改变此上限时需同步适配，当前针对冻结 Standard 约定。stderr 输出和单次 CPU 值不直接算有效进展。
-- 进程快照只读 PID/PPID、状态、启动计数、累计 CPU 时间、进程名和 FD 链接；不读内存或环境变量。守护可对比多次快照以及原命令输出文件变化判断是否仍在工作。
-- Agent 期限使用 Harbor 实际解析后的 timeout。守护 exec 操作在原期限到达或阶段结束后失效；已经启动的调查可在独立诊断窗口内继续读取证据和提交 final。允许 Harbor 在 `cleanup_seconds` 内结束取消和清理，随后独立强制兜底。守护不会增加题目的作答预算。
-- `setup_seconds` 默认 1200，为创建/环境等阶段的外层兜底；`verifier_seconds` 默认 1200，为验证阶段外层上限。它们不改写 task.toml 的评分器超时。诊断和单次命令各有独立期限。旧配置的 verification_seconds 仅兼容读取，不再启动恢复验证倒计时。
-- 守护以 `final`（兼容 `finish`）提交两个决策之一：`continue` 保存介入记录并继续运行原题，`terminate` 附具体原因与证据后由监督进程终止、清理本题并让队列继续。正常等待、误报、解除阻塞和不确定性都写入 summary，不再划分决策分支。旧 wait/false_positive/recovered/inconclusive 仅兼容转换为 continue。
-- “恢复”只指解除实验当前运行阻塞，让原 Agent 循环继续；不允许修复、热补丁、替换或升级被测 harness 的源码、依赖、提示词、配置和工具实现，也不能伪造工具返回、重启整个 Agent 掩盖故障。可以在确认影响后终止失控的工具子进程，让原 Agent 收到真实错误并继续处理。需要修改 harness 或会话已不可恢复时，记录证据后终止本题，根因修复留到独立工作。
-- 守护操作后在 final 之前、调查预算内可再次采集现场，检查原工具返回或原 Agent 后续进展；命令执行成功不等于恢复。final 提交后本次守护立即结束，后续进展只由监督进程常规监测，必要时另启调查。continue 只表示继续运行，outcome 记录 continued，不声称修复成功。继续运行或驱动失败后，保持常规监测，经过 idle_seconds 再允许调查；驱动失败记为 investigation_failed，不当作被测 Agent 卡死。删除单独的恢复验证倒计时和相关状态，原题硬期限与调查次数上限继续生效。
-- 兜底先终止该题工作进程，再清理精确 Compose project 下的容器和网络。失败保留 `resources_released: false`，不会谎报清理成功。SIGTERM/SIGINT 正常取消走清理流程；宿主机关机、SIGKILL 或 Docker daemon 故障不受本进程保证，仍需已有的控制台 interrupted/recover 流程。
-
 ## JSONL 插件协议 v1
 
 ### 版本核对与待完善的诊断续期
@@ -125,6 +113,4 @@ GUARDIAN_DOCKER_TESTS=1 uv run pytest tests/test_guardian_docker.py -q
 
 Docker 验收使用独立临时目录和唯一标签容器，包括无限输出、退出 shell 遗留子进程、协议直接恢复、守护失联兜底，以及兜底之后执行真实 Harbor 正/负对照题。需要本地已有 `python:3.12.13-slim-bookworm` 镜像；不会调用大模型 API。回归测试还覆盖取消、过期权限、动作预算、只读 API 和原有实验功能。
 
-2026-10-12 验证记录：在 `100.93.173.10` 的隔离目录 `/tmp/agent-harness-guardian-cgwNw3i9` 中，使用既有 Python 3.12/Harbor 0.24.0 环境运行 `GUARDIAN_DOCKER_TESTS=1 PYTHONPATH=src .../python -m pytest -q`，**96 passed，81.55 秒**。真实 Harbor 队列测试使用单并发：第一题同步阻塞工作进程，使 Harbor 的异步超时也无法运行；父进程终止该题、保留 `GuardianTrialTerminated`，第二题正常得到 reward=1。另有四次正/负对照尝试全部按预期评分。新增守护模块和测试通过 Ruff 检查，两个修改的 JavaScript 文件通过 `node --check`。
-
-首次 Docker 对照验收发现从 Windows 打包的 shell 脚本为 CRLF，导致 Linux shebang 无法执行；已添加 `.gitattributes` 固定 `.sh` 为 LF 后重跑通过。此次只操作临时验收容器，没有替换线上 BKCrab、运行付费评测或修改历史实验。
+2026-10-12 验证记录：在 Linux 测试主机的隔离目录 `/tmp/agent-harness-guardian-cgwNw3i9` 中，使用既有 Python 3.12/Harbor 0.24.0 环境运行 `GUARDIAN_DOCKER_TESTS=1 PYTHONPATH=src .../python -m pytest -q`，**96 passed，81.55 秒**。真实 Harbor 队列测试使用单并发：第一题同步阻塞工作进程，使 Harbor 的异步超时也无法运行；父进程终止该题、保留 `GuardianTrialTerminated`，第二题正常得到 reward=1。另有四次正/负对照尝试全部按预期评分。新增守护模块和测试通过 Ruff 检查，两个修改的 JavaScript 文件通过 `node --check`。

@@ -23,13 +23,13 @@ uv run agent-harness-eval source resume --source-id SOURCE_ID
 
 先找标准配方或用户指定配方，再在独立派生目录应用 patch、Docker 构建、执行两题隔离控制检查。这里只授予有证据支持的 Runnable 等级，不把一次 smoke 当成完整 Comparable 认证。模型调用覆盖缺口继续展示。
 
-未知项目显示“需要配方”。用户可提供配方，或启动 Integration Agent。后者复用已安装的 BKCrab/DSH 原生多轮平台执行器，独立 `integration` 模型绑定、home、证据目录、超时和最多 50 次模型请求。上游源码只读挂载，候选只写接入配方和 patch；结果通过 schema、仓库/SHA、路径和来源检查后，再进入普通构建与 conformance。生成期间源码更新会拒绝采用过期候选。模型报告成功本身没有准入效力。
+未知项目显示“需要配方”。用户可提供配方，或启动 Integration Agent。后者复用已安装的 OpenCode/DSH/Hermes 固定 Release 原生执行器，独立 `integration` 模型绑定、home、证据目录、超时和最多 50 次模型请求。上游源码只读挂载，候选只写接入配方和 patch；结果通过 schema、仓库/SHA、路径和来源检查后，再进入普通构建与 conformance。生成期间源码更新会拒绝采用过期候选。模型报告成功本身没有准入效力。
 
 ```bash
 uv run agent-harness-eval source repair --source-id SOURCE_ID --recipe /absolute/repair/recipe.json
-# 先安装平台原生运行时、保存执行器设置、配置 integration 模型绑定。
+# 先构建所选公共 Agent Release、准备通用平台容器、配置 integration 模型绑定。
 # 此命令明确同意一次有界模型调用；费用仍可能未知。
-uv run agent-harness-eval source assist --source-id SOURCE_ID --confirm-paid
+uv run agent-harness-eval source assist --source-id SOURCE_ID --executor dsh --confirm-paid
 ```
 
 Web 的“接入 Agent”页面提供相同操作。Web 模型调用还需 `serve --allow-live`。生成失败、构建失败和 patch 冲突保留证据，可明确提交下一次修复；默认不无限调用模型自行重试。安装运行时见 [平台 Agent](platform-agents.md)，配方标准见 [Agent 接入](agent-integration.md)。当前 DSH 内置基线使用 registry-package，不能用它假称已从新源码构建；源码进化须提供 `artifact_origin: source` 配方。

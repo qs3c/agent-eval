@@ -16,3 +16,8 @@ logs/
 .workspace/
 dist/
 *.mock-negative.json
+
+# Local target configuration and review evidence
+rsi-profiles/*.json
+console_reviews.json
+docs/interview/

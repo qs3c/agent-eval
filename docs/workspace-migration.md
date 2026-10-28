@@ -30,20 +30,6 @@ canonical JSON 仅对声明为集合的 capabilities/requires 及实际集合排
 
 ## 现有入口与状态
 
-| 类别 | 当前入口 / 文件 |
-| --- | --- |
-| 实验 CLI | `validate`、`run [--resume] [--workbench-repair]`、`report`、`serve` |
-| 来源与评分 CLI | `snapshot-bkcrab`、`bundle-dsh`、`manifest-index`、`manifest-verify`、`swe-export`、`swe-instrument`、`swe-regrade` |
-| RSI CLI | `rsi-case`、`rsi-candidate`、`rsi-action`、`rsi-work` |
-| 新增 CLI | P0 `doctor`，不写状态；T03 `workspace-import`，默认预览、`--apply` 写新索引 |
-| Web 实验 API | `/api/templates`、`/api/runs`、`/api/runs/{run_id}`、logs/comparison/incidents/traces 子路由、`/api/compare` |
-| 复评 API | `/api/runs/{run_id}/batches/{number}/regrade` 与 `regrade-log` |
-| 模型与 RSI API | `model_pool.py` 与 `rsi/api.py` 注册的路由；保持现有契约，不在 P0 调整 |
-| 控制台索引 | `.console/runs.sqlite3`：`runs` 表；另有 inputs/logs、模型配置及凭据文件，备份整个目录 |
-| RSI 状态 | `.rsi/queue.sqlite`：`actions` 表；`.rsi/{cases,candidates,actions}/<id>/record.json` 与证据 |
-| 用户级复评 | `~/.cache/agent-harness-eval/regrading/queue.sqlite3`：`jobs` 表及 active_batch 索引；同目录锁和镜像租约 |
-| 实验事实 | `artifacts/<run>/manifest.json`、配置/来源清单、冻结 tasks、jobs/*/*/result.json、原始日志、report、batch-state、official-summary、batches/*/official/ |
-
 现有 `Console.import_history()` 将 artifacts 登记到控制台索引，重复调用使用稳定路径身份和 `INSERT OR IGNORE`；它不是通用跨版本迁移。历史详情状态可从结果重新计算，所以 SQLite 的初始 `incomplete` 不能当作最终评分。
 
 ## 夹具约定

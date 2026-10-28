@@ -146,8 +146,8 @@ class Experiment(Strict):
                 from .search import WebSearch
 
                 WebSearch.model_validate(agent.kwargs["web_search"])
-                if agent.implementation != "agent_harness_eval.agents.bkcrab:Bkcrab":
-                    raise ValueError("web_search is currently supported by the BKCrab adapter only")
+                if agent.implementation.startswith("agent_harness_eval.agents."):
+                    raise ValueError("web_search requires an external adapter that implements the search contract")
                 if self.model.mode != "live":
                     raise ValueError("external web_search requires live mode")
                 if self.model.policy:

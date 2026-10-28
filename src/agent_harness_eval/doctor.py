@@ -13,7 +13,7 @@ from pathlib import Path
 
 def register(sub):
     parser = sub.add_parser("doctor", help="只读检查本地执行环境（不调用模型）")
-    parser.add_argument("--agent", action="append", choices=["controls", "dsh", "bkcrab"])
+    parser.add_argument("--agent", action="append", choices=["controls", "dsh", "opencode", "hermes"])
     parser.add_argument("--benchmark", choices=["controls", "swe"], default="controls")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--min-free-gib", type=int, default=20)
@@ -37,7 +37,7 @@ def inspect(root, agents=(), benchmark="controls", min_free_gib=20, port=None,
     if min_free_gib < 0 or (port is not None and not 1 <= port <= 65535):
         raise ValueError("磁盘阈值必须非负，端口必须在 1–65535")
     agents = sorted(set(agents or ["controls"]))
-    if not set(agents) <= {"controls", "dsh", "bkcrab"} or benchmark not in {"controls", "swe"}:
+    if not set(agents) <= {"controls", "dsh", "opencode", "hermes"} or benchmark not in {"controls", "swe"}:
         raise ValueError("未知 Agent 或 benchmark")
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", api_key_env):
         raise ValueError("无效的凭据环境变量名称")
@@ -86,13 +86,6 @@ def inspect(root, agents=(), benchmark="controls", min_free_gib=20, port=None,
     dependencies = {"git": (["source"], None), "uv": (["platform"], (0, 13))}
     if "dsh" in agents:
         dependencies.update(node=(["dsh"], (22,)), npm=(["dsh"], None))
-    if "bkcrab" in agents:
-        dependencies["go"] = (["bkcrab"], (1, 25))
-        source = os.environ.get("BKCRAB_SOURCE")
-        ready = bool(source and (Path(source) / "cmd/bkcrab-eval").is_dir())
-        add("bkcrab-source", ["bkcrab"], "pass" if ready else "fail",
-            {"configured": bool(source), "eval_entry_present": ready},
-            "设置 BKCRAB_SOURCE 指向含 cmd/bkcrab-eval 的 checkout；应用 patch 前先 git apply --check")
     for tool, (required_by, minimum) in dependencies.items():
         executable = shutil.which(tool)
         if not executable and tool == "uv" and os.access(root / ".tools/uv", os.X_OK):

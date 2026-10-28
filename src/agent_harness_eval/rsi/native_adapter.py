@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import shutil
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -150,48 +151,41 @@ def execute(args, context):
         ]
         if integration:
             mounts.append((Path(context["source_directory"]).resolve(), "/source", True))
-        if args.executor == "bkcrab":
-            command = [
-                "sh",
-                "-c",
-                'export EVAL_MODEL_API_KEY=relay-only; exec "$@"',
-                "rsi",
-                "/installed-agent/bkcrab-eval",
-                "--workspace",
-                "/workspace",
-                "--home",
-                "/tmp/bkcrab-rsi-home",
-                "--output",
-                "/logs/agent",
-                "--prompt-file",
-                "/installed-agent/prompt.txt",
-                "--model",
-                profile["name"],
-                "--api-base",
-                "http://127.0.0.1:18765/v1",
-                "--max-tokens",
-                str(getattr(args, "max_tokens", 32768)),
-                "--context-window",
-                str(getattr(args, "context_window", 1000000)),
-                "--timeout",
-                str(args.timeout) + "s",
-            ]
+        from agent_harness_eval.platform_agents.releases import resolve
+        from agent_harness_eval.integrations.builder import unpack
+        from agent_harness_eval.integrations.schema import Recipe, expand
+
+        release_dir, receipt = resolve(args.root, args.executor, args.release)
+        recipe = Recipe.model_validate(receipt["recipe"])
+        bundle = output / "executor"
+        bundle.mkdir(exist_ok=True)
+        unpack((release_dir / "agent.tar").read_bytes(), bundle)
+        mounts.append((bundle, "/installed-agent/recipe", True))
+        values = {"agent_dir": "/installed-agent/recipe", "workspace": "/workspace",
+                  "request_file": "/installed-agent/request.json", "prompt_file": "/installed-agent/prompt.txt",
+                  "output_dir": "/logs/agent", "home": "/tmp/platform-agent-home",
+                  "model_id": profile["name"], "api_base": "http://127.0.0.1:18765/v1"}
+        request_file = output / "request.json"
+        write_json(request_file, {"schema_version": 1, "instruction": prompt.read_text(encoding="utf-8"),
+            "workspace": values["workspace"], "output_dir": values["output_dir"],
+            "deadline_unix": time.time() + args.timeout,
+            "model": {"mode": profile.get("mode", "live"), "id": profile["name"],
+                      "api_base": values["api_base"], "api_key_env": list(recipe.model_key_env),
+                      "max_tokens": profile["max_tokens"], "context_window": profile.get("context_window", 131072)}})
+        mounts.append((request_file, values["request_file"], True))
+        write_json(output / "executor-provenance.json", receipt)
+        if recipe.entrypoint.argv:
+            entry = expand(recipe.entrypoint.argv, values)
         else:
-            command = [
-                "sh",
-                "-c",
-                'export DEEPSEEK_API_KEY=relay-only; exec "$@"',
-                "rsi",
-                "/installed-agent/dsh/node",
-                "/installed-agent/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js",
-                "--profile",
-                "sdk",
-                "--patch",
-                "/installed-agent/dsh/transport.patch.yml",
-                "--patch",
-                "/installed-agent/dsh/standard.patch.yml",
-            ]
-        command = ["sh", "-ec", """mkdir -p /tmp/rsi-policy
+            mounts.append((resources / "recipe_entry.py", "/installed-agent/recipe_entry.py", True))
+            entry = ["python3", "/installed-agent/recipe_entry.py", recipe.entrypoint.python, values["request_file"]]
+        agent_env = {key: expand([value], values)[0] for key, value in recipe.environment.items()}
+        agent_env.update({key: "relay-only" for key in recipe.model_key_env})
+        agent_env.update(HOME=values["home"])
+        agent_env.setdefault("PYTHONPATH", values["agent_dir"])
+        # Bundled interpreters must not change the relay's Python environment.
+        command = ["env", *[f"{key}={value}" for key, value in agent_env.items()], *entry]
+        command = ["sh", "-ec", """mkdir -p /tmp/rsi-policy /tmp/platform-agent-home
 cp /platform-relay/model-policy.json /tmp/rsi-policy/model-policy.json
 cp /run/secrets/model-key /tmp/rsi-policy/live.key
 chmod 600 /tmp/rsi-policy/live.key
@@ -211,21 +205,13 @@ else: raise RuntimeError("platform model relay did not start")'
             mounts,
             command,
             args.timeout,
-            env={
-                "HOME": "/tmp/rsi-home",
-                "DSH_HOME": "/tmp/dsh-rsi-home",
-                "DSH_PERMISSION_MODE": "danger-full-access",
-                "DEEPSEEK_BASE_URL": "http://127.0.0.1:18765",
-                "EVAL_MODEL": profile["name"],
-                "EVAL_MAX_TOKENS": str(getattr(args, "max_tokens", 32768)),
-                "DSH_PRIMARY_RUNTIME": "",
-                "DSH_TOOLS_MODE": "native",
-                "CGO_ENABLED": "0",
-                "GOCACHE": "/tmp/go-cache",
-                "GOPATH": "/tmp/go",
-            },
+            env={"HOME": "/tmp/platform-home"},
         )
     from agent_harness_eval.policies.model import verify_usage
+
+    response = json.loads((logs / "agent-result.json").read_text())
+    if response.get("schema_version") != 1 or response.get("status") != "completed":
+        raise ValueError("平台执行器未正常完成标准协议")
 
     requests = logs / "policy-requests.jsonl"
     write_json(logs / "model-policy-report.json", verify_usage(policy, {
@@ -248,7 +234,8 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument("--root", type=Path)
-    parser.add_argument("--executor", choices=["bkcrab", "dsh"])
+    parser.add_argument("--executor", choices=["opencode", "dsh", "hermes"])
+    parser.add_argument("--release", required=True)
     parser.add_argument("--model")
     parser.add_argument("--api-base", default="https://api.deepseek.com")
     parser.add_argument("--messages-base")
@@ -257,23 +244,11 @@ def main():
     parser.add_argument("--context-window", type=int, default=1000000)
     parser.add_argument("--model-policy-json")
     parser.add_argument("--diagnosis-model-policy-json")
-    parser.add_argument("--check-target", choices=["bkcrab", "dsh", "dsh-standard"])
+    parser.add_argument("--check-target", choices=["opencode", "dsh", "hermes"])
     parser.add_argument("--workspace", type=Path)
     args = parser.parse_args()
     if args.check_target:
-        command = (
-            ["sh", "/installed-agent/check-bkcrab.sh"]
-            if args.check_target == "bkcrab"
-            else [
-                "git",
-                "-c",
-                "safe.directory=/workspace",
-                "show",
-                "--check",
-                "--format=",
-                "HEAD",
-            ]
-        )
+        command = ["git", "-c", "safe.directory=/workspace", "show", "--check", "--format=", "HEAD"]
         run_container(
             args.image,
             [(args.workspace.resolve(), "/workspace", False)],

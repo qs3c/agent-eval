@@ -1,4 +1,4 @@
-"""Explicit, non-secret BKCrab search configuration and its egress hosts."""
+"""Explicit, non-secret external adapter search configuration and its egress hosts."""
 
 import os
 from typing import Literal

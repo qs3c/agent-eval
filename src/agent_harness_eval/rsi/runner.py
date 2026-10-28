@@ -60,7 +60,7 @@ class Diagnosis(Strict):
 async def create_candidate(store, case_id, profile_id, parent=None):
     case = store.get("cases", case_id)
     evidence = verify_case(store, case)
-    if profile_id in {"builtin-bkcrab", "builtin-dsh"}:
+    if profile_id in {"builtin-opencode", "builtin-dsh", "builtin-hermes"}:
         from .executors import builtin_profile
 
         profile = builtin_profile(
@@ -95,7 +95,7 @@ async def create_candidate(store, case_id, profile_id, parent=None):
             release = provenance.get("release", {}) if isinstance(provenance, dict) else {}
             if (release.get("source") or {}).get("commit"):
                 measured.append({"commit": release["source"]["commit"], "dirty": False, "evidence_ref": item["id"]})
-                if profile_id in {"builtin-bkcrab", "builtin-dsh"} and not profile.integration_recipe:
+                if profile_id in {"builtin-opencode", "builtin-dsh", "builtin-hermes"} and not profile.integration_recipe:
                     from ..integrations.catalog import recipe_path
                     from ..integrations.schema import load as load_recipe
 

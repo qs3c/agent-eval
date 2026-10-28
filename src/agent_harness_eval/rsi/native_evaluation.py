@@ -28,10 +28,10 @@ def configuration(store, record):
         if profile.integration_recipe:
             recipe_profile(profile)
         return profile, load(profile.evaluation, validate_agent_artifacts=False), {}
-    if record["profile_id"] not in {"builtin-bkcrab", "builtin-dsh"}:
+    if record["profile_id"] not in {"builtin-opencode", "builtin-dsh", "builtin-hermes"}:
         raise ValueError("执行配置中未指定复评模板")
     case = store.get("cases", record["case"])
-    if case["agent"] != "bkcrab" and not profile.integration_recipe:
+    if not profile.integration_recipe:
         raise ValueError("该目标 Agent 尚未配置源码构建方式，请使用自定义复评配置")
     evidence = store.path("cases", case["id"]) / "evidence"
     identity_path = evidence / "experiment.json"
@@ -47,7 +47,7 @@ def configuration(store, record):
         raise ValueError("原测试配置中找不到案例 Agent")
     required = set(exp.agents[0].kwargs) & {"binary", "bundle", "provenance"}
     if "bundle" in required and not profile.integration_recipe:
-        raise ValueError("BKCrab 原测试包含不支持的 bundle 产物")
+        raise ValueError("原测试包含不支持的 bundle 产物")
     # Select the case's recorded tasks, not every task in a larger source run.
     selected = set()
     known_tasks = {p.name for p in exp.benchmark.tasks}
@@ -93,30 +93,4 @@ def configuration(store, record):
     if profile.integration_recipe:
         profile.evaluation = store.path("candidates", record["id"]) / "evaluation-template.json"
         return recipe_profile(profile), exp, hashes
-    argv = profile.adapter.argv
-    image = runtime(store.project).get("image") or (
-        argv[argv.index("--image") + 1] if "--image" in argv else ""
-    )
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", image):
-        raise ValueError("候选缺少固定的 Docker 构建镜像")
-    profile.build = Command(
-        argv=[
-            "{python}",
-            str(Path(__file__).with_name("native_build.py")),
-            "--image",
-            image,
-            "--workspace",
-            "{workspace}",
-            "--output",
-            "{output}",
-        ],
-        timeout_seconds=1860,
-    )
-    profile.artifacts = {"binary": "bkcrab-eval", "provenance": "provenance.json"}
-    if record.get("paired_build"):
-        profile.build = Command.model_validate(record["paired_build"]["build"])
-        profile.artifacts = record["paired_build"]["artifacts"]
-    profile.evaluation = (
-        store.path("candidates", record["id"]) / "evaluation-template.json"
-    )
-    return profile, exp, hashes
+    raise ValueError("该目标 Agent 需要标准源码构建配方或显式复评模板")

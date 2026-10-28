@@ -3,10 +3,10 @@
   "reason": "修复历史基础设施路径",
   "previous": {
     "cli.py": "old",
-    "agents/bkcrab.py": "same"
+    "agents/sample_agent.py": "same"
   },
   "current": {
     "cli.py": "new",
-    "agents/bkcrab.py": "same"
+    "agents/sample_agent.py": "same"
   }
 }

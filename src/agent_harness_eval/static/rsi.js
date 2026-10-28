@@ -11,7 +11,7 @@ const rsiPrStates = { draft: "草稿 PR", ready: "待审阅 PR", closed: "PR 已
 function rsiPrStatus(candidate) {
   return candidate.pr_url ? rsiPrStates[candidate.pr_state] || "PR 状态待同步" : "未发布";
 }
-const rsiExecutorNames = { "builtin-bkcrab": "BKCrab", "builtin-dsh": "DSH" };
+const rsiExecutorNames = { "builtin-opencode": "OpenCode", "builtin-hermes": "Hermes", "builtin-dsh": "DSH" };
 const rsiUi = { tab: "cases", search: "", evidence: new Map(), pending: false };
 
 function rsiSelect(items, label) {
@@ -83,7 +83,7 @@ function rsiConfigNote(data) {
     const selected = (config.models || []).find(m => m.id === model.value);
     const ready = chosen.installed && selected?.has_api_key && (select.value !== "dsh" || selected.messages_base);
     status.replaceChildren(rsiBadge(!chosen.installed ? "运行环境未就绪" : !selected ? "请选择模型" : !selected.has_api_key ? "模型缺少凭据" : select.value === "dsh" && !selected.messages_base ? "DSH 需要 Messages 接口" : config.configured && select.value === config.executor && model.value === config.model_id ? "已启用" : "可启用", ready ? "success" : "warning"));
-    if (!chosen.installed) status.append(el("p", "测评基线与平台诊断执行器分别安装。在平台目录先准备原生构建产物，再运行以下命令；完整步骤见 docs/platform-agents.md。"), el("code", 'python scripts/prepare-rsi-runtime.py --root "$PWD"'));
+    if (!chosen.installed) status.append(el("p", "先在 Agent 接入页面构建所选开源 Agent，再运行以下命令准备通用平台容器；完整步骤见 docs/platform-agents.md。"), el("code", 'python scripts/prepare-rsi-runtime.py --root "$PWD"'));
     save.disabled = !ready;
   }
   function choose() { model.value = config.bindings?.["executor_" + select.value] || ""; statusUpdate(); }
@@ -238,7 +238,7 @@ function rsiCandidateDialog(token, data, caseId) {
   if (data.profiles.some(p => p.id === preferred)) profile.value = preferred;
   const parent = rsiSelect([["", "配置中固定的源码版本"], ...data.candidates.filter(c => c.phase === "validated").map(c => [c.id, `${c.profile_id} · ${c.id.slice(0, 8)} · ${(c.commit || "").slice(0, 8)}`])], "父版本");
   const info = el("p", undefined, "rsi-inline-note");
-  const update = () => { const p = data.profiles.find(p => p.id === profile.value); const c = data.cases.find(c => c.id === source.value); info.textContent = `被改进的 Agent：${c?.agent || "未知"}。${p.executor ? "执行模型：" + (data.executor_settings.models?.find(m => m.id === data.executor_settings.bindings?.["executor_" + p.executor])?.name || data.executor_settings.model || "未指定") + "。" : ""}父子复评：${p.evaluation ? "已配置" : p.evaluation_from_case && c?.agent === "bkcrab" ? "由 DSH 制定针对性测试方案" : "未配置"}。点击运行后将调用模型并产生费用。${p.executor && c?.agent !== "bkcrab" ? "当前内置检查仅检查补丁格式，不代表功能验证通过。" : ""}`; };
+  const update = () => { const p = data.profiles.find(p => p.id === profile.value); const c = data.cases.find(c => c.id === source.value); info.textContent = `被改进的 Agent：${c?.agent || "未知"}。${p.executor ? "执行模型：" + (data.executor_settings.models?.find(m => m.id === data.executor_settings.bindings?.["executor_" + p.executor])?.name || data.executor_settings.model || "未指定") + "。" : ""}父子复评：${p.evaluation ? "已配置" : p.evaluation_from_case ? "使用目标配置中的源码配方与检查" : "未配置"}。点击运行后将调用模型并产生费用。`; };
   source.onchange = update;
   profile.onchange = update; update();
   const submit = rsiButton("创建并运行改进", null, true); submit.type = "submit";
@@ -403,7 +403,7 @@ async function renderRsiCandidate(token, identity, initial) {
     validation.append(table(["验证层", "结果", "证据"], Object.entries(candidate.validation.levels).map(([name, row]) => [name, row.status, (row.evidence || []).join(" · ")])));
     validation.append(el("p", candidate.validation.promotable ? "已满足配置要求的验证层；仍需人工审阅 PR。" : "分层验证不足：" + candidate.validation.issues.join("；"), "rsi-inline-note"));
   }
-  if (rsiExecutorNames[candidate.profile_id]) validation.append(el("p", source.agent === "bkcrab" ? "内置代码检查：Go 测试（go test ./...）。" : "内置代码检查仅验证补丁格式，不代表功能测试或模型效果验证通过。", "rsi-inline-note"));
+  if (rsiExecutorNames[candidate.profile_id]) validation.append(el("p", "检查命令来自用户的目标配置；检查通过不代表模型效果验证通过。", "rsi-inline-note"));
   if (candidate.checks?.length) validation.append(table(["代码检查", "结果", "完成时间"], candidate.checks.map(c => ["检查 " + (c.index + 1), c.returncode === 0 ? rsiBadge("通过", "success") : rsiBadge("退出码 " + c.returncode, "warning"), time(c.finished_at)])));
   else validation.append(el("p", "暂无代码检查记录。", "rsi-inline-note"));
   if (candidate.evaluations.length) validation.append(table(["复评类型 / 编号", "结论", "父分数", "候选分数", "异常（父 / 候选）", "可靠性 / 限制"], candidate.evaluations.map(e => [(e.kind === "targeted_regression" ? "DSH 针对性回归 · " : "原任务重跑 · ") + e.id.slice(0, 8), rsiAssessments[e.assessment] || e.assessment,

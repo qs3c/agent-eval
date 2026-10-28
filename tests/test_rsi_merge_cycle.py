@@ -166,5 +166,5 @@ def test_web_exposes_source_controls_and_cycle_status_without_starting_models(tm
     assert client.post(f"/api/sources/{key}/monitor", json={"enabled": False}).json()["enabled"] == 0
     assert client.get("/api/sources").json()["sources"][0]["recommended"] is None
     assert client.get("/api/rsi/cycles").json() == {"cycles": []}
-    refused = client.post(f"/api/sources/{key}/assist", json={"confirm_paid": True})
+    refused = client.post(f"/api/sources/{key}/assist", json={"executor": "dsh", "confirm_paid": True})
     assert refused.status_code == 422 and "allow-live" in refused.text

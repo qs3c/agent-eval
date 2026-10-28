@@ -108,13 +108,18 @@ else:
  raise AssertionError("Integration modified upstream")
 ''')
     image = json.loads(subprocess.check_output(["docker", "image", "inspect", "python:3.12.13-slim-bookworm", "--format", "{{json .RepoDigests}}"], text=True))[0]
-    actual = native_adapter.run_container
-    def container(image, mounts, command, timeout, **kwargs):
-        return actual(image, [*mounts, (executable, "/installed-agent/bkcrab-eval", True)], command, timeout, **kwargs)
-    monkeypatch.setattr(native_adapter, "run_container", container)
+    import tarfile
+    from agent_harness_eval.platform_agents import releases
+    executable.write_text(executable.read_text() + '\nPath("/logs/agent/agent-result.json").write_text(json.dumps({"schema_version":1,"status":"completed"}))\n')
+    with tarfile.open(tmp_path / "agent.tar", "w") as archive:
+        archive.add(executable, arcname="fixture-agent")
+    recipe = {"id":"opencode", "source":{"repository":"https://github.com/example/fixture"},
+        "build":{"image":image, "argv":["true"]},
+        "entrypoint":{"argv":["python3","{agent_dir}/fixture-agent","{request_file}"]}}
+    monkeypatch.setattr(releases, "resolve", lambda *args: (tmp_path, {"recipe":recipe}))
     monkeypatch.setattr(native_adapter, "credential", lambda root: "fixture-only-key")
     profile = {"mode": "mock", "name": "fixed-model", "max_tokens": 32, "policy": {"parameters": {"temperature": 0}, "budget": {"max_requests": 2}}}
-    args = SimpleNamespace(root=tmp_path, executor="bkcrab", model="unused", timeout=30, image=image, model_policy_json=json.dumps(profile))
+    args = SimpleNamespace(root=tmp_path, executor="opencode", release="f" * 64, model="unused", timeout=30, image=image, model_policy_json=json.dumps(profile))
     context = {"workspace": str(workspace), "evidence_directory": str(evidence), "result_path": str(output / "diagnosis.json")}
     if role == "integration":
         source = tmp_path / "readonly-source"

@@ -98,7 +98,7 @@ def test_repair_and_set_order_compatibility(legacy, tmp_path):
     assert resume_configuration(exp) == resume_configuration(reordered)
     reordered["benchmark"]["tasks"].reverse()
     assert resume_configuration(exp) != resume_configuration(reordered)
-    disallowed = {**record["current"], "agents/bkcrab.py": "changed"}
+    disallowed = {**record["current"], "agents/sample_agent.py": "changed"}
     forged = tmp_path / "repair.json"
     forged.write_text(json.dumps({**record, "current": disallowed}))
     with pytest.raises(ValueError, match="non-infrastructure"):

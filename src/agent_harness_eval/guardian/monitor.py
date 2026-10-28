@@ -67,7 +67,7 @@ class Monitor:
                     args = json.loads(d.get("arguments", "{}"))
                     if args.get("run_in_background"):
                         continue
-                    timeout = args.get("timeout", 120 if agent_id == "bkcrab" else None)
+                    timeout = args.get("timeout")
                     if type(timeout) not in (int, float) or timeout <= 0:
                         continue
                     self.pending[d["id"]] = (

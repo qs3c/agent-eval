@@ -139,7 +139,7 @@ def test_review_requires_unchanged_evidence(sample):
     assert assessment(c.root, "sample", "dsh-standard")["status"] == "accepted"
     detail = decorate(
         c.root,
-        {"directory": "sample", "agents": ["dsh-standard", "bkcrab"], "mode": "live"},
+        {"directory": "sample", "agents": ["dsh-standard", "sample_agent"], "mode": "live"},
     )
     assert detail["accepted_agents"] == ["dsh-standard"]
     f.write_text('{"changed":true}')

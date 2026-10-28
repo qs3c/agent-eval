@@ -8,9 +8,9 @@ const { JSDOM } = require('jsdom');
 const staticDir = path.join(__dirname, '../src/agent_harness_eval/static');
 const app = fs.readFileSync(path.join(staticDir, 'app.js'), 'utf8').split('window.addEventListener("hashchange", route);')[0];
 const rsi = fs.readFileSync(path.join(staticDir, 'rsi.js'), 'utf8');
-const source = { id: 'a'.repeat(32), agent: 'bkcrab', trials: ['django__django-15022__attempt'], objective: 'Fix process cleanup', status: 'ready', created_at: '2026-10-12T08:20:00Z', exported_bytes: 4096, evidence: [] };
-const profile = { id: 'bkcrab', version: 'test', evaluation: true, publication: true };
-const candidate = { id: 'b'.repeat(32), case: source.id, profile_id: 'bkcrab', parent_commit: 'c'.repeat(40), phase: 'created', evaluations: [], can_evaluate: true, can_publish: true, created_at: source.created_at };
+const source = { id: 'a'.repeat(32), agent: 'sample_agent', trials: ['django__django-15022__attempt'], objective: 'Fix process cleanup', status: 'ready', created_at: '2026-10-12T08:20:00Z', exported_bytes: 4096, evidence: [] };
+const profile = { id: 'sample_agent', version: 'test', evaluation: true, publication: true };
+const candidate = { id: 'b'.repeat(32), case: source.id, profile_id: 'sample_agent', parent_commit: 'c'.repeat(40), phase: 'created', evaluations: [], can_evaluate: true, can_publish: true, created_at: source.created_at };
 function setup(t, handler, full = false) {
   const dom = new JSDOM(full ? fs.readFileSync(path.join(staticDir, 'index.html'), 'utf8') : '<div id="notice"></div><div id="view"></div>', { url: 'http://localhost/#rsi', runScripts: 'outside-only' });
   t.after(() => dom.window.close());
@@ -31,7 +31,7 @@ const clickNamed = (doc, label) => {
 };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const poolModel = {id:'d'.repeat(32), label:'编码模型', name:'deepseek-flash', api_base:'https://api.deepseek.com', messages_base:'https://api.deepseek.com/anthropic', has_api_key:true, max_tokens:32768, context_window:1000000};
-const executorSettings = { options: [{id:'bkcrab', name:'BKCrab', installed:true, description:'BKCrab 原生编码 Agent'}, {id:'dsh', name:'DSH', installed:true, description:'DeepSeek Harness · Standard'}], configured:false, executor:'bkcrab', model:'deepseek-flash', timeout_seconds:1800, has_api_key:true, ready:false, model_id:poolModel.id, models:[poolModel], bindings:{executor_bkcrab:poolModel.id,executor_dsh:poolModel.id} };
+const executorSettings = { options: [{id:'sample_agent', name:'示例 Agent', installed:true, description:'示例 Agent 原生编码 Agent'}, {id:'dsh', name:'DSH', installed:true, description:'DeepSeek Harness · Standard'}], configured:false, executor:'sample_agent', model:'deepseek-flash', timeout_seconds:1800, has_api_key:true, ready:false, model_id:poolModel.id, models:[poolModel], bindings:{executor_opencode:poolModel.id,executor_dsh:poolModel.id} };
 
 test('executor can be selected and saved in the page without editing profile files', async t => {
   let settings = {...executorSettings}, saved;
@@ -40,7 +40,7 @@ test('executor can be selected and saved in the page without editing profile fil
     return url === '/api/rsi' ? overview({executor_settings:settings}) : {runs:[]};
   });
   await run('renderRsi(0)');
-  assert.deepEqual([...doc.querySelector('[aria-label="执行 Agent"]').options].map(o => o.text), ['BKCrab', 'DSH']);
+  assert.deepEqual([...doc.querySelector('[aria-label="执行 Agent"]').options].map(o => o.text), ['示例 Agent', 'DSH']);
   const select = doc.querySelector('[aria-label="执行 Agent"]'); select.value = 'dsh'; select.dispatchEvent(new window.Event('change'));
   await doc.querySelector('.rsi-executor-form').onsubmit({preventDefault(){}});
   assert.deepEqual(saved, {executor:'dsh', model_id:poolModel.id, timeout_seconds:1800});
@@ -61,9 +61,9 @@ test('missing model links to global pool without credential fields or submitting
 
 test('candidate form uses the saved executor while preserving the target Agent', t => {
   const {run, doc} = setup(t, async () => ({}));
-  run(`rsiCandidateDialog(0, ${JSON.stringify(overview({executor_settings:{...executorSettings, executor:'dsh'}, profiles:[{...profile,id:'builtin-bkcrab',name:'BKCrab',executor:'bkcrab'}, {...profile,id:'builtin-dsh',name:'DSH',executor:'dsh'}]}))})`);
+  run(`rsiCandidateDialog(0, ${JSON.stringify(overview({executor_settings:{...executorSettings, executor:'dsh'}, profiles:[{...profile,id:'builtin-opencode',name:'示例 Agent',executor:'sample_agent'}, {...profile,id:'builtin-dsh',name:'DSH',executor:'dsh'}]}))})`);
   assert.equal(doc.querySelector('[aria-label="执行 Agent"]').value, 'builtin-dsh');
-  assert.match(doc.querySelector('.rsi-inline-note').textContent, /被改进的 Agent：bkcrab/);
+  assert.match(doc.querySelector('.rsi-inline-note').textContent, /被改进的 Agent：sample_agent/);
 });
 
 test('archive shows only task titles before diagnosis and ignores historical objectives', async t => {
@@ -104,7 +104,7 @@ test('evidence filters distinguish missing, truncated and complete entries with 
 test('all-trials form refuses an empty selection instead of silently falling back to failed trials', async t => {
   const requests = [];
   const { run, doc } = setup(t, async (url, options) => { requests.push([url, options]); return { trials: [] }; });
-  run(`rsiCaseDialog(0, {runs: [{id: 'run', name: 'Finished run', status: 'completed', agents: ['bkcrab']}]})`);
+  run(`rsiCaseDialog(0, {runs: [{id: 'run', name: 'Finished run', status: 'completed', agents: ['sample_agent']}]})`);
   assert.equal(doc.querySelector('textarea'), null);
   doc.querySelector('[aria-label="诊断范围"]').value = 'all';
   await doc.querySelector('form').onsubmit({ preventDefault() {} });
@@ -117,15 +117,15 @@ test('case form submits selected evidence without asking for an objective', asyn
   let payload;
   const { run, doc, window } = setup(t, async (url, options) => {
     if (options.method === 'POST') { payload = JSON.parse(options.body); return source; }
-    return { trials: [{ agent: 'bkcrab', trial: 'one' }, { agent: 'other', trial: 'two' }] };
+    return { trials: [{ agent: 'sample_agent', trial: 'one' }, { agent: 'other', trial: 'two' }] };
   });
-  run(`rsiCaseDialog(0, {runs: [{id: 'run', status: 'completed', agents: ['bkcrab']}]})`);
+  run(`rsiCaseDialog(0, {runs: [{id: 'run', status: 'completed', agents: ['sample_agent']}]})`);
   assert.equal(doc.querySelector('textarea'), null);
   assert.doesNotMatch(doc.querySelector('dialog').textContent, /改进目标/);
   assert.equal(doc.querySelector('[type=submit]').textContent, '保存诊断材料');
   doc.querySelector('[aria-label="诊断范围"]').value = 'all';
   await doc.querySelector('form').onsubmit({ preventDefault() {} });
-  assert.deepEqual(payload, { run_id: 'run', agent: 'bkcrab', trials: ['one'] });
+  assert.deepEqual(payload, { run_id: 'run', agent: 'sample_agent', trials: ['one'] });
   assert.equal(window.location.hash, '#rsi-case/' + source.id);
 });
 
@@ -227,7 +227,7 @@ test('accepted action remains disabled if the subsequent status refresh fails', 
   assert.match(doc.querySelector('[role=alert]').textContent, /操作已加入队列/);
 });
 
-const modelData = {models:[poolModel], bindings:{executor_bkcrab:poolModel.id,executor_dsh:poolModel.id,experiment:poolModel.id,guardian:poolModel.id}, scenes:{executor_bkcrab:'执行 Agent · BKCrab',executor_dsh:'执行 Agent · DSH',experiment:'实验 Agent',guardian:'守护 Agent'}};
+const modelData = {models:[poolModel], bindings:{executor_opencode:poolModel.id,executor_dsh:poolModel.id,experiment:poolModel.id,guardian:poolModel.id}, scenes:{executor_opencode:'执行 Agent · 示例 Agent',executor_dsh:'执行 Agent · DSH',experiment:'实验 Agent',guardian:'守护 Agent'}};
 test('global model edit omits blank key and saves separate scene defaults', async t => {
   const calls=[];
   const {run, doc} = setup(t, async (url, options) => {if(options.method) calls.push([url,JSON.parse(options.body)]); return modelData;});
@@ -256,7 +256,7 @@ test('model save failure retains input and displays error', async t => {
 
 test('experiment form submits pool selections and leaves offline contracts unchanged', async t => {
   let saved;
-  const template = {id:'live',name:'live-test',mode:'live',model:'legacy',agents:['bkcrab'],tasks:['task'],benchmark:'test',available:true,guardian_mode:'assist',defaults:{attempts:1,concurrency:1,timeout_seconds:300,cpus:2,memory_mb:4096}};
+  const template = {id:'live',name:'live-test',mode:'live',model:'legacy',agents:['sample_agent'],tasks:['task'],benchmark:'test',available:true,guardian_mode:'assist',defaults:{attempts:1,concurrency:1,timeout_seconds:300,cpus:2,memory_mb:4096}};
   const {run,doc,window} = setup(t,async (url,options) => {
     if (url === '/api/models') return modelData;
     if (options.method === 'POST') {saved=JSON.parse(options.body);return {id:'created'};}

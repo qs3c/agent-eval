@@ -12,10 +12,10 @@ def test_resume_still_rejects_code_changes_without_explicit_record():
 
 @pytest.mark.parametrize("mode", ["valid", "wrong_old", "wrong_new", "agent", "added", "reason"])
 def test_repair_requires_exact_inventories_and_preserves_agent_code(tmp_path, mode):
-    previous = {"batching.py": "old", "agents/bkcrab.py": "unchanged"}
+    previous = {"batching.py": "old", "agents/sample_agent.py": "unchanged"}
     current = {**previous, "batching.py": "new"}
     if mode == "agent":
-        current["agents/bkcrab.py"] = "new-agent"
+        current["agents/sample_agent.py"] = "new-agent"
     if mode == "added":
         current["cli.py"] = "new-file"
     record = {"schema_version": 1, "reason": "修复镜像清理和 uv 启动路径", "previous": previous.copy(), "current": current.copy()}

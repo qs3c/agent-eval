@@ -19,5 +19,5 @@
   "artifacts/partial-grade/official-summary.json": "ff37c8a2f96747be50d9fafc0ebc50cfc6c4d3b7aff4e2975bbe54bd9419dde3",
   "artifacts/partial-grade/report.json": "dae47aca3bac801445027338f2ad972b7449c0b6e56d2e61ea800879ca304c91",
   "host-regrading/queue.sql": "e37c614910c14e8308bbb0b0faa0aeb1779dfcb6eb26753c3a17e9c8685adcf1",
-  "recovery/repair.json": "ed35fc844c0754a21ad0724acd94b0c924638e9577b122a98a4448568e7a1935"
+  "recovery/repair.json": "384eec58bcaa2549af684d55e5c9a4eba1e77d000305b61df5eb68478760ab04"
 }

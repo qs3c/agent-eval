@@ -43,10 +43,10 @@
 ## 恢复
 
 ```sh
-agent-harness-eval run experiments/swe-live-80-assist.json --output artifacts/swe-live-80 --resume
+agent-harness-eval run /absolute/path/to/your-experiment.json --output artifacts/your-run --resume
 ```
 
-正式运行应使用已冻结的配置文件恢复（当前本地实验为 `.cache/swe-live-80/config.json`）。恢复需要同一配置、完整 provenance、未修改的冻结任务及 Agent 产物；已完成批次跳过，已有终态尝试（包括失败）计入次数而不重跑。存在匹配任务的无结果尝试时拒绝自动重跑，要求先检查原进程和容器；准备阶段私有事务可按原哈希回滚。清理失败后的恢复可再次运行独立评分/清理，不重复被测 Agent 调用。已完成批次中的失败复评需单独补跑，`--resume` 不会自动重放这些批次，也不会把复评失败改成成功。
+正式运行应使用已冻结的配置文件恢复。恢复需要同一配置、完整 provenance、未修改的冻结任务及 Agent 产物；已完成批次跳过，已有终态尝试（包括失败）计入次数而不重跑。存在匹配任务的无结果尝试时拒绝自动重跑，要求先检查原进程和容器；准备阶段私有事务可按原哈希回滚。清理失败后的恢复可再次运行独立评分/清理，不重复被测 Agent 调用。已完成批次中的失败复评需单独补跑，`--resume` 不会自动重放这些批次，也不会把复评失败改成成功。
 
 基础设施修复后恢复可显式传入 `--workbench-repair repair.json`。该记录包含 `schema_version: 1`、中文 `reason`、完整 `previous` 与 `current` 工作台文件哈希映射；两份清单必须分别精确匹配原冻结清单和当前代码，文件集合不能变化，差异仅允许 `batching.py`、`benchmarks/swe.py`、`run.py`、`cli.py`。Agent、模型调用、搜索、配置解析、守护与评分脚本不在豁免范围。原始清单不改写，恢复记录及改动源码另存于 `recovery/workbench-<记录哈希>/`。这只允许有记录的运维修复，不代表修复前后工作台完全相同；所有其他恢复校验继续生效。
 

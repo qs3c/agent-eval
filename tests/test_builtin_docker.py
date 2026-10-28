@@ -23,7 +23,7 @@ pytestmark = pytest.mark.skipif(sys.platform != "linux" or not os.environ.get("B
                                 reason="requires separately built real upstream releases")
 
 
-@pytest.mark.parametrize("name", os.environ.get("BUILTIN_AGENTS", "hermes,opencode,bkcrab,dsh").split(","))
+@pytest.mark.parametrize("name", os.environ.get("BUILTIN_AGENTS", "hermes,opencode,dsh").split(","))
 def test_builtin_controls_evidence_and_cancel_after_container_start(tmp_path, name):
     releases = Releases(Path(os.environ["BUILTIN_RELEASE_ROOT"]))
     recipe = load_recipe(recipe_path(name))
@@ -63,7 +63,7 @@ def test_builtin_controls_evidence_and_cancel_after_container_start(tmp_path, na
                 assert records and all(row["body"]["model"] == "fixture-model" and row["body"]["temperature"] == 0 for row in records)
             assert len(list(output.glob("jobs/*/*/agent/model-policy-report.json"))) == 2
         assert not result["levels"]["comparable"]["passed"]
-        if name in {"hermes", "opencode", "bkcrab"}:
+        if name in {"hermes", "opencode"}:
             assert result["levels"]["diagnosable"]["passed"], result
         exp.attempts = 20
         cancel_output = project / "artifacts" / (name + "-cancel")

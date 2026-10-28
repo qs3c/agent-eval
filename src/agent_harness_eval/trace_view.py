@@ -13,7 +13,6 @@ from .traces import summarize_usage
 
 LIMIT = 48 * 1024 * 1024
 GLOSSARY = {
-    "bkcrab": "BKCrab 原生 Agent",
     "dsh-standard": "DeepSeek Harness Standard（Agent，不是模型名）",
     "positive": "固定正确操作的正对照，不调用模型",
     "negative": "不执行修复的负对照，不调用模型",
@@ -27,7 +26,7 @@ def digest(path):
 
 
 def assessment(root, run, agent):
-    registry = read_json(root, root / "console_reviews.json") or {}
+    registry = read_json(root, root / ".console/trace-reviews.json") or read_json(root, root / "console_reviews.json") or {}
     entry = registry.get(run, {}).get(agent)
     if not isinstance(entry, dict):
         return {"status": "unreviewed", "reason": "未复核；执行完成不等于有效评测"}
@@ -373,7 +372,7 @@ def trace(console, run_id, trial_id):
             "请求摘要仅展示模型、上下文消息数和工具定义数；不展示模型内部推理。",
             "关联优先使用模型响应与原生工具事件共有的 tool_call_id；无工具轮次可能仅按顺序关联。",
             "v2 代理使用同进程单调时钟记录阶段耗时；首输出增量可能是推理或工具参数，不等于用户可见首 token。旧日志没有这些计时。",
-            "bkcrab 的工具返回可能按批交付；多工具轮次不等于已证实并行执行。",
+            "原生 Agent 的工具返回可能按批交付；多工具轮次不等于已证实并行执行。",
             "错误信号来自工具返回文本，可能包含引用内容；重复调用可能是合理复验，均需结合原文判断。",
             "Agent 最终陈述不是验证结果；请与工具测试输出和评分证据交叉核对。",
         ],

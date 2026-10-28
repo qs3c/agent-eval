@@ -11,12 +11,12 @@ const app = fs.readFileSync(path.join(staticDir, 'app.js'), 'utf8')
 const experiment = {
   id: 'swe80', name: 'swe-live-80-assist', benchmark: 'swe-verified-random-80',
   directory: 'swe-live-80', mode: 'live', category: 'real', status: 'failed',
-  agents: ['bkcrab', 'dsh-standard'], accepted_agents: [],
+  agents: ['sample_agent', 'dsh-standard'], accepted_agents: [],
   reviews: {
-    bkcrab: { status: 'unreviewed', reason: '未复核' },
+    sample_agent: { status: 'unreviewed', reason: '未复核' },
     'dsh-standard': { status: 'unreviewed', reason: '未复核' },
   },
-  agent_descriptions: { bkcrab: 'BKCrab', 'dsh-standard': 'DSH Standard' },
+  agent_descriptions: { sample_agent: '示例 Agent', 'dsh-standard': 'DSH Standard' },
   expected: 160, completed: 160, created: '2026-10-13T15:37:27Z',
   execution_summary: { finished: true, errors: 35, unscored: 35 },
 };
@@ -32,7 +32,7 @@ function setup(t, records = [experiment]) {
 
 test('live report distinguishes completed attempts from scored attempts', t => {
   const { run } = setup(t);
-  const report = { live: true, agents: { bkcrab: {
+  const report = { live: true, agents: { sample_agent: {
     recorded: 20, expected: 30, scored: 16, errors: 4, missing: 10,
     mean_on_scored: 0.8125, cost_usd: null,
   } }, trials: [] };

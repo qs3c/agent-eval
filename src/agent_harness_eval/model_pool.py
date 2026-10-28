@@ -13,7 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from .policies.model import Settings as ModelPolicySettings
 
 SCENES = {
-    "executor_bkcrab": "执行 Agent · BKCrab",
+    "executor_opencode": "执行 Agent · OpenCode",
+    "executor_hermes": "执行 Agent · Hermes",
     "executor_dsh": "执行 Agent · DSH",
     "experiment": "实验 Agent",
     "guardian": "守护 Agent",

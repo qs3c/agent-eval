@@ -111,8 +111,14 @@ def append(name, value):
         f.write(json.dumps(value, ensure_ascii=False) + "\n")
 
 
-def normalize(body, messages, config):
+def normalize(body, messages, config, purpose="agent"):
     result = dict(body)
+    # The private user/judge servers have their own sampling contracts. Their
+    # trusted server role, rather than client-supplied fields, selects this path.
+    if purpose in {"user_simulator", "official_grading"}:
+        result["model"] = config["name"]
+        result.setdefault("max_tokens", config["max_tokens"])
+        return result
     if config.get("api_base", "https://api.deepseek.com").rstrip("/").removesuffix("/v1") != "https://api.deepseek.com":
         result.update(model=config["name"], max_tokens=config["max_tokens"])
         return result
@@ -275,7 +281,7 @@ class Handler(BaseHTTPRequestHandler):
         search = self.path == "/search/v1/messages"
         messages = self.path in ("/v1/messages", "/search/v1/messages")
         protocol = "messages" if messages else "chat_completions"
-        purpose = "web_search" if search else "agent"
+        purpose = "web_search" if search else getattr(self.server, "purpose", "agent")
 
         def stamp(phase):
             elapsed = (time.monotonic_ns() - started) / 1e6
@@ -301,7 +307,7 @@ class Handler(BaseHTTPRequestHandler):
         # Auxiliary search is a separate provider operation: retain its model,
         # token budget and server tools. Main-agent sampling does not apply.
         if not search:
-            body = normalize(body, messages, self.server.model_config)
+            body = normalize(body, messages, self.server.model_config, purpose=purpose)
         append("wire_requests.jsonl", body)
         append(
             "effective_wire_requests.jsonl", {"request_id": request_id, "purpose": purpose, "body": body}
